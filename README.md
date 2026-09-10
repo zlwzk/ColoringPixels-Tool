@@ -199,6 +199,7 @@ CheatTools/
 │  ├─ build-payload.ps1         组装 BepInEx + 插件的部署包
 │  ├─ build-installer.ps1       编译单文件安装器
 │  ├─ build-release.ps1         一键发布
+│  ├─ publish.ps1               提交 / 推送 / 打标签发布
 │  └─ make-icon.ps1             生成应用图标
 ├─ vendor/bepinex-x86/          随仓库分发的 BepInEx 5 x86 运行时
 ├─ artifacts/                   已编译的插件 DLL（随仓库提交，供 CI / 无游戏环境使用）

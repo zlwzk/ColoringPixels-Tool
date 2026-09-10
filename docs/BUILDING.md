@@ -119,7 +119,7 @@ dist\SHA256SUMS.txt            安装器与部署包的 SHA256 校验和
 - [`.github/workflows/build.yml`](../.github/workflows/build.yml)：每次 push / PR 触发，验证 `build-release.ps1 -SkipMod` 可正常出包，并上传构建产物。
 - [`.github/workflows/release.yml`](../.github/workflows/release.yml)：推送 `v*` 标签时触发，自动构建并创建 GitHub Release，附带安装器与 `SHA256SUMS.txt`。
 
-发版步骤：
+发版步骤（推荐用一条命令完成：`.\scripts\publish.ps1 -Message "..." -Version 1.2.0 -Release`，它会同步版本号、提交、推送并打标签）：
 
 1. 更新 `VERSION`、`Plugin.Version` 与 `CHANGELOG.md`；
 2. 提交并推送；
