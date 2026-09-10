@@ -37,21 +37,25 @@ function Ok($m) { Write-Host "  OK $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "  !! $m" -ForegroundColor Yellow }
 function Fail($m) { Write-Host "  XX $m" -ForegroundColor Red; throw $m }
 
-# git 会把进度 / 警告写到 stderr。用 2>&1 合并会被 PowerShell 包成 ErrorRecord 并渲染成
-# 一大片红色报错，所以这里把 stderr 重定向到临时文件再读回来：输出干净，且不丢错误信息。
+# git 会把进度 / 警告写到 stderr，PowerShell 5.1 会把它包成 NativeCommandError：
+# 既会渲染成一大片红色报错，在 $ErrorActionPreference='Stop' 下还会直接中断脚本。
+# 这里在调用期间降级为 SilentlyContinue，并把 stderr 重定向到临时文件留档，退出码照常判断。
 function Git-OrFail {
     param([string[]]$GitArgs)
 
     $errFile = [System.IO.Path]::GetTempFileName()
+    $saved = $ErrorActionPreference
     $code = 0
     $out = ''
     $err = ''
     try {
+        $ErrorActionPreference = 'SilentlyContinue'
         $out = (& git -C $repoRoot @GitArgs 2> $errFile | Out-String)
         $code = $LASTEXITCODE
         $err = (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue)
     }
     finally {
+        $ErrorActionPreference = $saved
         Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
     }
 
