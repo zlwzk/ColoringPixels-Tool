@@ -37,18 +37,28 @@ function Ok($m) { Write-Host "  OK $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "  !! $m" -ForegroundColor Yellow }
 function Fail($m) { Write-Host "  XX $m" -ForegroundColor Red; throw $m }
 
-# git 会把进度写到 stderr，配合 $ErrorActionPreference='Stop' 会被当成终止性错误，
-# 所以这里临时降级为 Continue，只按退出码判断成功与否。
+# git 会把进度 / 警告写到 stderr。用 2>&1 合并会被 PowerShell 包成 ErrorRecord 并渲染成
+# 一大片红色报错，所以这里把 stderr 重定向到临时文件再读回来：输出干净，且不丢错误信息。
 function Git-OrFail {
     param([string[]]$GitArgs)
 
-    $saved = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try { $text = (& git -C $repoRoot @GitArgs 2>&1 | Out-String) } finally { $ErrorActionPreference = $saved }
-    $code = $LASTEXITCODE
+    $errFile = [System.IO.Path]::GetTempFileName()
+    $code = 0
+    $out = ''
+    $err = ''
+    try {
+        $out = (& git -C $repoRoot @GitArgs 2> $errFile | Out-String)
+        $code = $LASTEXITCODE
+        $err = (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue)
+    }
+    finally {
+        Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
+    }
 
-    if (-not [string]::IsNullOrWhiteSpace($text)) { Write-Host $text.Trim() }
-    if ($code -ne 0) { Fail ('git ' + ($GitArgs -join ' ') + ' 执行失败') }
+    foreach ($chunk in @($out, $err)) {
+        if (-not [string]::IsNullOrWhiteSpace($chunk)) { Write-Host $chunk.TrimEnd() }
+    }
+    if ($code -ne 0) { Fail ('git ' + ($GitArgs -join ' ') + " 执行失败（exit $code）") }
 }
 
 # 保持文件原有编码：有 BOM 的写回 BOM，没有的写回无 BOM。
