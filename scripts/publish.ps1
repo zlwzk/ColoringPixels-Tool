@@ -290,18 +290,22 @@ else {
 
     if (-not (Test-Path -LiteralPath $desktop)) { Fail ("桌面目录不存在：" + $desktop) }
 
-    Gh-Run @('release', 'download', $tag, '-R', $slug, '--pattern', '*.exe', '--dir', $desktop, '--clobber') | Out-Null
+    # 桌面上只放一个固定名字的安装器，每次发版覆盖，既方便双击调试也不会越攒越多。
+    $desktopExe = Join-Path $desktop 'ColoringPixelsTool-Setup.exe'
+    Gh-Run @('release', 'download', $tag, '-R', $slug, '--pattern', '*.exe', '--output', $desktopExe, '--clobber') | Out-Null
 
-    $downloaded = Get-ChildItem -LiteralPath $desktop -File -Filter '*-Setup-v*.exe' |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $downloaded) { Fail '未能在桌面找到刚下载的安装器' }
+    if (-not (Test-Path -LiteralPath $desktopExe)) { Fail ('桌面安装器未生成：' + $desktopExe) }
 
-    $stableName = $downloaded.Name -replace '-Setup-v.*$', '-Setup.exe'
-    $stablePath = Join-Path $desktop $stableName
-    Copy-Item -LiteralPath $downloaded.FullName -Destination $stablePath -Force
+    # 清掉早期发版留在桌面上的带版本号安装器（含更名前的 ColoringPixelsCheat 命名）
+    Get-ChildItem -LiteralPath $desktop -File -Filter '*-Setup-v*.exe' -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Host ('  已清理旧版安装器：' + $_.Name) -ForegroundColor DarkGray
+        }
 
-    Ok ('桌面安装器：' + $downloaded.Name)
-    Ok ('固定名字：' + $stableName + '（每次发版覆盖，直接运行即可）')
+    $desktopInfo = Get-Item -LiteralPath $desktopExe
+    Ok ('桌面安装器：' + $desktopInfo.FullName)
+    Ok ('大小 ' + $desktopInfo.Length + ' 字节，SHA256 ' + (Get-FileHash -LiteralPath $desktopExe -Algorithm SHA256).Hash.ToLower())
 }
 
 # ---------------------------------------------------------------- 汇总
