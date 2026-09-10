@@ -1,0 +1,30 @@
+# 统一编辑器 / IDE 行为，减少无谓 diff
+root = true
+
+[*]
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+# C# / PowerShell 必须带 BOM，否则中文在 PowerShell 5.1 与 csc 下会乱码
+[*.cs]
+charset = utf-8-bom
+
+[*.ps1]
+charset = utf-8-bom
+
+[*.csproj]
+charset = utf-8-bom
+indent_style = space
+indent_size = 2
+
+# 文档与配置使用 LF、无 BOM
+[*.md]
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,json,ini,txt}]
+end_of_line = lf
+charset = utf-8

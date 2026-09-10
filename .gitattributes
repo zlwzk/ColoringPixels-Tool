@@ -1,0 +1,26 @@
+# 默认按文本处理并自动识别换行符
+* text=auto
+
+# Windows 下运行的脚本统一 CRLF，避免 PowerShell 解析问题
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.cs    text eol=crlf
+*.csproj text eol=crlf
+
+# 文档与配置统一 LF
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.ini   text eol=lf
+*.json  text eol=lf
+
+# 二进制文件不做换行符转换
+*.dll   binary
+*.exe   binary
+*.ico   binary
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.gif   binary

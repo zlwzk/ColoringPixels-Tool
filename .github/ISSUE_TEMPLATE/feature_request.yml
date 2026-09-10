@@ -1,0 +1,40 @@
+name: 功能建议
+description: 提出一个新功能或改进想法
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的想法！请描述清楚「要解决什么问题」，而不只是一个方案。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你的需求 / 遇到的问题
+      description: 现在哪里不方便？希望改善什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的方案
+      description: 你希望它如何工作？
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+    validations:
+      required: false
+
+  - type: input
+    id: component
+    attributes:
+      label: 涉及组件
+      placeholder: 例如 安装器 / 游戏内面板 / 构建脚本 / 文档
+    validations:
+      required: false

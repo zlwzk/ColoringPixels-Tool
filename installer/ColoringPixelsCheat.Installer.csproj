@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    IDE / dotnet build 用的工程文件。
+    发布包推荐使用 scripts/build-installer.ps1（不需要 .NET SDK，直接用系统自带的 csc.exe）。
+
+    注意：payload.zip 由 scripts/build-payload.ps1 生成到 build/ 目录，
+          直接 dotnet build 前请先执行该脚本。
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>ColoringPixelsCheat-Setup</AssemblyName>
+    <RootNamespace>ColoringPixelsCheat.Installer</RootNamespace>
+    <ApplicationIcon>..\assets\icon.ico</ApplicationIcon>
+    <LangVersion>5</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PayloadZip>$(MSBuildThisFileDirectory)..\build\payload.zip</PayloadZip>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(PayloadZip)')">
+    <EmbeddedResource Include="$(PayloadZip)">
+      <LogicalName>payload.zip</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <Target Name="WarnMissingPayload" BeforeTargets="BeforeBuild" Condition="!Exists('$(PayloadZip)')">
+    <Warning Text="未找到 $(PayloadZip)，生成的安装器将不含内嵌 payload。请先运行 scripts/build-payload.ps1" />
+  </Target>
+
+</Project>

@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 读取版本号
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content ./VERSION -Raw).Trim()
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: 一键构建
+        shell: pwsh
+        run: ./scripts/build-release.ps1 -SkipMod -Clean
+
+      - name: 校验产物
+        shell: pwsh
+        run: |
+          $exe = "dist/ColoringPixelsCheat-Setup-v${{ steps.ver.outputs.version }}.exe"
+          if (-not (Test-Path $exe)) { throw "缺少产物：$exe" }
+          Get-Content "dist/SHA256SUMS.txt"
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.ver.outputs.version }}
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false

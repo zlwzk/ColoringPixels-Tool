@@ -1,0 +1,47 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 构建安装器
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 读取版本号
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content ./VERSION -Raw).Trim()
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: 一键构建（跳过插件编译，使用仓库内 DLL）
+        shell: pwsh
+        run: ./scripts/build-release.ps1 -SkipMod -Clean
+
+      - name: 校验产物
+        shell: pwsh
+        run: |
+          $exe = "dist/ColoringPixelsCheat-Setup-v${{ steps.ver.outputs.version }}.exe"
+          if (-not (Test-Path $exe)) { throw "缺少产物：$exe" }
+          Get-Item $exe, "dist/SHA256SUMS.txt" | Format-List FullName, Length
+          Get-Content "dist/SHA256SUMS.txt"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColoringPixelsCheat-Setup-v${{ steps.ver.outputs.version }}
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

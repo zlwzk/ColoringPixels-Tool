@@ -1,0 +1,18 @@
+<Project>
+
+  <!--
+    全局 MSBuild 属性。
+    版本号唯一来源是仓库根目录的 VERSION 文件，避免多处不同步。
+  -->
+  <PropertyGroup>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
+    <Product>Coloring Pixels Cheat Suite</Product>
+    <Company>Coloring Pixels Cheat Suite contributors</Company>
+    <Authors>Coloring Pixels Cheat Suite contributors</Authors>
+    <Copyright>MIT License</Copyright>
+    <RepositoryUrl>https://github.com/zlwzk/ColoringPixelsCheat</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>
