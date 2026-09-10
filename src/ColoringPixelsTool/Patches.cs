@@ -1,6 +1,6 @@
 ﻿using HarmonyLib;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     /// <summary>游戏内部逻辑的最小侵入式补丁。</summary>
     internal static class Patches

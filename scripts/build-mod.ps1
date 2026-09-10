@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-    编译作弊插件：src\ColoringPixelsCheat\*.cs  ->  artifacts\ColoringPixelsCheat.dll
+    编译作弊插件：src\ColoringPixelsTool\*.cs  ->  artifacts\ColoringPixelsTool.dll
 
     插件引用了游戏自己的程序集（Assembly-CSharp.dll / UnityEngine*.dll），
     因此必须在装有《Coloring Pixels》的机器上编译，或用本脚本的 csc 后端直接编译。
@@ -11,7 +11,7 @@
         3. csc     —— VS 自带的 Roslyn csc.exe，直接编译（无需 SDK）
 
     如果三种后端都不可用，可以直接使用仓库内随包分发的
-    artifacts\ColoringPixelsCheat.dll（CI 无法访问游戏程序集，因此该 DLL 随仓库提交）。
+    artifacts\ColoringPixelsTool.dll（CI 无法访问游戏程序集，因此该 DLL 随仓库提交）。
 #>
 [CmdletBinding()]
 param(
@@ -25,8 +25,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$projDir = Join-Path $repoRoot 'src\ColoringPixelsCheat'
-$csproj = Join-Path $projDir 'ColoringPixelsCheat.csproj'
+$projDir = Join-Path $repoRoot 'src\ColoringPixelsTool'
+$csproj = Join-Path $projDir 'ColoringPixelsTool.csproj'
 $artifacts = if ([string]::IsNullOrWhiteSpace($Output)) { Join-Path $repoRoot 'artifacts' } else { $Output }
 
 function Step($m) { Write-Host "  >> $m" -ForegroundColor Cyan }
@@ -57,7 +57,7 @@ if (-not (Test-Path -LiteralPath $gameAsm)) {
 
 本插件必须引用游戏自身的程序集才能编译。请：
   * 确认 -GameDir 指向《Coloring Pixels》安装目录（包含 ColoringPixels.exe 的那一层）；
-  * 或直接使用仓库中已随包分发的 artifacts\ColoringPixelsCheat.dll（无需编译）。
+  * 或直接使用仓库中已随包分发的 artifacts\ColoringPixelsTool.dll（无需编译）。
 "@
 }
 
@@ -179,7 +179,7 @@ function Compile-WithCsc {
     $sources = @(Get-ChildItem -LiteralPath $projDir -Filter '*.cs' -File | Sort-Object Name | ForEach-Object { $_.FullName })
     if ($sources.Count -eq 0) { Fail "在 $projDir 下没有找到任何 .cs 源文件" }
 
-    $tmpOut = Join-Path $artifacts 'ColoringPixelsCheat.csc-tmp.dll'
+    $tmpOut = Join-Path $artifacts 'ColoringPixelsTool.csc-tmp.dll'
     if (Test-Path -LiteralPath $tmpOut) { Remove-Item -LiteralPath $tmpOut -Force }
 
     $parts = New-Object System.Collections.ArrayList
@@ -194,7 +194,7 @@ function Compile-WithCsc {
     $proc = Start-Process -FilePath $Csc -ArgumentList ($parts -join ' ') -Wait -NoNewWindow -PassThru
     if ($proc.ExitCode -ne 0) { return $proc.ExitCode }
 
-    $finalDll = Join-Path $artifacts 'ColoringPixelsCheat.dll'
+    $finalDll = Join-Path $artifacts 'ColoringPixelsTool.dll'
     Copy-Item -LiteralPath $tmpOut -Destination $finalDll -Force
     Remove-Item -LiteralPath $tmpOut -Force
     return 0
@@ -253,7 +253,7 @@ if (-not $done) {
 没有可用的编译后端。请任选其一：
   * 安装 .NET SDK：https://dotnet.microsoft.com/download
   * 安装 Visual Studio / Build Tools（勾选「.NET 桌面开发」）
-  * 或者直接使用仓库中已随包分发的 artifacts\ColoringPixelsCheat.dll
+  * 或者直接使用仓库中已随包分发的 artifacts\ColoringPixelsTool.dll
 '@
 }
 
@@ -261,11 +261,11 @@ if ($code -ne 0) { Fail "编译失败（退出码 $code）" }
 
 # ---------------------------------------------------------------- 归集产物
 
-$finalDll = Join-Path $artifacts 'ColoringPixelsCheat.dll'
+$finalDll = Join-Path $artifacts 'ColoringPixelsTool.dll'
 
 if (-not (Test-Path -LiteralPath $finalDll)) {
     # dotnet / msbuild 默认输出到 bin\<配置>\
-    $built = Join-Path $projDir "bin\$Configuration\ColoringPixelsCheat.dll"
+    $built = Join-Path $projDir "bin\$Configuration\ColoringPixelsTool.dll"
     if (-not (Test-Path -LiteralPath $built)) { Fail "编译未产出 DLL：$built" }
     Copy-Item -LiteralPath $built -Destination $finalDll -Force
 }

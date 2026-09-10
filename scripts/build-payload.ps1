@@ -7,7 +7,7 @@
         doorstop_config.ini                      doorstop 配置
         .doorstop_version                        doorstop 版本标记
         BepInEx\core\*.dll                       BepInEx 运行时
-        BepInEx\plugins\ColoringPixelsCheat.dll  作弊插件
+        BepInEx\plugins\ColoringPixelsTool.dll  作弊插件
 
     installer\payload\ 下的同名文件会覆盖 vendor 中的文件（用于放我们的定制配置）。
 #>
@@ -97,11 +97,11 @@ function Resolve-ModDll {
         [void]$candidates.Add((Resolve-Path -LiteralPath $Explicit).Path)
     }
 
-    [void]$candidates.Add((Join-Path $repoRoot 'src\ColoringPixelsCheat\bin\Release\ColoringPixelsCheat.dll'))
-    [void]$candidates.Add((Join-Path $repoRoot 'artifacts\ColoringPixelsCheat.dll'))
+    [void]$candidates.Add((Join-Path $repoRoot 'src\ColoringPixelsTool\bin\Release\ColoringPixelsTool.dll'))
+    [void]$candidates.Add((Join-Path $repoRoot 'artifacts\ColoringPixelsTool.dll'))
 
     if (-not [string]::IsNullOrWhiteSpace($Game)) {
-        [void]$candidates.Add((Join-Path $Game 'BepInEx\plugins\ColoringPixelsCheat.dll'))
+        [void]$candidates.Add((Join-Path $Game 'BepInEx\plugins\ColoringPixelsTool.dll'))
     }
 
     $best = $null
@@ -118,7 +118,7 @@ function Resolve-ModDll {
 
 $modDll = Resolve-ModDll -Explicit $ModDll -Game $GameDir
 if ($null -eq $modDll) {
-    Fail "找不到 ColoringPixelsCheat.dll。请先运行 scripts\build-mod.ps1，或把已编译的 DLL 放到 artifacts\ 下。"
+    Fail "找不到 ColoringPixelsTool.dll。请先运行 scripts\build-mod.ps1，或把已编译的 DLL 放到 artifacts\ 下。"
 }
 Ok "使用插件 DLL：$modDll"
 
@@ -135,7 +135,7 @@ $pluginsDir = Join-Path $staging 'BepInEx\plugins'
 if (-not (Test-Path -LiteralPath $pluginsDir)) { New-Item -ItemType Directory -Path $pluginsDir -Force | Out-Null }
 
 Step "放置插件 $([System.IO.Path]::GetFileName($modDll))……"
-Copy-Item -LiteralPath $modDll -Destination (Join-Path $pluginsDir 'ColoringPixelsCheat.dll') -Force
+Copy-Item -LiteralPath $modDll -Destination (Join-Path $pluginsDir 'ColoringPixelsTool.dll') -Force
 
 # 覆盖层（我们的定制配置等）
 $overlay = Join-Path $repoRoot 'installer\payload'

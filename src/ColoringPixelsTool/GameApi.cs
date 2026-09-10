@@ -4,7 +4,7 @@ using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     /// <summary>
     /// 游戏内部数据的统一访问层。

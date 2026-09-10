@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Windows.Forms;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     internal static class Program
     {

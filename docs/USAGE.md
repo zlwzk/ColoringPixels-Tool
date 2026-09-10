@@ -1,6 +1,6 @@
 # 使用手册
 
-本文档详细介绍《Coloring Pixels》Cheat Suite 的安装、面板用法与配置项。
+本文档详细介绍《Coloring Pixels》Tool 的安装、面板用法与配置项。
 
 - [1. 安装 / 卸载](#1-安装--卸载)
 - [2. 打开面板](#2-打开面板)
@@ -16,7 +16,7 @@
 ### 图形界面安装
 
 1. 完全退出《Coloring Pixels》。
-2. 运行 `ColoringPixelsCheat-Setup-vX.Y.Z.exe`。
+2. 运行 `ColoringPixelsTool-Setup-vX.Y.Z.exe`。
 3. 安装器会自动检测游戏目录；若检测失败可点「浏览」手动选择**包含 `ColoringPixels.exe`** 的目录。
 4. 点击「一键安装」，等待进度条完成。
 5. 安装完成后游戏会自动启动（可在启动选项中关闭）。
@@ -25,7 +25,7 @@
 
 ```powershell
 # 指定目录、静默安装、不启动游戏
-.\ColoringPixelsCheat-Setup.exe --silent --dir="D:\Steam\steamapps\common\Coloring Pixels" --no-launch
+.\ColoringPixelsTool-Setup.exe --silent --dir="D:\Steam\steamapps\common\Coloring Pixels" --no-launch
 ```
 
 退出码：`0` 成功，`1` 失败，`2` 目录无效，`3` 游戏正在运行。
@@ -40,14 +40,14 @@
 命令行卸载：
 
 ```powershell
-.\ColoringPixelsCheat-Setup.exe --uninstall --remove-bepinex
+.\ColoringPixelsTool-Setup.exe --uninstall --remove-bepinex
 ```
 
 ### 手动安装（不使用安装器）
 
 1. 打开仓库的 `vendor/bepinex-x86/`，把其中**全部内容**复制到游戏目录。
 2. 用 `installer/payload/doorstop_config.ini` 覆盖游戏目录下的同名文件。
-3. 把 `artifacts/ColoringPixelsCheat.dll` 复制到 `<游戏目录>\BepInEx\plugins\`。
+3. 把 `artifacts/ColoringPixelsTool.dll` 复制到 `<游戏目录>\BepInEx\plugins\`。
 4. 启动游戏。
 
 ---
@@ -201,7 +201,7 @@
 
 | 现象 | 排查 |
 | --- | --- |
-| 按 F1 无反应 | 是否已进入关卡；检查 `BepInEx\plugins\ColoringPixelsCheat.dll` 是否存在；查看 `BepInEx\LogOutput.log` |
+| 按 F1 无反应 | 是否已进入关卡；检查 `BepInEx\plugins\ColoringPixelsTool.dll` 是否存在；查看 `BepInEx\LogOutput.log` |
 | 游戏启动即闪退 | 是否装错位数（本插件仅支持 32 位主程序）；卸载后重装 |
 | 安装器提示权限不足 | 用管理员身份运行 |
 | 面板参数不生效 | 检查 `coloringpixels.cheatsuite.cfg` 是否被锁为只读 |
@@ -210,4 +210,4 @@
 日志位置：
 
 - 插件运行日志：`<游戏目录>\BepInEx\LogOutput.log`
-- 安装器日志：`%TEMP%\ColoringPixelsCheat-Setup.log`
+- 安装器日志：`%TEMP%\ColoringPixelsTool-Setup.log`

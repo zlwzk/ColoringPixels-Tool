@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>命令行参数。</summary>
     internal sealed class Options
@@ -85,7 +85,7 @@ namespace ColoringPixelsCheat.Installer
             }
 
             if (string.IsNullOrEmpty(o.LogPath))
-                o.LogPath = Path.Combine(Path.GetTempPath(), "ColoringPixelsCheat-Setup.log");
+                o.LogPath = Path.Combine(Path.GetTempPath(), "ColoringPixelsTool-Setup.log");
 
             return o;
         }
@@ -103,7 +103,7 @@ namespace ColoringPixelsCheat.Installer
             List<string> lines = new List<string>();
             lines.Add(AppInfo.ProductName + " " + AppInfo.AppVersion + " - 安装器");
             lines.Add("");
-            lines.Add("用法： ColoringPixelsCheat-Setup.exe [选项]");
+            lines.Add("用法： ColoringPixelsTool-Setup.exe [选项]");
             lines.Add("");
             lines.Add("  --dir=<路径>        指定游戏目录（跳过自动检测）");
             lines.Add("  --silent            静默安装，不显示界面");

@@ -6,7 +6,7 @@
 
 - 使用仓库自带的 Issue 模板（Bug 反馈 / 功能建议）。
 - Bug 反馈请附上：系统版本、游戏版本、插件版本、`BepInEx/LogOutput.log` 相关片段、复现步骤。
-- 安装器相关问题请附上 `%TEMP%\ColoringPixelsCheat-Setup.log`。
+- 安装器相关问题请附上 `%TEMP%\ColoringPixelsTool-Setup.log`。
 
 ## 提交 Pull Request
 
@@ -16,7 +16,7 @@
    - 使用 C# 编写插件，兼容 BepInEx 5 + Unity 5.6 ~ 2019 的 Mono；
    - 安装器源码受系统自带 `csc.exe` 限制，**必须保持 C# 5 语法**（不要用字符串插值、表达式体成员、`?.` 等）；
    - 所有 `.cs` / `.ps1` 文件保存为 **UTF-8 with BOM**（避免中文在 PowerShell 5.1 与 csc 下乱码）。
-4. 如果修改了插件源码，请重新编译并更新 `artifacts/ColoringPixelsCheat.dll`：
+4. 如果修改了插件源码，请重新编译并更新 `artifacts/ColoringPixelsTool.dll`：
    ```powershell
    .\scripts\build-mod.ps1
    ```
@@ -38,10 +38,10 @@
    git push origin v1.0.1
    ```
 4. GitHub Actions 会自动构建安装器并创建 Release，产物包含
-   `ColoringPixelsCheat-Setup-vX.Y.Z.exe` 与 `SHA256SUMS.txt`。
+   `ColoringPixelsTool-Setup-vX.Y.Z.exe` 与 `SHA256SUMS.txt`。
 
 ## 注意事项
 
 - 请勿提交游戏本体文件（`ColoringPixels.exe`、`ColoringPixels_Data/` 下的任何文件）。
 - 请勿提交 `build/`、`dist/`、`installer/obj/`、`src/**/bin/`、`src/**/obj/` 等构建产物。
-- `vendor/bepinex-x86/` 与 `artifacts/ColoringPixelsCheat.dll` 需要保留，CI 依赖它们。
+- `vendor/bepinex-x86/` 与 `artifacts/ColoringPixelsTool.dll` 需要保留，CI 依赖它们。

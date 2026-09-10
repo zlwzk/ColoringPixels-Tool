@@ -4,7 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>通过注册表与 Steam 库清单定位 Steam 及其库目录。</summary>
     internal static class SteamLocator

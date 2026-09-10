@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>安装器主窗口（无边框、深色、手动 DPI 缩放）。</summary>
     internal sealed class MainForm : Form

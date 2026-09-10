@@ -6,11 +6,11 @@
   -->
   <PropertyGroup>
     <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
-    <Product>Coloring Pixels Cheat Suite</Product>
-    <Company>Coloring Pixels Cheat Suite contributors</Company>
-    <Authors>Coloring Pixels Cheat Suite contributors</Authors>
+    <Product>Coloring Pixels Tool</Product>
+    <Company>Coloring Pixels Tool contributors</Company>
+    <Authors>Coloring Pixels Tool contributors</Authors>
     <Copyright>MIT License</Copyright>
-    <RepositoryUrl>https://github.com/zlwzk/ColoringPixelsCheat</RepositoryUrl>
+    <RepositoryUrl>https://github.com/zlwzk/ColoringPixels-Tool</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Deterministic>true</Deterministic>
   </PropertyGroup>

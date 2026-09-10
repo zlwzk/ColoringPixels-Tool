@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     /// <summary>作弊器主面板与悬浮 HUD。</summary>
     internal class CheatPanel : MonoBehaviour
@@ -197,7 +197,7 @@ namespace ColoringPixelsCheat
             Ui.Round(new Rect(icon.x + 3f, icon.y + 3f, 26f, 26f), 7f, new Color(1f, 1f, 1f, 0.14f));
             Ui.Text(new Rect(icon.x, icon.y, icon.width, icon.height), "涂", Ui.Center);
 
-            Ui.Text(new Rect(icon.xMax + 12f, _window.y + 11f, 300f, 22f), "涂色大师 · Cheat Suite", Ui.Title);
+            Ui.Text(new Rect(icon.xMax + 12f, _window.y + 11f, 300f, 22f), "涂色大师 · Tool", Ui.Title);
             Ui.Text(new Rect(icon.xMax + 12f, _window.y + 33f, 300f, 16f),
                 "Coloring Pixels  ·  v" + Plugin.Version, Ui.MutedSmall);
 

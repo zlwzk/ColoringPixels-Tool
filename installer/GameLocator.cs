@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>一处「疑似游戏目录」的检测结果。</summary>
     internal sealed class GameCandidate

@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <AssemblyName>ColoringPixelsCheat</AssemblyName>
-    <RootNamespace>ColoringPixelsCheat</RootNamespace>
+    <AssemblyName>ColoringPixelsTool</AssemblyName>
+    <RootNamespace>ColoringPixelsTool</RootNamespace>
     <LangVersion>latest</LangVersion>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>

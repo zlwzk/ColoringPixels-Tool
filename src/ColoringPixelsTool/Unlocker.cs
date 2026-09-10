@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     /// <summary>DLC / 书籍 / 成就 / 提示 的解锁逻辑。</summary>
     internal static class Unlocker

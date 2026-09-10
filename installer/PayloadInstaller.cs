@@ -6,7 +6,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>一次安装 / 卸载的统计结果。</summary>
     internal sealed class DeployReport
@@ -137,11 +137,24 @@ namespace ColoringPixelsCheat.Installer
                 }
             }
 
+            RemoveLegacyPluginFiles(info.Directory, report);
             WriteMarker(info.Directory, report);
             Report(progress, 100, "部署完成：写入 " + report.Written + " 个，跳过 " + report.Skipped + " 个");
 
             Verify(info.Directory);
             return report;
+        }
+
+        /// <summary>清理旧版本遗留的插件 DLL（ColoringPixelsCheat 时期的文件名）。
+        /// 同一 GUID 的旧插件若还留在 plugins 目录，会和 新插件一起被 BepInEx 加载并冲突。</summary>
+        private static void RemoveLegacyPluginFiles(string gameDir, DeployReport report)
+        {
+            string plugins = Path.Combine(Path.Combine(gameDir, AppInfo.BepInExFolderName), "plugins");
+            foreach (string legacy in AppInfo.LegacyPluginDllNames)
+            {
+                string path = Path.Combine(plugins, legacy);
+                if (File.Exists(path)) DeleteFile(path, report);
+            }
         }
 
         private static void Extract(ZipArchiveEntry entry, string target)
@@ -214,6 +227,7 @@ namespace ColoringPixelsCheat.Installer
 
             Report(progress, 40, "移除插件文件……");
             DeleteFile(Path.Combine(Path.Combine(bepinex, "plugins"), AppInfo.PluginDllName), report);
+            RemoveLegacyPluginFiles(info.Directory, report);
             DeleteFile(Path.Combine(Path.Combine(bepinex, "config"), AppInfo.PluginConfigName), report);
             DeleteFile(Path.Combine(bepinex, AppInfo.MarkerFileName), report);
 
@@ -315,7 +329,7 @@ namespace ColoringPixelsCheat.Installer
             try
             {
                 StringBuilder sb = new StringBuilder();
-                sb.AppendLine("# Coloring Pixels Cheat Suite 安装记录（删除本文件不影响使用）");
+                sb.AppendLine("# Coloring Pixels Tool 安装记录（删除本文件不影响使用）");
                 sb.AppendLine("version=" + AppInfo.AppVersion);
                 sb.AppendLine("plugin=" + AppInfo.PluginGuid);
                 sb.AppendLine("installed_at=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));

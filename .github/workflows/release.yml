@@ -31,7 +31,7 @@ jobs:
       - name: 校验产物
         shell: pwsh
         run: |
-          $exe = "dist/ColoringPixelsCheat-Setup-v${{ steps.ver.outputs.version }}.exe"
+          $exe = "dist/ColoringPixelsTool-Setup-v${{ steps.ver.outputs.version }}.exe"
           if (-not (Test-Path $exe)) { throw "缺少产物：$exe" }
           Get-Content "dist/SHA256SUMS.txt"
 

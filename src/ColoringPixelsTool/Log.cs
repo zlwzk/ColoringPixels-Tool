@@ -1,6 +1,6 @@
 ﻿using BepInEx.Logging;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     internal static class Log
     {

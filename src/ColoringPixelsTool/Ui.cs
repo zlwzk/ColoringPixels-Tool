@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     /// <summary>一套自绘的 IMGUI 组件，用于构建现代深色面板。</summary>
     internal static class Ui

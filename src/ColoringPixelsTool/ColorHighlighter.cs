@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     /// <summary>
     /// 人工辅助：把「当前选中的颜色」在画布上对应的格子高亮出来，方便肉眼快速定位。

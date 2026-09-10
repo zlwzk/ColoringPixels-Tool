@@ -21,7 +21,7 @@
 | --- | --- |
 | Windows 10 / 11 | 脚本使用 PowerShell 5.1 与 Windows 自带工具 |
 | PowerShell 5.1 | 系统自带，无需额外安装 |
-| 编译插件 | **必须**满足其一：.NET SDK / Visual Studio / Build Tools；或直接使用仓库内的 `artifacts\ColoringPixelsCheat.dll` |
+| 编译插件 | **必须**满足其一：.NET SDK / Visual Studio / Build Tools；或直接使用仓库内的 `artifacts\ColoringPixelsTool.dll` |
 | 编译安装器 | 无需 .NET SDK，使用系统自带的 `csc.exe`（.NET Framework 4.x） |
 | 《Coloring Pixels》 | **编译插件时必需**：插件引用游戏的 `Assembly-CSharp.dll` |
 
@@ -31,8 +31,8 @@
 ## 2. 获取源码
 
 ```powershell
-git clone https://github.com/zlwzk/ColoringPixelsCheat.git
-cd ColoringPixelsCheat
+git clone https://github.com/zlwzk/ColoringPixels-Tool.git
+cd ColoringPixelsTool
 ```
 
 仓库结构见 [README · 目录结构](../README.md#目录结构)。
@@ -59,11 +59,11 @@ cd ColoringPixelsCheat
 ```
 
 脚本会按 `dotnet` → `MSBuild` → `Roslyn csc` 的顺序自动选择可用后端，产物输出到
-`artifacts\ColoringPixelsCheat.dll`。
+`artifacts\ColoringPixelsTool.dll`。
 
 > **为什么仓库里要提交一份编译好的 DLL？**
 > 编译插件必须引用游戏自身的 `Assembly-CSharp.dll`，而 CI 与大多数协作者都没有游戏程序集。
-> 因此仓库保留 `artifacts\ColoringPixelsCheat.dll`，让 `build-release.ps1 -SkipMod` 与 CI 无需游戏即可出包。
+> 因此仓库保留 `artifacts\ColoringPixelsTool.dll`，让 `build-release.ps1 -SkipMod` 与 CI 无需游戏即可出包。
 
 ## 5. 一键构建发布包
 
@@ -87,7 +87,7 @@ cd ColoringPixelsCheat
 # ② 仅组装部署包（BepInEx + 插件），产出 build\payload.zip
 .\scripts\build-payload.ps1
 
-# ③ 仅编译安装器（内嵌 payload.zip），产出 dist\ColoringPixelsCheat-Setup-v<版本>.exe
+# ③ 仅编译安装器（内嵌 payload.zip），产出 dist\ColoringPixelsTool-Setup-v<版本>.exe
 .\scripts\build-installer.ps1
 
 # ④ 仅生成图标（一般无需重复执行）
@@ -108,7 +108,7 @@ cd ColoringPixelsCheat
 ```
 build\payload\                 部署包展开内容（winhttp.dll / doorstop_config.ini / BepInEx\...）
 build\payload.zip              压缩后的部署包（被安装器内嵌）
-dist\ColoringPixelsCheat-Setup-v<版本>.exe   最终单文件安装器
+dist\ColoringPixelsTool-Setup-v<版本>.exe   最终单文件安装器
 dist\SHA256SUMS.txt            安装器与部署包的 SHA256 校验和
 ```
 
@@ -133,10 +133,10 @@ dist\SHA256SUMS.txt            安装器与部署包的 SHA256 校验和
 ## 9. 自定义（仓库信息 / 图标）
 
 - **仓库地址**：`Directory.Build.props` 的 `RepositoryUrl`、`README.md` 徽章与 `CHANGELOG.md` 的版本链接
-  中均已写入本仓库地址 `zlwzk/ColoringPixelsCheat`；若 fork 本项目，请把这 3 处一并改成你自己的仓库路径。
+  中均已写入本仓库地址 `zlwzk/ColoringPixelsTool`；若 fork 本项目，请把这 3 处一并改成你自己的仓库路径。
 - **图标**：编辑 `scripts/make-icon.ps1` 的配色 / 图形后重新生成 `assets/icon.ico`。
 - **安装器文案 / 配色**：见 `installer/Theme.cs` 与 `installer/MainForm.cs`（**保持 C# 5 语法**）。
-- **插件名称 / 版本 / 快捷键**：见 `src/ColoringPixelsCheat/Plugin.cs`。
+- **插件名称 / 版本 / 快捷键**：见 `src/ColoringPixelsTool/Plugin.cs`。
 
 ## 10. 构建问题排查
 

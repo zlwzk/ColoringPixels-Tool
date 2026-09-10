@@ -1,47 +1,66 @@
 ﻿#Requires -Version 5.1
 <#
-    发布到 GitHub：同步版本号 -> 提交 -> 推送 -> （可选）打标签触发 CI 自动发布。
+    一条命令走完：提交 -> 推送 -> 发版 -> 把安装器同步到桌面。
 
-    CI 侧（.github/workflows/release.yml）在收到 v* 标签后会自动：
-        1) 使用仓库内的 artifacts\ColoringPixelsCheat.dll 组装部署包
-        2) 编译单文件安装器
-        3) 创建 GitHub Release 并上传 exe 与 SHA256SUMS.txt
-
-    因此本脚本只负责「版本号 + 提交 + 推送 + 打标签」，exe 由 CI 产出，
-    不需要在本机安装游戏或完整编译。
+    发版由 CI 完成（.github/workflows/release.yml 收到 v* 标签后自动构建单文件安装器、
+    创建 GitHub Release 并上传 exe 与 SHA256SUMS.txt）。本脚本在推完标签后会等 CI 出包，
+    再把 exe 下载到桌面，文件名形如 ColoringPixelsTool-Setup-v1.2.1.exe，
+    同时覆盖一份固定名字 ColoringPixelsTool-Setup.exe，方便直接双击调试。
 
     用法：
         .\scripts\publish.ps1 -Message "fix: 修复高亮闪烁"
-        .\scripts\publish.ps1 -Message "feat: 新增 XXX" -Version 1.2.0 -Release
+            自动提交、推送；当前版本已发过就自动 +1 patch 并发版，最后把 exe 同步到桌面。
+
+        .\scripts\publish.ps1 -Message "feat: 新增 XXX" -Bump minor
+            升 minor 版本发版（可选 patch / minor / major）。
+
+        .\scripts\publish.ps1 -Message "feat: 下一个大版本" -Version 2.0.0
+            指定版本号发版。
+
+        .\scripts\publish.ps1 -Message "wip: 只提交" -NoRelease
+            只提交并推送，不发版、不下载 exe。
+
+        .\scripts\publish.ps1 -Message "..." -NoDesktop
+            发版但不往桌面同步 exe。
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true, HelpMessage = '提交信息，例如 "feat: 新增 XXX"')]
+    [Parameter(Mandatory = $true, HelpMessage = '提交信息，例如 "fix: 修复高亮闪烁"')]
     [string]$Message,
 
     [string]$Version,
 
-    [switch]$Release,
+    [ValidateSet('patch', 'minor', 'major')]
+    [string]$Bump = 'patch',
 
-    [switch]$NoPush
+    [switch]$NoRelease,
+
+    [switch]$NoPush,
+
+    [switch]$NoDesktop,
+
+    [string]$DesktopDir,
+
+    [int]$TimeoutSeconds = 900
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $versionFile = Join-Path $repoRoot 'VERSION'
-$pluginFile = Join-Path $repoRoot 'src\ColoringPixelsCheat\Plugin.cs'
+$pluginFile = Join-Path $repoRoot 'src\ColoringPixelsTool\Plugin.cs'
+$release = -not $NoRelease
 
 function Step($m) { Write-Host "`n== $m" -ForegroundColor Magenta }
 function Ok($m) { Write-Host "  OK $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "  !! $m" -ForegroundColor Yellow }
 function Fail($m) { Write-Host "  XX $m" -ForegroundColor Red; throw $m }
 
-# git 会把进度 / 警告写到 stderr，PowerShell 5.1 会把它包成 NativeCommandError：
-# 既会渲染成一大片红色报错，在 $ErrorActionPreference='Stop' 下还会直接中断脚本。
-# 这里在调用期间降级为 SilentlyContinue，并把 stderr 重定向到临时文件留档，退出码照常判断。
-function Git-OrFail {
-    param([string[]]$GitArgs)
+# PowerShell 5.1 会把原生命令写到 stderr 的内容包成 NativeCommandError：既渲染成一片红色
+# 报错，在 $ErrorActionPreference='Stop' 下还会直接中断脚本。这里统一在调用期间降级为
+# SilentlyContinue，并把 stderr 落盘留档，退出码照常判断，信息也不丢。
+function Invoke-Native {
+    param([string]$Exe, [string[]]$ArgList)
 
     $errFile = [System.IO.Path]::GetTempFileName()
     $saved = $ErrorActionPreference
@@ -50,7 +69,7 @@ function Git-OrFail {
     $err = ''
     try {
         $ErrorActionPreference = 'SilentlyContinue'
-        $out = (& git -C $repoRoot @GitArgs 2> $errFile | Out-String)
+        $out = (& $Exe @ArgList 2> $errFile | Out-String)
         $code = $LASTEXITCODE
         $err = (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue)
     }
@@ -58,11 +77,40 @@ function Git-OrFail {
         $ErrorActionPreference = $saved
         Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
     }
+    return [pscustomobject]@{ Code = $code; Out = $out; Err = $err }
+}
 
-    foreach ($chunk in @($out, $err)) {
+function Git-Run {
+    param([string[]]$GitArgs, [switch]$Quiet)
+
+    $r = Invoke-Native -Exe 'git' -ArgList (@('-C', $repoRoot) + $GitArgs)
+    if (-not $Quiet) {
+        foreach ($chunk in @($r.Out, $r.Err)) {
+            if (-not [string]::IsNullOrWhiteSpace($chunk)) { Write-Host $chunk.TrimEnd() }
+        }
+    }
+    if ($r.Code -ne 0) { Fail ('git ' + ($GitArgs -join ' ') + " 执行失败（exit " + $r.Code + "）") }
+    return $r.Out
+}
+
+function Gh-Run {
+    param([string[]]$GhArgs)
+
+    $r = Invoke-Native -Exe $script:ghPath -ArgList $GhArgs
+    foreach ($chunk in @($r.Out, $r.Err)) {
         if (-not [string]::IsNullOrWhiteSpace($chunk)) { Write-Host $chunk.TrimEnd() }
     }
-    if ($code -ne 0) { Fail ('git ' + ($GitArgs -join ' ') + " 执行失败（exit $code）") }
+    if ($r.Code -ne 0) { Fail ('gh ' + ($GhArgs -join ' ') + " 执行失败（exit " + $r.Code + "）") }
+    return $r.Out
+}
+
+function Resolve-Gh {
+    $cmd = Get-Command gh -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($p in @("$env:ProgramFiles\GitHub CLI\gh.exe", "$env:LOCALAPPDATA\Programs\GitHub CLI\gh.exe")) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    Fail '未找到 GitHub CLI（gh）。请先安装：winget install GitHub.cli'
 }
 
 # 保持文件原有编码：有 BOM 的写回 BOM，没有的写回无 BOM。
@@ -74,53 +122,104 @@ function Save-PreservingBom {
     [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($hasBom)))
 }
 
-# ---------------------------------------------------------------- 0. 前置检查
+function Get-CurrentVersion {
+    if (-not (Test-Path -LiteralPath $versionFile)) { Fail "缺少 VERSION 文件：$versionFile" }
+    return ([System.IO.File]::ReadAllText($versionFile)).Trim().TrimStart('v', 'V')
+}
 
-Step '0/5  检查仓库'
+# 同步 VERSION 与插件源码里的 Plugin.Version，避免两处版本号不一致。
+function Set-ProjectVersion {
+    param([string]$NewVersion)
+
+    Save-PreservingBom -Path $versionFile -Text ($NewVersion + "`r`n")
+
+    if (-not (Test-Path -LiteralPath $pluginFile)) {
+        Warn "未找到插件源码，跳过 Plugin.Version 同步：$pluginFile"
+        return
+    }
+
+    $src = [System.IO.File]::ReadAllText($pluginFile)
+    $patched = [regex]::Replace($src, '(public const string Version = ")[^"]*(";)', ('${1}' + $NewVersion + '${2}'))
+    if ($patched -eq $src) { Warn 'Plugin.cs 中未匹配到 Version 常量，请手动确认' }
+    else { Save-PreservingBom -Path $pluginFile -Text $patched }
+}
+
+function Step-Version {
+    param([string]$Current, [string]$Kind)
+
+    $parts = $Current.Split('.')
+    if ($parts.Count -ne 3) { Fail "无法解析当前版本号：$Current" }
+    $major = [int]$parts[0]
+    $minor = [int]$parts[1]
+    $patch = [int]$parts[2]
+
+    switch ($Kind) {
+        'major' { $major++; $minor = 0; $patch = 0 }
+        'minor' { $minor++; $patch = 0 }
+        default { $patch++ }
+    }
+    return ("" + $major + "." + $minor + "." + $patch)
+}
+
+function Test-TagExists {
+    param([string]$Tag)
+
+    if ((Invoke-Native -Exe 'git' -ArgList @('-C', $repoRoot, 'tag', '--list', $Tag)).Out.Trim().Length -gt 0) {
+        return $true
+    }
+    $remote = (Invoke-Native -Exe 'git' -ArgList @('-C', $repoRoot, 'ls-remote', '--tags', 'origin', $Tag)).Out.Trim()
+    return ($remote.Length -gt 0)
+}
+
+# ---------------------------------------------------------------- 0. 环境检查
+
+Step '0/6  检查环境'
+$ghPath = Resolve-Gh
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot '.git'))) { Fail "不是 git 仓库：$repoRoot" }
-if (-not (Test-Path -LiteralPath $versionFile)) { Fail "缺少 VERSION 文件：$versionFile" }
-if (-not (Test-Path -LiteralPath $pluginFile)) { Fail "缺少插件源码：$pluginFile" }
+if ($release -and $NoPush) { Fail '-NoRelease 与 -NoPush 不能同时缺省：要发版必须能推送' }
 
-$branch = (& git -C $repoRoot rev-parse --abbrev-ref HEAD | Out-String).Trim()
+$branch = (Git-Run @('rev-parse', '--abbrev-ref', 'HEAD') -Quiet).Trim()
+$remote = (Git-Run @('remote', 'get-url', 'origin') -Quiet).Trim()
+if ([string]::IsNullOrWhiteSpace($remote)) { Fail '未配置远端 origin' }
+$slug = $remote -replace '^.*github\.com[:/]', '' -replace '\.git$', ''
+$web = 'https://github.com/' + $slug
 Ok ("分支：" + $branch)
+Ok ("远端：" + $slug)
 
 # ---------------------------------------------------------------- 1. 版本号
 
+Step '1/6  确定版本号'
+$current = Get-CurrentVersion
+
 if (-not [string]::IsNullOrWhiteSpace($Version)) {
-    Step '1/5  写入版本号'
     $v = $Version.Trim().TrimStart('v', 'V')
     if ($v -notmatch '^\d+\.\d+\.\d+$') { Fail "版本号格式应为 MAJOR.MINOR.PATCH，收到：$Version" }
-
-    Save-PreservingBom -Path $versionFile -Text ($v + "`r`n")
-
-    $src = [System.IO.File]::ReadAllText($pluginFile)
-    $patched = [regex]::Replace($src, '(public const string Version = ")[^"]*(";)', ('${1}' + $v + '${2}'))
-    if ($patched -eq $src) {
-        Warn 'Plugin.cs 中未匹配到 Version 常量，请手动确认'
-    }
-    else {
-        Save-PreservingBom -Path $pluginFile -Text $patched
-    }
-    Ok ('VERSION 与 Plugin.Version 已更新为 ' + $v)
+    Set-ProjectVersion -NewVersion $v
+    Ok ('指定版本号 v' + $v + '，已同步 VERSION 与 Plugin.Version')
+}
+elseif ($release -and (Test-TagExists ('v' + $current))) {
+    $v = Step-Version -Current $current -Kind $Bump
+    Set-ProjectVersion -NewVersion $v
+    Ok ('v' + $current + ' 已发布过，按 ' + $Bump + ' 自动升到 v' + $v)
 }
 else {
-    $v = ([System.IO.File]::ReadAllText($versionFile)).Trim().TrimStart('v', 'V')
-    Ok ('沿用当前版本：v' + $v)
+    $v = $current
+    Ok ('使用当前版本 v' + $v)
 }
 
 # ---------------------------------------------------------------- 2. 提交
 
-Step '2/5  提交改动'
-Git-OrFail @('add', '-A')
+Step '2/6  提交改动'
+Git-Run @('add', '-A') -Quiet
 
-$staged = @(& git -C $repoRoot diff --cached --name-only)
+$staged = @(Git-Run @('diff', '--cached', '--name-only') -Quiet)
 if ($staged.Count -eq 0) {
     Warn '没有需要提交的改动'
 }
 else {
-    $msgFile = Join-Path $env:TEMP ('cpc-commit-' + [Guid]::NewGuid().ToString('N') + '.txt')
+    $msgFile = Join-Path $env:TEMP ('cpt-commit-' + [Guid]::NewGuid().ToString('N') + '.txt')
     [System.IO.File]::WriteAllText($msgFile, $Message, (New-Object System.Text.UTF8Encoding($false)))
-    try { Git-OrFail @('commit', '-F', $msgFile) }
+    try { Git-Run @('commit', '-F', $msgFile) | Out-Null }
     finally { Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue }
     Ok ('已提交 ' + $staged.Count + ' 个文件')
 }
@@ -131,40 +230,89 @@ if ($NoPush) {
     Warn '-NoPush：跳过推送'
 }
 else {
-    Step '3/5  推送到 origin'
-    Git-OrFail @('push', 'origin', $branch)
-    Ok '已推送'
+    Step '3/6  推送到 origin'
+    Git-Run @('push', 'origin', $branch) | Out-Null
+    Ok ('已推送 ' + $branch)
 }
 
 # ---------------------------------------------------------------- 4. 打标签
 
-if (-not $Release) {
-    Write-Host "`n  未指定 -Release，流程结束。" -ForegroundColor DarkGray
+if (-not $release) {
+    Step '4/6  发版'
+    Warn '-NoRelease：跳过发版与桌面同步，流程结束'
     return
 }
 
-Step '4/5  创建并推送标签'
+Step '4/6  打标签并推送（触发 CI 发版）'
 $tag = 'v' + $v
-if (@(& git -C $repoRoot tag --list $tag).Count -gt 0) {
-    Fail ('标签 ' + $tag + ' 已存在。请用 -Version 提升版本号后再发布')
-}
+if (Test-TagExists $tag) { Fail ('标签 ' + $tag + ' 已存在，无法重复发版') }
 
-Git-OrFail @('tag', '-a', $tag, '-m', ('Coloring Pixels Cheat Suite ' + $tag))
-if ($NoPush) { Warn '-NoPush：仅创建本地标签，未推送' }
+Git-Run @('tag', '-a', $tag, '-m', ('Coloring Pixels Tool ' + $tag)) | Out-Null
+if ($NoPush) { Warn '-NoPush：标签只建在本地' }
 else {
-    Git-OrFail @('push', 'origin', $tag)
+    Git-Run @('push', 'origin', $tag) | Out-Null
     Ok ('标签已推送：' + $tag)
 }
 
-# ---------------------------------------------------------------- 5. 汇总
+# ---------------------------------------------------------------- 5. 等 CI
 
-Step '5/5  CI 开始构建发布包'
-$remote = (& git -C $repoRoot remote get-url origin | Out-String).Trim()
-$web = $remote -replace '\.git$', ''
+Step '5/6  等待 CI 构建 Release'
+Write-Host ('  CI 运行状态：' + $web + '/actions') -ForegroundColor DarkGray
+
+$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+$ready = $false
+$started = Get-Date
+while ((Get-Date) -lt $deadline) {
+    $probe = Invoke-Native -Exe $ghPath -ArgList @('release', 'view', $tag, '-R', $slug, '--json', 'assets')
+    if ($probe.Code -eq 0) { $ready = $true; break }
+
+    $waited = [int]((Get-Date) - $started).TotalSeconds
+    Write-Host ("  等待中…… " + $waited + "s") -ForegroundColor DarkGray
+    Start-Sleep -Seconds 10
+}
+
+if (-not $ready) {
+    Fail ('等待 CI 超时（' + $TimeoutSeconds + ' 秒）。请打开 ' + $web + '/actions 确认构建状态')
+}
+Ok 'Release 已生成'
+
+# ---------------------------------------------------------------- 6. 同步到桌面
+
+if ($NoDesktop) {
+    Step '6/6  同步到桌面'
+    Warn '-NoDesktop：跳过桌面同步'
+}
+else {
+    Step '6/6  同步 exe 到桌面'
+
+    if ([string]::IsNullOrWhiteSpace($DesktopDir)) { $desktop = [Environment]::GetFolderPath('Desktop') }
+    else { $desktop = $DesktopDir }
+
+    if (-not (Test-Path -LiteralPath $desktop)) { Fail ("桌面目录不存在：" + $desktop) }
+
+    Gh-Run @('release', 'download', $tag, '-R', $slug, '--pattern', '*.exe', '--dir', $desktop, '--clobber') | Out-Null
+
+    $downloaded = Get-ChildItem -LiteralPath $desktop -File -Filter '*-Setup-v*.exe' |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $downloaded) { Fail '未能在桌面找到刚下载的安装器' }
+
+    $stableName = $downloaded.Name -replace '-Setup-v.*$', '-Setup.exe'
+    $stablePath = Join-Path $desktop $stableName
+    Copy-Item -LiteralPath $downloaded.FullName -Destination $stablePath -Force
+
+    Ok ('桌面安装器：' + $downloaded.Name)
+    Ok ('固定名字：' + $stableName + '（每次发版覆盖，直接运行即可）')
+}
+
+# ---------------------------------------------------------------- 汇总
 
 Write-Host ''
-Write-Host ('  远端   ：' + $web) -ForegroundColor DarkGray
-Write-Host ('  标签   ：' + $tag) -ForegroundColor DarkGray
-Write-Host '  CI 完成后安装器会自动出现在 Releases 页面：' -ForegroundColor DarkGray
-Write-Host ('      ' + $web + '/releases') -ForegroundColor Cyan
+Write-Host '  ==================================================' -ForegroundColor DarkGray
+Write-Host ('  版本    ：' + $tag) -ForegroundColor Cyan
+Write-Host ('  仓库    ：' + $web) -ForegroundColor DarkGray
+Write-Host ('  Release ：' + $web + '/releases/tag/' + $tag) -ForegroundColor Cyan
+if (-not $NoDesktop) {
+    Write-Host ('  桌面    ：' + (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ColoringPixelsTool-Setup.exe')) -ForegroundColor Cyan
+}
+Write-Host '  ==================================================' -ForegroundColor DarkGray
 Write-Host ''

@@ -3,16 +3,16 @@ using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
 
-namespace ColoringPixelsCheat
+namespace ColoringPixelsTool
 {
     [BepInPlugin(Guid, PluginName, Version)]
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "coloringpixels.cheatsuite";
-        public const string PluginName = "Coloring Pixels Cheat Suite";
+        public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -92,7 +92,7 @@ namespace ColoringPixelsCheat
             gameObject.AddComponent<CheatPanel>();
             gameObject.AddComponent<ColorHighlighter>();
 
-            Log.Info("Coloring Pixels Cheat Suite 已加载 —— 按 " + KeyToggle.Value + " 打开面板");
+            Log.Info("Coloring Pixels Tool 已加载 —— 按 " + KeyToggle.Value + " 打开面板");
         }
 
         private void BindConfig()

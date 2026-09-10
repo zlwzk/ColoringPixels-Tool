@@ -32,6 +32,6 @@ desktop.ini
 *.swp
 
 # ------------------------------------------------------------------
-# 注意：artifacts/ColoringPixelsCheat.dll 需要随仓库提交。
+# 注意：artifacts/ColoringPixelsTool.dll 需要随仓库提交。
 # 因为编译插件必须引用游戏自身的 Assembly-CSharp.dll，
 # 而 CI 与大多数协作者都没有游戏程序集，所以仓库内保留一份已编译好的插件。

@@ -14,7 +14,7 @@
 ## 检查清单
 
 - [ ] 已本地运行 `.\scripts\build-release.ps1`（或 `-SkipMod`）且构建通过
-- [ ] 若修改了插件源码，已重新编译并更新 `artifacts\ColoringPixelsCheat.dll`
+- [ ] 若修改了插件源码，已重新编译并更新 `artifacts\ColoringPixelsTool.dll`
 - [ ] 安装器源码仍保持 **C# 5** 语法（未使用插值字符串 / `?.` / 表达式体成员）
 - [ ] 新增 / 修改的 `.cs`、`.ps1` 文件为 **UTF-8 with BOM**
 - [ ] 未提交游戏本体文件或构建产物（`build/`、`dist/`、`obj/`、`bin/`）

@@ -2,7 +2,7 @@
 using System.IO;
 using System.Text;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>
     /// 极简日志：同时写入日志文件（静默模式用）并广播给界面。

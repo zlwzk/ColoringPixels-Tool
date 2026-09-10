@@ -1,15 +1,15 @@
 <div align="center">
 
-# 涂色大师 · Cheat Suite
+# 涂色大师 · Tool
 
 **《Coloring Pixels》非官方作弊 / 辅助工具 —— 一键安装，开箱即用**
 
 带图形化安装器的 BepInEx 插件：自动定位游戏目录、部署运行时、启动游戏，进入关卡后按 <kbd>F1</kbd> 打开面板。
 
-[![Release](https://img.shields.io/github/v/release/zlwzk/ColoringPixelsCheat?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=5682ff)](https://github.com/zlwzk/ColoringPixelsCheat/releases)
+[![Release](https://img.shields.io/github/v/release/zlwzk/ColoringPixelsTool?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=5682ff)](https://github.com/zlwzk/ColoringPixels-Tool/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x86-0078d4.svg)](#系统要求)
-[![Build](https://img.shields.io/github/actions/workflow/status/zlwzk/ColoringPixelsCheat/build.yml?label=build)](https://github.com/zlwzk/ColoringPixelsCheat/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/zlwzk/ColoringPixelsTool/build.yml?label=build)](https://github.com/zlwzk/ColoringPixels-Tool/actions)
 
 </div>
 
@@ -21,8 +21,8 @@
 
 | 组件 | 说明 |
 | --- | --- |
-| **安装器** `ColoringPixelsCheat-Setup.exe` | 单文件、免安装、可视化。自动检测游戏目录 → 部署 BepInEx + 插件 → 启动游戏。 |
-| **插件** `ColoringPixelsCheat.dll` | 游戏内作弊面板，提供涂色、拟人涂色、内容解锁、悬浮 HUD 等能力。 |
+| **安装器** `ColoringPixelsTool-Setup.exe` | 单文件、免安装、可视化。自动检测游戏目录 → 部署 BepInEx + 插件 → 启动游戏。 |
+| **插件** `ColoringPixelsTool.dll` | 游戏内作弊面板，提供涂色、拟人涂色、内容解锁、悬浮 HUD 等能力。 |
 
 插件基于 **BepInEx 5（x86）** 与 **Harmony** 运行，不改动游戏本体文件（除注入所需的 `winhttp.dll` / `BepInEx/`）。
 
@@ -49,7 +49,7 @@
 
 ### 一键安装
 
-1. 前往 [**Releases**](https://github.com/zlwzk/ColoringPixelsCheat/releases) 下载最新版 `ColoringPixelsCheat-Setup-vX.Y.Z.exe`。
+1. 前往 [**Releases**](https://github.com/zlwzk/ColoringPixels-Tool/releases) 下载最新版 `ColoringPixelsTool-Setup-vX.Y.Z.exe`。
 2. 关闭正在运行的《Coloring Pixels》。
 3. 双击运行安装器：
    - 若有安全软件拦截，请选择「允许」/「仍要运行」。
@@ -103,7 +103,7 @@
 安装器同时支持无人值守模式，便于脚本批量部署：
 
 ```text
-ColoringPixelsCheat-Setup.exe [选项]
+ColoringPixelsTool-Setup.exe [选项]
 
   --dir=<路径>        指定游戏目录（跳过自动检测）
   --silent            静默安装，不显示界面
@@ -125,10 +125,10 @@ ColoringPixelsCheat-Setup.exe [选项]
 
 ```powershell
 # 静默安装到指定目录，不启动游戏
-.\ColoringPixelsCheat-Setup.exe --silent --dir="D:\Steam\steamapps\common\Coloring Pixels" --no-launch
+.\ColoringPixelsTool-Setup.exe --silent --dir="D:\Steam\steamapps\common\Coloring Pixels" --no-launch
 
 # 只检测游戏目录
-.\ColoringPixelsCheat-Setup.exe --detect-only
+.\ColoringPixelsTool-Setup.exe --detect-only
 ```
 
 ## 常见问题
@@ -137,8 +137,8 @@ ColoringPixelsCheat-Setup.exe [选项]
 <summary><b>游戏里按 F1 没有反应？</b></summary>
 
 - 确认已**进入关卡**（主菜单下面板逻辑不生效）。
-- 检查游戏目录下是否存在 `winhttp.dll`、`BepInEx\core\BepInEx.Preloader.dll`、`BepInEx\plugins\ColoringPixelsCheat.dll`。
-- 查看 `BepInEx\LogOutput.log`，搜索 `Coloring Pixels Cheat Suite` 是否成功加载。
+- 检查游戏目录下是否存在 `winhttp.dll`、`BepInEx\core\BepInEx.Preloader.dll`、`BepInEx\plugins\ColoringPixelsTool.dll`。
+- 查看 `BepInEx\LogOutput.log`，搜索 `Coloring Pixels Tool` 是否成功加载。
 
 </details>
 
@@ -181,17 +181,17 @@ ColoringPixelsCheat-Setup.exe [选项]
 # 一键构建：编译插件 -> 组装部署包 -> 编译安装器 -> 生成 SHA256
 .\scripts\build-release.ps1
 
-# 产物：dist\ColoringPixelsCheat-Setup-v<版本>.exe 与 dist\SHA256SUMS.txt
+# 产物：dist\ColoringPixelsTool-Setup-v<版本>.exe 与 dist\SHA256SUMS.txt
 ```
 
 > 编译插件需要引用游戏自身的 `Assembly-CSharp.dll`，因此本机需安装《Coloring Pixels》，
-> 或直接使用仓库内已随包分发的 `artifacts\ColoringPixelsCheat.dll`（`build-release.ps1 -SkipMod`）。
+> 或直接使用仓库内已随包分发的 `artifacts\ColoringPixelsTool.dll`（`build-release.ps1 -SkipMod`）。
 
 ## 目录结构
 
 ```
 CheatTools/
-├─ src/ColoringPixelsCheat/     插件源码（C#，BepInEx + Harmony）
+├─ src/ColoringPixelsTool/     插件源码（C#，BepInEx + Harmony）
 ├─ installer/                   安装器源码（C# 5 / WinForms，单文件）
 │  └─ payload/                  部署包覆盖层（定制 doorstop_config.ini 等）
 ├─ scripts/                     构建脚本（PowerShell）

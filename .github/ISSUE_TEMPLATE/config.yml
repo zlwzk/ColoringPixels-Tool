@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 使用手册 / 常见问题
-    url: https://github.com/zlwzk/ColoringPixelsCheat/blob/main/docs/USAGE.md
+    url: https://github.com/zlwzk/ColoringPixels-Tool/blob/main/docs/USAGE.md
     about: 安装、面板用法、配置项与排错，先看这里。
   - name: 构建与发布指南
-    url: https://github.com/zlwzk/ColoringPixelsCheat/blob/main/docs/BUILDING.md
+    url: https://github.com/zlwzk/ColoringPixels-Tool/blob/main/docs/BUILDING.md
     about: 从源码构建、CI 与发版流程。

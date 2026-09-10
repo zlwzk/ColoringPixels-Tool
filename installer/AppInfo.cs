@@ -1,16 +1,20 @@
 ﻿using System;
 using System.Reflection;
 
-namespace ColoringPixelsCheat.Installer
+namespace ColoringPixelsTool.Installer
 {
     /// <summary>安装器使用的常量与版本信息。</summary>
     internal static class AppInfo
     {
-        public const string ProductName = "Coloring Pixels Cheat Suite";
-        public const string DisplayName = "涂色大师 · Cheat Suite";
+        public const string ProductName = "Coloring Pixels Tool";
+        public const string DisplayName = "涂色大师 · Tool";
         public const string PluginGuid = "coloringpixels.cheatsuite";
-        public const string PluginDllName = "ColoringPixelsCheat.dll";
+        public const string PluginDllName = "ColoringPixelsTool.dll";
         public const string PluginConfigName = "coloringpixels.cheatsuite.cfg";
+
+        /// <summary>旧版本（ColoringPixelsCheat 时期）的插件文件名。安装 / 卸载时会一并清理，
+        /// 否则同一 GUID 的旧插件会与新插件被 BepInEx 同时加载。</summary>
+        public static readonly string[] LegacyPluginDllNames = new string[] { "ColoringPixelsCheat.dll" };
 
         /// <summary>内嵌资源名（由构建脚本以 /resource:...,payload.zip 写入）。</summary>
         public const string PayloadResourceName = "payload.zip";
@@ -27,7 +31,7 @@ namespace ColoringPixelsCheat.Installer
         public const string SteamAppId = "897330";
         public const string SteamInstallDirName = "Coloring Pixels";
 
-        public const string DefaultRepositoryUrl = "https://github.com/zlwzk/ColoringPixelsCheat";
+        public const string DefaultRepositoryUrl = "https://github.com/zlwzk/ColoringPixels-Tool";
 
         public static string AppVersion
         {

@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         感谢反馈！请尽量填写完整，便于快速定位问题。
-        提交前请先确认已查看 [README](https://github.com/zlwzk/ColoringPixelsCheat#常见问题) 与 [docs/USAGE.md](https://github.com/zlwzk/ColoringPixelsCheat/blob/main/docs/USAGE.md)。
+        提交前请先确认已查看 [README](https://github.com/zlwzk/ColoringPixels-Tool#常见问题) 与 [docs/USAGE.md](https://github.com/zlwzk/ColoringPixels-Tool/blob/main/docs/USAGE.md)。
 
   - type: input
     id: version
@@ -23,7 +23,7 @@ body:
     attributes:
       label: 涉及组件
       options:
-        - 安装器（ColoringPixelsCheat-Setup.exe）
+        - 安装器（ColoringPixelsTool-Setup.exe）
         - 游戏内面板 / 插件
         - 构建脚本 / CI
         - 文档
@@ -63,7 +63,7 @@ body:
       label: 相关日志
       description: |
         插件日志：`<游戏目录>\BepInEx\LogOutput.log`
-        安装器日志：`%TEMP%\ColoringPixelsCheat-Setup.log`
+        安装器日志：`%TEMP%\ColoringPixelsTool-Setup.log`
         请粘贴关键片段（可使用 ``` 包裹）。
       render: text
     validations:

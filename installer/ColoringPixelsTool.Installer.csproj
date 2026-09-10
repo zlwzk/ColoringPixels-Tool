@@ -12,8 +12,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>ColoringPixelsCheat-Setup</AssemblyName>
-    <RootNamespace>ColoringPixelsCheat.Installer</RootNamespace>
+    <AssemblyName>ColoringPixelsTool-Setup</AssemblyName>
+    <RootNamespace>ColoringPixelsTool.Installer</RootNamespace>
     <ApplicationIcon>..\assets\icon.ico</ApplicationIcon>
     <LangVersion>5</LangVersion>
     <Nullable>disable</Nullable>
