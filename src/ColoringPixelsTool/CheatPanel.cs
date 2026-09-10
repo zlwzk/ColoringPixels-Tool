@@ -67,6 +67,26 @@ namespace ColoringPixelsTool
             }
         }
 
+        /// <summary>
+        /// 鼠标悬停在面板上滚动滚轮时，屏蔽游戏自身的滚轮缩放。
+        ///
+        /// 游戏的缩放写在 <c>ClickTest.Update()</c> 里直接读 <c>Mouse ScrollWheel</c>，
+        /// 界面层 <c>Event.Use()</c> 只能消费 IMGUI 事件，管不到游戏读 Input，
+        /// 所以必须在这里按「面板可见 + 鼠标在窗口内 + 本帧确有滚轮输入」判定。
+        /// </summary>
+        public static bool BlockScrollInput
+        {
+            get
+            {
+                if (!_visible) return false;
+                if (!_window.Contains(GuiMouse)) return false;
+
+                // 只在真正有滚动输入时拦截，其余时间对游戏零影响。
+                if (Mathf.Abs(Input.mouseScrollDelta.y) > 0.0001f) return true;
+                return Mathf.Abs(Input.GetAxis("Mouse ScrollWheel")) > 0.0001f;
+            }
+        }
+
         private static Vector2 GuiMouse => new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
 
         private void Toast(string msg)
@@ -187,9 +207,31 @@ namespace ColoringPixelsTool
 
             if (Plugin.ShowHud.Value) DrawHud();
 
+            // 面板没打开时也要能看到（例如在游戏设置界面点了「推荐预设」）
+            DrawGameToast();
+
             if (!_visible) return;
 
             DrawWindow();
+        }
+
+        private void DrawGameToast()
+        {
+            if (!GameToast.IsActive) return;
+
+            string msg = GameToast.Message;
+            if (string.IsNullOrEmpty(msg)) return;
+
+            float a = Mathf.Clamp01(GameToast.Remaining / 0.6f);
+            var sz = Ui.Label.CalcSize(new GUIContent(msg));
+
+            float w = Mathf.Min(sz.x + 48f, Screen.width - 60f);
+            var r = new Rect((Screen.width - w) * 0.5f, 46f, w, 46f);
+
+            Ui.RoundOutline(r, 10f,
+                new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.65f * a),
+                new Color(0.10f, 0.11f, 0.15f, 0.96f * a));
+            Ui.Text(r, msg, Ui.Label, new Color(1f, 1f, 1f, a));
         }
 
         private void DrawWindow()
@@ -956,6 +998,91 @@ namespace ColoringPixelsTool
             KeyButton(w, ref y, "颜色高亮热键", Plugin.KeyHighlight);
 
             y += 6f;
+            Section(w, ref y, "游戏界面汉化");
+
+            if (_loc == null) _loc = GetComponent<GameLocalizer>();
+
+            Plugin.LocalizeGame.Value = Toggle(w, ref y, Plugin.LocalizeGame.Value,
+                "汉化游戏设置界面", "把游戏自带的设置等界面的英文替换成中文");
+
+            if (Plugin.LocalizeGame.Value)
+            {
+                Plugin.LocalizeScope.Value = Segmented(w, ref y, Plugin.LocalizeScope.Value,
+                    new[] { "仅设置页面", "全部界面" });
+
+                Plugin.LocalizeSwapFont.Value = Toggle(w, ref y, Plugin.LocalizeSwapFont.Value,
+                    "自动替换中文字体", "游戏像素字体没有中文字形，开启后才能正常显示");
+
+                string fontName = CjkFont.Name;
+                int words = _loc != null ? _loc.WordCount : 0;
+                int hits = _loc != null ? _loc.TranslatedCount : 0;
+
+                Ui.Text(new Rect(0f, y, w, 20f),
+                    "词典 " + words + " 条   ·   当前译出 " + hits + " 处   ·   字体 " +
+                    (string.IsNullOrEmpty(fontName) ? "未就绪" : fontName), Ui.MutedSmall);
+                y += 24f;
+
+                if (Ui.Button(new Rect(0f, y, w, 36f), "重新载入汉化词典", Ui.Accent2, false))
+                {
+                    if (_loc != null) _loc.ReloadDictionary();
+                    Toast("汉化词典已重新载入");
+                }
+                y += 44f;
+
+                Ui.Text(new Rect(0f, y, w, 18f),
+                    "补充词条：" + (_loc != null ? _loc.ExtraFilePath : ""), Ui.MutedSmall);
+                y += 24f;
+            }
+
+            y += 6f;
+            Section(w, ref y, "推荐预设");
+
+            Plugin.PresetButtonEnabled.Value = Toggle(w, ref y, Plugin.PresetButtonEnabled.Value,
+                "在游戏设置里显示预设按钮",
+                "会在游戏自带设置界面上加一个「" + Plugin.PresetButtonLabel.Value + "」按钮，样式沿用游戏本身");
+
+            if (Plugin.PresetButtonEnabled.Value)
+            {
+                Plugin.PresetButtonPlacement.Value = Segmented(w, ref y, Plugin.PresetButtonPlacement.Value,
+                    new[] { "自动", "底部", "居中", "顶部" });
+            }
+
+            Ui.Text(new Rect(0f, y, w, 20f),
+                "预设条目 " + GamePreset.Count + " 项   ·   " + (GamePreset.FilePath ?? "未载入"), Ui.MutedSmall);
+            y += 26f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "重新载入预设文件", Ui.Accent2, false))
+            {
+                GamePreset.Reload();
+                Toast("预设已重新载入：" + GamePreset.Count + " 项");
+            }
+            y += 44f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "立即应用推荐预设", Ui.Accent, false))
+            {
+                string report = GamePreset.Apply();
+                Toast(report);
+            }
+            y += 52f;
+
+            y += 6f;
+            Section(w, ref y, "界面诊断");
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "导出游戏设置面板层级到日志", Ui.Accent2, false))
+            {
+                Log.Info("===== 游戏设置面板层级 =====\n" + GameSettingsPanel.Dump());
+                Toast("设置面板层级已写入 BepInEx 日志");
+            }
+            y += 44f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "导出当前 Canvas 层级到日志", Ui.Accent2, false))
+            {
+                Log.Info("===== 当前 Canvas 层级 =====\n" + GameSettingsPanel.DumpCanvas());
+                Toast("Canvas 层级已写入 BepInEx 日志");
+            }
+            y += 52f;
+
+            y += 6f;
             Section(w, ref y, "关于");
 
             Card(w, ref y, 70f, top =>
@@ -968,6 +1095,8 @@ namespace ColoringPixelsTool
                     "BepInEx GUID: coloringpixels.cheatsuite", Ui.MutedSmall);
             });
         }
+
+        private GameLocalizer _loc;
 
         private int _activeKeyIndex = -1;
 

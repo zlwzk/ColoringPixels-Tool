@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "1.3.0";
+        public const string Version = "1.3.1";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -77,6 +77,23 @@ namespace ColoringPixelsTool
         // ---- 面板 ----
         internal static ConfigEntry<float> PanelOpacity;
 
+        // ---- 游戏界面汉化 ----
+        internal static ConfigEntry<bool> LocalizeGame;
+        internal static ConfigEntry<int> LocalizeScope;
+        internal static ConfigEntry<bool> LocalizeSwapFont;
+        internal static ConfigEntry<string> LocalizeFont;
+        internal static ConfigEntry<string> LocalizeExtraFile;
+
+        // ---- 推荐预设 ----
+        internal static ConfigEntry<bool> PresetButtonEnabled;
+        internal static ConfigEntry<string> PresetButtonLabel;
+        internal static ConfigEntry<string> PresetButtonTemplate;
+        internal static ConfigEntry<int> PresetButtonParentUp;
+        internal static ConfigEntry<int> PresetButtonPlacement;
+        internal static ConfigEntry<float> PresetButtonOffsetX;
+        internal static ConfigEntry<float> PresetButtonOffsetY;
+        internal static ConfigEntry<string> PresetFile;
+
         private void Awake()
         {
             Instance = this;
@@ -101,6 +118,10 @@ namespace ColoringPixelsTool
             gameObject.AddComponent<AutoScheduler>();
             gameObject.AddComponent<CheatPanel>();
             gameObject.AddComponent<ColorHighlighter>();
+            gameObject.AddComponent<GameLocalizer>();
+            gameObject.AddComponent<PresetButtonInjector>();
+
+            GamePreset.Reload();
 
             Log.Info("Coloring Pixels Tool 已加载 —— 按 " + KeyToggle.Value + " 打开面板");
         }
@@ -160,6 +181,36 @@ namespace ColoringPixelsTool
             var p = "6-面板";
             PanelOpacity = Config.Bind(p, "不透明度", 0.96f,
                 new ConfigDescription("作弊面板背景的不透明度", new AcceptableValueRange<float>(0.5f, 1f)));
+
+            var zh = "7-游戏汉化";
+            LocalizeGame = Config.Bind(zh, "游戏界面汉化", true,
+                "把游戏界面上的英文（设置面板等）替换成中文");
+            LocalizeScope = Config.Bind(zh, "汉化范围", 1,
+                new ConfigDescription("0 = 只汉化游戏设置页面，1 = 汉化全部能识别到的界面文案",
+                    new AcceptableValueRange<int>(0, 1)));
+            LocalizeSwapFont = Config.Bind(zh, "自动替换中文字体", true,
+                "游戏自带的像素字体没有中文字形，开启后会把翻译过的文本换成系统中文字体");
+            LocalizeFont = Config.Bind(zh, "汉化字体", "",
+                "留空自动选择（微软雅黑 / 黑体 / 宋体 等）");
+            LocalizeExtraFile = Config.Bind(zh, "汉化补充文件", "ColoringPixelsTool.zh.txt",
+                "放在 BepInEx/config 下的补充词条文件，格式：英文原文=中文译文");
+
+            var pre = "8-推荐预设";
+            PresetButtonEnabled = Config.Bind(pre, "显示预设按钮", true,
+                "在游戏自带的设置界面里显示「推荐预设」按钮");
+            PresetButtonLabel = Config.Bind(pre, "按钮文案", "推荐预设", "按钮上显示的文字");
+            PresetButtonTemplate = Config.Bind(pre, "模板按钮名", "",
+                "留空自动挑选；填游戏里已有的按钮对象名可以让样式更贴近");
+            PresetButtonParentUp = Config.Bind(pre, "按钮父级上移", 0,
+                new ConfigDescription("按钮挂在设置面板根节点的第几层父级上，找不到位置时可以调整",
+                    new AcceptableValueRange<int>(0, 4)));
+            PresetButtonPlacement = Config.Bind(pre, "按钮位置", 0,
+                new ConfigDescription("0 = 自动（跟随模板按钮），1 = 面板底部居中，2 = 面板居中，3 = 面板顶部居中",
+                    new AcceptableValueRange<int>(0, 3)));
+            PresetButtonOffsetX = Config.Bind(pre, "按钮偏移X", 0f, "在自动位置基础上的横向微调");
+            PresetButtonOffsetY = Config.Bind(pre, "按钮偏移Y", 0f, "在自动位置基础上的纵向微调");
+            PresetFile = Config.Bind(pre, "预设文件", "ColoringPixelsTool.Preset.txt",
+                "放在 BepInEx/config 下的预设文件，键 = 值；键名可用存储字段名或控件对象名");
 
             var h = "4-人工辅助";
             HighlightEnabled = Config.Bind(h, "启用颜色高亮", true,

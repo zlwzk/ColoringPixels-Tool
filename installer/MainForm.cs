@@ -32,6 +32,10 @@ namespace ColoringPixelsTool.Installer
         private Button _btnUninstall;
         private Button _btnOpenDir;
         private Button _btnLaunch;
+        private Button _btnUpdate;
+
+        private UpdateInfo _update;
+        private bool _checkingUpdate;
         private CheckBoxEx _chkLaunch;
         private CheckBoxEx _chkOverwrite;
         private CheckBoxEx _chkBackup;
@@ -239,6 +243,11 @@ namespace ColoringPixelsTool.Installer
             _btnLaunch = Theme.MakeButton("启动游戏", Theme.Card, Theme.Text, wLaunch, h, false, OnLaunchClick);
             _btnLaunch.Location = new Point(x, y);
             Controls.Add(_btnLaunch);
+
+            // 检查更新：放在最左侧，发现新版本时会变成高亮的下载入口。
+            _btnUpdate = Theme.MakeButton("检查更新", Theme.Card, Theme.Text, Theme.S(110), h, false, OnUpdateClick);
+            _btnUpdate.Location = new Point(Theme.S(Side), y);
+            Controls.Add(_btnUpdate);
         }
 
         // ============================================================ 生命周期
@@ -265,10 +274,12 @@ namespace ColoringPixelsTool.Installer
             {
                 _txtDir.Text = _options.GameDir;
                 RefreshStatus(true);
+                StartUpdateCheck(true);
                 return;
             }
 
             DetectAsync(false);
+            StartUpdateCheck(true);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -587,6 +598,7 @@ namespace ColoringPixelsTool.Installer
             _chkBackup.Enabled = !busy;
             _txtDir.Enabled = !busy;
             Cursor = busy ? Cursors.AppStarting : Cursors.Default;
+            UpdateUpdateButton();
         }
 
         // ============================================================ 安装 / 卸载
@@ -779,6 +791,193 @@ namespace ColoringPixelsTool.Installer
             catch (Exception ex)
             {
                 Log.Error("打开目录失败：" + ex.Message);
+            }
+        }
+
+        // ============================================================ 检查更新
+
+        private void OnUpdateClick(object sender, EventArgs e)
+        {
+            if (_busy || _checkingUpdate) return;
+
+            // 还没有可用信息就先查一次，查到了再点就是下载。
+            if (_update == null)
+            {
+                StartUpdateCheck(false);
+                return;
+            }
+
+            DownloadUpdate();
+        }
+
+        private void StartUpdateCheck(bool silent)
+        {
+            if (_checkingUpdate || _busy) return;
+
+            _checkingUpdate = true;
+            UpdateUpdateButton();
+            if (!silent) Log.Step("正在检查新版本……");
+
+            Thread thread = new Thread(delegate()
+            {
+                string error;
+                UpdateInfo info = Updater.Check(out error);
+
+                Ui(delegate()
+                {
+                    _checkingUpdate = false;
+                    ApplyUpdateResult(info, error, silent);
+                });
+            });
+
+            thread.IsBackground = true;
+            thread.Start();
+        }
+
+        private void ApplyUpdateResult(UpdateInfo info, string error, bool silent)
+        {
+            if (error != null)
+            {
+                Log.Warn("检查更新失败：" + error);
+                UpdateUpdateButton();
+
+                if (!silent)
+                {
+                    MessageBox.Show(this,
+                        "检查更新失败：\n" + error + "\n\n可以稍后再试，或手动打开：\n" + Updater.ReleasesPage,
+                        AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            if (info == null || string.IsNullOrEmpty(info.Version))
+            {
+                Log.Warn("没有从 Release 里解析到版本信息");
+                UpdateUpdateButton();
+
+                if (!silent)
+                {
+                    MessageBox.Show(this, "没有从 GitHub 上读取到版本信息。", AppInfo.DisplayName,
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return;
+            }
+
+            if (Updater.CompareVersions(info.Version, AppInfo.AppVersion) <= 0)
+            {
+                _update = null;
+                Log.Ok("当前已是最新版本 v" + AppInfo.AppVersion);
+                UpdateUpdateButton();
+
+                if (!silent)
+                {
+                    MessageBox.Show(this, "当前已是最新版本 v" + AppInfo.AppVersion + "。", AppInfo.DisplayName,
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return;
+            }
+
+            _update = info;
+            Log.Warn("发现新版本 v" + info.Version + "（当前 v" + AppInfo.AppVersion
+                     + (string.IsNullOrEmpty(info.SizeText) ? "" : "，" + info.SizeText) + "）");
+            UpdateUpdateButton();
+
+            if (!silent)
+            {
+                DownloadUpdate();
+                return;
+            }
+
+            DialogResult r = MessageBox.Show(this,
+                "发现新版本 v" + info.Version + "（当前 v" + AppInfo.AppVersion + "）。\n\n是否现在下载最新版安装器？",
+                AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (r == DialogResult.Yes) DownloadUpdate();
+        }
+
+        private void DownloadUpdate()
+        {
+            if (_update == null || _busy) return;
+
+            UpdateInfo info = _update;
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            string dest = Path.Combine(desktop, "ColoringPixelsTool-Setup-v" + info.Version + ".exe");
+
+            if (File.Exists(dest))
+            {
+                DialogResult again = MessageBox.Show(this,
+                    "桌面上已经存在同名安装器：\n" + dest + "\n\n是否重新下载并覆盖？",
+                    AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+                if (again != DialogResult.Yes)
+                {
+                    RunDownloaded(dest);
+                    return;
+                }
+            }
+
+            RunTask("正在下载更新 v" + info.Version + "……", delegate()
+            {
+                string error;
+                Updater.Download(info, dest, OnProgress, out error);
+                if (error != null) throw new Exception("下载更新失败：" + error);
+
+                Ui(delegate()
+                {
+                    DialogResult r = MessageBox.Show(this,
+                        "最新版已经下载到桌面：\n" + dest + "\n\n是否立即运行安装器？",
+                        AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                    if (r == DialogResult.Yes) RunDownloaded(dest);
+                });
+            });
+        }
+
+        private void RunDownloaded(string path)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = path;
+                psi.UseShellExecute = true;
+                Process.Start(psi);
+
+                Log.Ok("已启动新版安装器，本窗口即将关闭。");
+                Close();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("启动新版安装器失败：" + ex.Message);
+                MessageBox.Show(this, "启动新版安装器失败：\n" + ex.Message, AppInfo.DisplayName,
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void UpdateUpdateButton()
+        {
+            if (_btnUpdate == null) return;
+
+            if (_checkingUpdate)
+            {
+                _btnUpdate.Text = "检查中…";
+                _btnUpdate.Enabled = false;
+                return;
+            }
+
+            // 注意 Theme.MakeButton 会在 Enabled 变化时重置配色，所以这里放在后面设色。
+            _btnUpdate.Enabled = !_busy;
+
+            if (_update != null)
+            {
+                _btnUpdate.Text = "更新到 v" + _update.Version;
+                _btnUpdate.Font = Theme.FontBold;
+                _btnUpdate.BackColor = Theme.Accent2;
+                _btnUpdate.ForeColor = Theme.Bg;
+            }
+            else
+            {
+                _btnUpdate.Text = "检查更新";
+                _btnUpdate.Font = Theme.FontNormal;
+                _btnUpdate.BackColor = Theme.Card;
+                _btnUpdate.ForeColor = Theme.Text;
             }
         }
 
