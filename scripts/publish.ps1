@@ -212,7 +212,7 @@ else {
 Step '2/6  提交改动'
 Git-Run @('add', '-A') -Quiet
 
-$staged = @(Git-Run @('diff', '--cached', '--name-only') -Quiet)
+$staged = @((Git-Run @('diff', '--cached', '--name-only') -Quiet) -split "`r?`n" | Where-Object { $_.Trim().Length -gt 0 })
 if ($staged.Count -eq 0) {
     Warn '没有需要提交的改动'
 }
