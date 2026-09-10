@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "1.2.2";
+        public const string Version = "1.3.0";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -68,6 +68,15 @@ namespace ColoringPixelsTool
         internal static ConfigEntry<bool> AutoRestrict;
         internal static ConfigEntry<bool> AutoSaveAfterRun;
 
+        // ---- 自动化（定时+连图） ----
+        internal static ConfigEntry<float> AutoTotalMinutes;
+        internal static ConfigEntry<bool> AutoContinuous;
+        internal static ConfigEntry<float> AutoPauseBetweenImages;
+        internal static ConfigEntry<int> AutoDrawingSpeedPreset;
+
+        // ---- 面板 ----
+        internal static ConfigEntry<float> PanelOpacity;
+
         private void Awake()
         {
             Instance = this;
@@ -89,6 +98,7 @@ namespace ColoringPixelsTool
             }
 
             gameObject.AddComponent<AutoPainter>();
+            gameObject.AddComponent<AutoScheduler>();
             gameObject.AddComponent<CheatPanel>();
             gameObject.AddComponent<ColorHighlighter>();
 
@@ -135,6 +145,21 @@ namespace ColoringPixelsTool
             AutoHighlight = Config.Bind(a, "同步调色板高亮", true, "自动切换游戏内选中的颜色");
             AutoRestrict = Config.Bind(a, "只涂当前颜色", false, "仅处理调色板中高亮的那一种颜色");
             AutoSaveAfterRun = Config.Bind(a, "自动保存", true, "涂完或一键涂完后写入存档");
+
+            var z = "5-自动化";
+            AutoTotalMinutes = Config.Bind(z, "总时长分钟", 30f,
+                new ConfigDescription("自动化任务的总运行时间", new AcceptableValueRange<float>(1f, 480f)));
+            AutoContinuous = Config.Bind(z, "连续涂图", false,
+                "当前图片涂完后尝试打开下一张图继续（如找不到切换入口则暂停等待）");
+            AutoPauseBetweenImages = Config.Bind(z, "换图间隔秒", 3f,
+                new ConfigDescription("完成一张图后到切换下一张图的等待时间", new AcceptableValueRange<float>(0.5f, 30f)));
+            AutoDrawingSpeedPreset = Config.Bind(z, "涂色速度预设", 1,
+                new ConfigDescription("0 = 使用「拟人涂色」页签里的速度，1 = 慢，2 = 中，3 = 快",
+                    new AcceptableValueRange<int>(0, 3)));
+
+            var p = "6-面板";
+            PanelOpacity = Config.Bind(p, "不透明度", 0.96f,
+                new ConfigDescription("作弊面板背景的不透明度", new AcceptableValueRange<float>(0.5f, 1f)));
 
             var h = "4-人工辅助";
             HighlightEnabled = Config.Bind(h, "启用颜色高亮", true,

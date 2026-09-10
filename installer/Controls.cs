@@ -107,6 +107,117 @@ namespace ColoringPixelsTool.Installer
         }
     }
 
+    /// <summary>自绘复选框：解决系统 Flat CheckBox 在深色背景上勾选状态几乎不可见的问题。</summary>
+    internal sealed class CheckBoxEx : Control
+    {
+        private bool _checked;
+        private bool _hover;
+
+        public bool Checked
+        {
+            get { return _checked; }
+            set
+            {
+                if (_checked == value) return;
+                _checked = value;
+                Invalidate();
+                OnCheckedChanged(EventArgs.Empty);
+            }
+        }
+
+        public event EventHandler CheckedChanged;
+
+        private void OnCheckedChanged(EventArgs e)
+        {
+            EventHandler h = CheckedChanged;
+            if (h != null) h(this, e);
+        }
+
+        public CheckBoxEx()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw | ControlStyles.UserPaint |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+            Cursor = Cursors.Hand;
+            TabStop = false;
+            Size = new Size(Theme.S(20), Theme.S(20));
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            _hover = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hover = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+                Checked = !_checked;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            int boxSize = Math.Min(Width, Height);
+            int boxX = 0;
+            int boxY = (Height - boxSize) / 2;
+            int radius = Math.Max(2, boxSize / 4);
+            Rectangle box = new Rectangle(boxX, boxY, boxSize - 1, boxSize - 1);
+
+            using (GraphicsPath path = Theme.Rounded(box, radius))
+            {
+                if (_checked)
+                {
+                    using (SolidBrush b = new SolidBrush(Theme.Accent))
+                        g.FillPath(b, path);
+
+                    // 白色对勾
+                    using (Pen p = new Pen(Color.White, Math.Max(1, boxSize / 7)))
+                    {
+                        p.StartCap = LineCap.Round;
+                        p.EndCap = LineCap.Round;
+                        int pad = boxSize / 5;
+                        Point a = new Point(boxX + pad, boxY + boxSize / 2);
+                        Point bpt = new Point(boxX + boxSize / 2 - 1, boxY + boxSize - pad - 2);
+                        Point c = new Point(boxX + boxSize - pad - 1, boxY + pad + 1);
+                        g.DrawLine(p, a, bpt);
+                        g.DrawLine(p, bpt, c);
+                    }
+                }
+                else
+                {
+                    Color fill = _hover ? Theme.Mix(Theme.Card, Theme.Accent, 0.12f) : Theme.Card;
+                    using (SolidBrush b = new SolidBrush(fill))
+                        g.FillPath(b, path);
+                }
+
+                using (Pen pen = new Pen(_hover ? Theme.Accent : Theme.Line, 1))
+                    g.DrawPath(pen, path);
+            }
+
+            if (!string.IsNullOrEmpty(Text))
+            {
+                int textX = boxSize + Theme.S(8);
+                Rectangle tr = new Rectangle(textX, 0, Math.Max(0, Width - textX), Height);
+                TextRenderer.DrawText(g, Text, Font, tr, Theme.Text,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+        }
+    }
+
     /// <summary>状态指示点（用于「已找到 / 未找到」）。</summary>
     internal sealed class StatusDot : Control
     {

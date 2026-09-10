@@ -32,9 +32,9 @@ namespace ColoringPixelsTool.Installer
         private Button _btnUninstall;
         private Button _btnOpenDir;
         private Button _btnLaunch;
-        private CheckBox _chkLaunch;
-        private CheckBox _chkOverwrite;
-        private CheckBox _chkBackup;
+        private CheckBoxEx _chkLaunch;
+        private CheckBoxEx _chkOverwrite;
+        private CheckBoxEx _chkBackup;
         private ProgressBarEx _progress;
         private TextBox _log;
 
@@ -161,9 +161,17 @@ namespace ColoringPixelsTool.Installer
             cardOpt.Location = new Point(left, Theme.S(218));
             cardOpt.Size = new Size(width, Theme.S(134));
 
-            _chkLaunch = Theme.MakeCheck("安装完成后自动启动游戏", true, Theme.S(Side), Theme.S(38), inner);
-            _chkOverwrite = Theme.MakeCheck("覆盖已存在的 BepInEx 文件", true, Theme.S(Side), Theme.S(64), inner);
-            _chkBackup = Theme.MakeCheck("备份被覆盖的文件（卸载时可还原）", true, Theme.S(Side), Theme.S(90), inner);
+            _chkLaunch = new CheckBoxEx { Text = "安装完成后自动启动游戏", Checked = true };
+            _chkLaunch.Location = new Point(Theme.S(Side), Theme.S(38));
+            _chkLaunch.Size = new Size(inner, Theme.S(22));
+
+            _chkOverwrite = new CheckBoxEx { Text = "覆盖已存在的 BepInEx 文件", Checked = true };
+            _chkOverwrite.Location = new Point(Theme.S(Side), Theme.S(64));
+            _chkOverwrite.Size = new Size(inner, Theme.S(22));
+
+            _chkBackup = new CheckBoxEx { Text = "备份被覆盖的文件（卸载时可还原）", Checked = true };
+            _chkBackup.Location = new Point(Theme.S(Side), Theme.S(90));
+            _chkBackup.Size = new Size(inner, Theme.S(22));
             cardOpt.Controls.Add(_chkLaunch);
             cardOpt.Controls.Add(_chkOverwrite);
             cardOpt.Controls.Add(_chkBackup);
@@ -799,11 +807,18 @@ namespace ColoringPixelsTool.Installer
                     Theme.S(16), Theme.S(12), Theme.S(360), Theme.S(20));
                 Controls.Add(tip);
 
-                CheckBox restore = Theme.MakeCheck("还原安装时备份的文件", true, Theme.S(16), Theme.S(40), Theme.S(360));
+                CheckBoxEx restore = new CheckBoxEx { Text = "还原安装时备份的文件", Checked = true };
+                restore.Location = new Point(Theme.S(16), Theme.S(40));
+                restore.Size = new Size(Theme.S(360), Theme.S(22));
                 Controls.Add(restore);
 
-                CheckBox removeAll = Theme.MakeCheck("同时移除 BepInEx 本体（winhttp.dll / BepInEx 目录）",
-                    false, Theme.S(16), Theme.S(68), Theme.S(360));
+                CheckBoxEx removeAll = new CheckBoxEx
+                {
+                    Text = "同时移除 BepInEx 本体（winhttp.dll / BepInEx 目录）",
+                    Checked = false
+                };
+                removeAll.Location = new Point(Theme.S(16), Theme.S(68));
+                removeAll.Size = new Size(Theme.S(360), Theme.S(22));
                 Controls.Add(removeAll);
 
                 Label warn = Theme.MakeLabel("提示：只卸载本插件时，其它基于 BepInEx 的 Mod 不受影响。",
