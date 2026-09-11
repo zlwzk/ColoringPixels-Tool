@@ -155,9 +155,15 @@ function Set-ProjectVersion {
     }
 
     $src = [System.IO.File]::ReadAllText($pluginFile)
-    $patched = [regex]::Replace($src, '(public const string Version = ")[^"]*(";)', ('${1}' + $NewVersion + '${2}'))
-    if ($patched -eq $src) { Warn 'Plugin.cs 中未匹配到 Version 常量，请手动确认' }
-    else { Save-PreservingBom -Path $pluginFile -Text $patched }
+    $expected = 'public const string Version = "' + $NewVersion + '"'
+    if ($src.Contains($expected)) {
+        # 已经是目标版本，无需改写
+    }
+    else {
+        $patched = [regex]::Replace($src, '(public const string Version = ")[^"]*(";)', ('${1}' + $NewVersion + '${2}'))
+        if ($patched -eq $src) { Warn 'Plugin.cs 中未匹配到 Version 常量，请手动确认' }
+        else { Save-PreservingBom -Path $pluginFile -Text $patched }
+    }
 }
 
 # 找到游戏目录（用于编译插件）。按优先级依次尝试：
