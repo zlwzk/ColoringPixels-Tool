@@ -59,6 +59,9 @@ namespace ColoringPixelsTool.Installer
         private DateTime _launchedAt;
         private bool _autoClosed;
 
+        // 安装完成后的更新公告（模态弹窗）：自动关闭时要连它一起收掉
+        private ChangelogDialog _changelogDialog;
+
         public MainForm(Options options)
         {
             _options = options;
@@ -765,7 +768,13 @@ namespace ColoringPixelsTool.Installer
                     try
                     {
                         using (ChangelogDialog dlg = new ChangelogDialog())
-                            dlg.ShowDialog(this);
+                        {
+                            // 留一份引用：游戏起来自动关安装器时要把这个模态弹窗一起关掉，
+                            // 否则「自动关闭」会被它压在屏幕上，看起来就是没关。
+                            _changelogDialog = dlg;
+                            try { dlg.ShowDialog(this); }
+                            finally { _changelogDialog = null; }
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -937,14 +946,19 @@ namespace ColoringPixelsTool.Installer
         private void MarkGameRunning()
         {
             if (_btnLaunch == null) return;
-            try
+            // 安装流程是在后台线程里启动游戏的，直接改控件属性会触发跨线程校验，
+            // 所以这里统一回 UI 线程再改文案。
+            Ui(delegate
             {
-                _btnLaunch.Text = "游戏运行中";
-                _btnLaunch.Enabled = true;
-            }
-            catch (Exception)
-            {
-            }
+                try
+                {
+                    _btnLaunch.Text = "游戏运行中";
+                    _btnLaunch.Enabled = true;
+                }
+                catch (Exception)
+                {
+                }
+            });
         }
 
         /// <summary>把已经在运行的游戏窗口切到前台。</summary>
@@ -966,9 +980,24 @@ namespace ColoringPixelsTool.Installer
         /// 「游戏打开后自动关闭安装器」：
         /// 启动游戏后每 400ms 看一眼进程有没有出现主窗口，出现后再等 2 秒关闭
         /// （留 2 秒是为了不和游戏的启动动画抢焦点）。
+        ///
+        /// 注意：安装流程里 Launch() 是从后台线程调过来的，而 System.Windows.Forms.Timer
+        /// 只活在创建它的那条线程的消息循环里 —— 在后台线程上 Start() 出来的 Timer
+        /// 永远不会 Tick。这正是「游戏都开好了，安装器还杵在那不关」的原因，
+        /// 所以起表之前先切回 UI 线程。
         /// </summary>
         private void WatchGameAndAutoClose(Process game)
         {
+            Ui(delegate { StartAutoCloseWatch(game); });
+        }
+
+        private void StartAutoCloseWatch(Process game)
+        {
+            if (IsDisposed) return;
+
+            // 已经在盯同一个进程了就别重来一遍（安装后自动启动 + 手点「启动游戏」）。
+            if (!_autoClosed && _autoCloseTimer != null && _autoCloseTimer.Enabled) return;
+
             _gameProcess = game;
             _launchedAt = DateTime.UtcNow;
             _autoClosed = false;
@@ -1019,10 +1048,27 @@ namespace ColoringPixelsTool.Installer
             {
                 delay.Stop();
                 delay.Dispose();
-                try { if (!IsDisposed) Close(); }
+
+                // 更新公告是模态弹窗：得先把它收掉，不然主窗口的关闭请求会被压在模态循环里。
+                ChangelogDialog notes = _changelogDialog;
+                _changelogDialog = null;
+                if (notes != null && !notes.IsDisposed)
+                {
+                    try { notes.Close(); }
+                    catch (Exception) { }
+                }
+
+                // 排到消息队列里关自己：等上面那个模态循环先退干净。
+                try { if (!IsDisposed) BeginInvoke(new Action(CloseQuietly)); }
                 catch (Exception) { }
             };
             delay.Start();
+        }
+
+        private void CloseQuietly()
+        {
+            try { if (!IsDisposed) Close(); }
+            catch (Exception) { }
         }
 
         // ============================================================ 其它按钮

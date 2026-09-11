@@ -35,7 +35,10 @@ namespace ColoringPixelsTool
 
         public AssistEngine Engine;
 
-        private bool _showOverlay = true;
+        // 绘图可视框默认关闭：它是一层盖在游戏画面上的特效（柔光填充 + 网格 + 信息牌），
+        // 平时不涂的时候挡视线。用户主动框选 / 校准 / 识别画布时（见下面几个方法）会自动
+        // 打开，按 F7 或点面板上的「显示覆盖层」也能随时打开。
+        private bool _showOverlay = false;
         private bool _selecting;
         private int _selectMode;   // 0 = 框选区域，1 = 框选一个格子做校准
         private Vector2 _selStart;

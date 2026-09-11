@@ -36,7 +36,9 @@ namespace PixelAssist
         private Point _selStart;
         private Point _selNow;
         private int _dragCorner = -1;
-        private bool _overlayVisible = true;
+        // 绘图可视框（遮罩层）默认关闭：它是盖在游戏画面上的特效层，不涂的时候挡视线。
+        // 按 F12 / 点窗口按钮，或者主动框选（F7/F11）时都会自动打开。
+        private bool _overlayVisible = false;
         private float _saveTimer;
 
         // 控件
@@ -45,6 +47,7 @@ namespace PixelAssist
         private AssistProgress _progress;
         private StatusDot _dot;
         private NeonButton _runButton;
+        private NeonButton _overlayButton;
         private Label _regionLabel;
         private NumericUpDown _rows, _speed, _step, _rowPause, _margin, _delay, _autoStop, _switchEvery, _switchWait, _failRadius;
         private CheckBox _snake, _hold, _detect;
@@ -85,6 +88,8 @@ namespace PixelAssist
 
             _overlay.Engine = _engine;
             _overlay.Show();
+            // Show() 之后必须再按开关状态摆一次：覆盖层默认是收起来的。
+            _overlay.Visible = _overlayVisible;
 
             _keys.KeyDown += OnKeyDown;
             _keys.Install();
@@ -172,9 +177,9 @@ namespace PixelAssist
             var calibBtn = FlatButton("格子校准 (F11)", CardBg, 158, y, 134, 34);
             calibBtn.Click += delegate { BeginSelect(1); };
             Add(calibBtn);
-            var overlayBtn = FlatButton("隐藏遮罩 (F12)", CardBg, 300, y, 136, 34);
-            overlayBtn.Click += delegate { ToggleOverlay(); };
-            Add(overlayBtn);
+            _overlayButton = FlatButton("显示遮罩 (F12)", CardBg, 300, y, 136, 34);
+            _overlayButton.Click += delegate { ToggleOverlay(); };
+            Add(_overlayButton);
             y += 42;
 
             // ---- 参数区（可滚动） ----
@@ -553,6 +558,10 @@ namespace PixelAssist
             _detailLabel.Text = string.Format("第 {0}/{1} 行   已用 {2:0.0}s   进度 {3:0}%",
                 _engine.CurrentRow + 1, Math.Max(1, _engine.TotalRows), _engine.ElapsedSeconds, _engine.Progress * 100f);
             _progress.Value = (int)Math.Max(0, Math.Min(100, _engine.Progress * 100f));
+
+            // 遮罩层默认关着，按钮文案得跟着当前状态走，别一直写着「隐藏」。
+            string overlayText = _overlayVisible ? "隐藏遮罩 (F12)" : "显示遮罩 (F12)";
+            if (_overlayButton.Text != overlayText) _overlayButton.Text = overlayText;
 
             // 状态点：运行中呼吸、完成变强调色、其余熄灭
             _dot.Pulsing = running;
