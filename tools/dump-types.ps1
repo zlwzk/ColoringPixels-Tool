@@ -11,7 +11,8 @@ param(
     [switch]$Strings,
     [switch]$IL,
     [switch]$AllRefs,
-    [string]$Search = ''
+    [string]$Search = '',
+    [string]$Method = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -77,6 +78,24 @@ if ($Type) {
                     Write-Output ("  [" + $m.Name + "] " + $ins.Operand)
                 }
             }
+        }
+    }
+    return
+}
+
+if ($Method) {
+    $parts = $Method.Split('.')
+    $typeName = $parts[0]
+    $methodName = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+    $targets = @($all | Where-Object { $_.FullName -eq $typeName -or $_.Name -eq $typeName })
+    if ($targets.Count -eq 0) { Write-Output "TYPE NOT FOUND: $typeName"; return }
+    $tt = $targets[0]
+    foreach ($mm in $tt.Methods) {
+        if ($methodName -and $mm.Name -ne $methodName) { continue }
+        Write-Output ("== " + $tt.FullName + "::" + $mm.Name)
+        if (-not $mm.HasBody) { Write-Output '   (no body)'; continue }
+        foreach ($ii in $mm.Body.Instructions) {
+            Write-Output ("   {0,-14} {1}" -f $ii.OpCode.Name, $ii.Operand)
         }
     }
     return

@@ -28,14 +28,27 @@ namespace ColoringPixelsTool.Installer
 
             Rectangle border = new Rectangle(0, 0, Width - 1, Height - 1);
             using (GraphicsPath path = Theme.Rounded(border, _radius))
-            using (Pen pen = new Pen(Theme.Line))
+            using (SolidBrush fill = new SolidBrush(Theme.Card))
+            using (Pen pen = new Pen(Theme.CardEdge))
             {
+                g.FillPath(fill, path);
                 g.DrawPath(pen, path);
             }
 
+            Theme.TopSheen(g, border, _radius, 20);
+
             if (!string.IsNullOrEmpty(_title))
             {
-                Rectangle tr = new Rectangle(Padding.Left, Theme.S(9), Width - Padding.Left - Padding.Right, Theme.S(20));
+                // 标题前的主色小竖条
+                using (SolidBrush accent = new SolidBrush(Theme.Accent))
+                {
+                    int barH = Theme.S(11);
+                    g.FillRectangle(accent, new Rectangle(Padding.Left, Theme.S(9) + (Theme.S(20) - barH) / 2,
+                        Theme.S(3), barH));
+                }
+
+                Rectangle tr = new Rectangle(Padding.Left + Theme.S(9), Theme.S(9),
+                    Width - Padding.Left - Padding.Right - Theme.S(9), Theme.S(20));
                 TextRenderer.DrawText(g, _title, Theme.FontBold, tr, Theme.Muted,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
@@ -97,11 +110,15 @@ namespace ColoringPixelsTool.Installer
                 int w = Math.Max(Height - 1, fillWidth);
                 Rectangle fill = new Rectangle(0, 0, w, Height - 1);
                 Color c = _value >= 100 ? Theme.Good : Theme.Accent;
-                using (GraphicsPath p = Theme.Rounded(fill, radius))
-                using (LinearGradientBrush b = new LinearGradientBrush(
-                    new Rectangle(0, 0, Math.Max(1, w), Math.Max(1, Height - 1)), c, Theme.Accent2, 0f))
+                Theme.GradientH(g, fill, radius, c, Theme.Accent2);
+
+                // 顶部高光
+                if (w > Theme.S(8))
                 {
-                    g.FillPath(b, p);
+                    using (Pen pen = new Pen(Color.FromArgb(70, 255, 255, 255)))
+                    {
+                        g.DrawLine(pen, Theme.S(4), 1 + Height / 4, w - Theme.S(4), 1 + Height / 4);
+                    }
                 }
             }
         }

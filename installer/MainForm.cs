@@ -25,6 +25,7 @@ namespace ColoringPixelsTool.Installer
 
         private TextBox _txtDir;
         private Label _lblStatus;
+        private Label _lblSub;
         private StatusDot _dot;
         private Button _btnDetect;
         private Button _btnBrowse;
@@ -101,10 +102,10 @@ namespace ColoringPixelsTool.Installer
                 Theme.S(Side + 42), Theme.S(6), Theme.S(400), Theme.S(21));
             Controls.Add(title);
 
-            Label sub = Theme.MakeLabel("Coloring Pixels 一键安装器  ·  v" + AppInfo.AppVersion,
+            _lblSub = Theme.MakeLabel("Coloring Pixels 一键安装器  ·  v" + AppInfo.AppVersion,
                 Theme.Muted, Theme.FontSmall,
-                Theme.S(Side + 42), Theme.S(26), Theme.S(420), Theme.S(16));
-            Controls.Add(sub);
+                Theme.S(Side + 42), Theme.S(26), Theme.S(460), Theme.S(16));
+            Controls.Add(_lblSub);
 
             int closeSize = Theme.S(28);
             Button close = Theme.MakeButton("✕", Theme.Card, Theme.Muted, closeSize, closeSize, false, OnCloseClick);
@@ -305,12 +306,11 @@ namespace ColoringPixelsTool.Installer
                 g.FillRectangle(brush, new Rectangle(0, 0, Width, titleH));
             }
 
-            using (Pen pen = new Pen(Theme.Line))
-            {
-                g.DrawLine(pen, 0, titleH, Width, titleH);
-            }
+            // 顶部品牌细条：紫 → 青
+            Theme.GradientH(g, new Rectangle(0, 0, Math.Max(1, Width), Theme.S(3)), 0,
+                Theme.Accent, Theme.Accent2);
 
-            using (Pen pen = new Pen(Color.FromArgb(120, Theme.Accent)))
+            using (Pen pen = new Pen(Theme.CardEdge))
             {
                 g.DrawLine(pen, 0, titleH, Width, titleH);
             }
@@ -798,11 +798,16 @@ namespace ColoringPixelsTool.Installer
 
         private void OnUpdateClick(object sender, EventArgs e)
         {
-            if (_busy || _checkingUpdate) return;
+            if (_checkingUpdate) return;
 
             // 还没有可用信息就先查一次，查到了再点就是下载。
             if (_update == null)
             {
+                if (_busy)
+                {
+                    Log.Warn("正在执行安装任务，请稍后再检查更新。");
+                    return;
+                }
                 StartUpdateCheck(false);
                 return;
             }
@@ -812,9 +817,12 @@ namespace ColoringPixelsTool.Installer
 
         private void StartUpdateCheck(bool silent)
         {
-            if (_checkingUpdate || _busy) return;
+            // 这里刻意不判断 _busy：启动时的自动检查会和「游戏目录检测」并发，
+            // 之前加上 _busy 条件导致自动检查永远被跳过，看起来就是「检测不到更新」。
+            if (_checkingUpdate) return;
 
             _checkingUpdate = true;
+            SetUpdateSubtitle("正在检查更新…");
             UpdateUpdateButton();
             if (!silent) Log.Step("正在检查新版本……");
 
@@ -834,11 +842,20 @@ namespace ColoringPixelsTool.Installer
             thread.Start();
         }
 
+        /// <summary>把检查结果写到标题栏副标题，用户不必翻日志也能看到状态。</summary>
+        private void SetUpdateSubtitle(string state)
+        {
+            if (_lblSub == null) return;
+            _lblSub.Text = "Coloring Pixels 一键安装器  ·  v" + AppInfo.AppVersion
+                           + (string.IsNullOrEmpty(state) ? "" : "  ·  " + state);
+        }
+
         private void ApplyUpdateResult(UpdateInfo info, string error, bool silent)
         {
             if (error != null)
             {
                 Log.Warn("检查更新失败：" + error);
+                SetUpdateSubtitle("更新检查失败");
                 UpdateUpdateButton();
 
                 if (!silent)
@@ -853,6 +870,7 @@ namespace ColoringPixelsTool.Installer
             if (info == null || string.IsNullOrEmpty(info.Version))
             {
                 Log.Warn("没有从 Release 里解析到版本信息");
+                SetUpdateSubtitle("更新信息不可用");
                 UpdateUpdateButton();
 
                 if (!silent)
@@ -867,6 +885,7 @@ namespace ColoringPixelsTool.Installer
             {
                 _update = null;
                 Log.Ok("当前已是最新版本 v" + AppInfo.AppVersion);
+                SetUpdateSubtitle("已是最新版");
                 UpdateUpdateButton();
 
                 if (!silent)
@@ -880,6 +899,7 @@ namespace ColoringPixelsTool.Installer
             _update = info;
             Log.Warn("发现新版本 v" + info.Version + "（当前 v" + AppInfo.AppVersion
                      + (string.IsNullOrEmpty(info.SizeText) ? "" : "，" + info.SizeText) + "）");
+            SetUpdateSubtitle("发现新版本 v" + info.Version);
             UpdateUpdateButton();
 
             if (!silent)
@@ -969,8 +989,8 @@ namespace ColoringPixelsTool.Installer
             {
                 _btnUpdate.Text = "更新到 v" + _update.Version;
                 _btnUpdate.Font = Theme.FontBold;
-                _btnUpdate.BackColor = Theme.Accent2;
-                _btnUpdate.ForeColor = Theme.Bg;
+                _btnUpdate.BackColor = Theme.Accent;
+                _btnUpdate.ForeColor = Color.White;
             }
             else
             {

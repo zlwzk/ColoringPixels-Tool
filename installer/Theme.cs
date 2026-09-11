@@ -14,6 +14,8 @@ namespace ColoringPixelsTool.Installer
     {
         public static Color Bg;
         public static Color Card;
+        public static Color CardHover;
+        public static Color CardEdge;
         public static Color Line;
         public static Color Text;
         public static Color Muted;
@@ -35,17 +37,20 @@ namespace ColoringPixelsTool.Installer
 
         public static void Init()
         {
-            Bg = Color.FromArgb(15, 17, 24);
-            Card = Color.FromArgb(26, 29, 40);
-            Line = Color.FromArgb(48, 53, 70);
-            Text = Color.FromArgb(233, 237, 246);
-            Muted = Color.FromArgb(146, 154, 173);
-            Accent = Color.FromArgb(86, 130, 255);
-            Accent2 = Color.FromArgb(120, 200, 255);
-            Good = Color.FromArgb(74, 200, 132);
-            Warn = Color.FromArgb(240, 182, 72);
-            Bad = Color.FromArgb(232, 92, 100);
-            Input = Color.FromArgb(18, 20, 28);
+            // 与游戏内面板保持同一套视觉：深靛蓝底 + 青紫霓虹强调
+            Bg = Color.FromArgb(10, 12, 19);
+            Card = Color.FromArgb(23, 27, 39);
+            CardHover = Color.FromArgb(32, 38, 54);
+            CardEdge = Color.FromArgb(41, 48, 68);
+            Line = Color.FromArgb(39, 46, 64);
+            Text = Color.FromArgb(236, 239, 247);
+            Muted = Color.FromArgb(124, 134, 158);
+            Accent = Color.FromArgb(139, 92, 255);
+            Accent2 = Color.FromArgb(43, 221, 245);
+            Good = Color.FromArgb(61, 217, 154);
+            Warn = Color.FromArgb(247, 168, 37);
+            Bad = Color.FromArgb(246, 94, 110);
+            Input = Color.FromArgb(14, 17, 25);
 
             _family = ResolveFamily();
             Scale = DetectScale();
@@ -114,6 +119,39 @@ namespace ColoringPixelsTool.Installer
                 (int)Math.Round(a.B + (b.B - a.B) * t));
         }
 
+        /// <summary>圆角填充。</summary>
+        public static void FillRounded(Graphics g, Rectangle rect, int radius, Color color)
+        {
+            if (rect.Width <= 0 || rect.Height <= 0) return;
+            using (GraphicsPath p = Rounded(rect, radius))
+            using (SolidBrush b = new SolidBrush(color))
+            {
+                g.FillPath(b, p);
+            }
+        }
+
+        /// <summary>水平渐变填充（强调条 / 进度条）。</summary>
+        public static void GradientH(Graphics g, Rectangle rect, int radius, Color from, Color to)
+        {
+            if (rect.Width <= 0 || rect.Height <= 0) return;
+            using (GraphicsPath p = Rounded(rect, radius))
+            using (LinearGradientBrush b = new LinearGradientBrush(rect, from, to, 0f))
+            {
+                g.FillPath(b, p);
+            }
+        }
+
+        /// <summary>顶部 1px 高光，营造玻璃质感。</summary>
+        public static void TopSheen(Graphics g, Rectangle rect, int radius, int alpha)
+        {
+            int inset = radius + S(6);
+            if (rect.Width <= inset * 2) return;
+            using (Pen pen = new Pen(Color.FromArgb(alpha, 255, 255, 255)))
+            {
+                g.DrawLine(pen, rect.X + inset, rect.Y + 1, rect.Right - inset, rect.Y + 1);
+            }
+        }
+
         // ------------------------------------------------------------ 控件工厂
 
         public static Button MakeButton(string text, Color back, Color fore, int width, int height,
@@ -144,6 +182,11 @@ namespace ColoringPixelsTool.Installer
                 btn.ForeColor = btn.Enabled ? fore : Mix(fore, Bg, 0.55f);
                 btn.Cursor = btn.Enabled ? Cursors.Hand : Cursors.Default;
             };
+
+            // 圆角：WinForms 的 Button 只能靠 Region 裁切
+            int radius = S(9);
+            b.Resize += delegate { ApplyRounded(b, radius); };
+            ApplyRounded(b, radius);
 
             if (onClick != null) b.Click += onClick;
             return b;

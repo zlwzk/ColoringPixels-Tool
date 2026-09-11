@@ -263,5 +263,163 @@ namespace ColoringPixelsTool
             if (!InLevel(ct) || st == null) return;
             try { st.SaveGame(ct.savedGridValues, ct.xMax, ct.yMax, false, false); } catch (Exception e) { Log.Warn("保存失败: " + e.Message); }
         }
+
+        // ---------------------------------------------------------------- 切图
+
+        private static readonly FieldInfo FBookIndex = AccessTools.Field(typeof(CrossLevelStorage), "bookIndex");
+        private static readonly FieldInfo FLevelIndex = AccessTools.Field(typeof(CrossLevelStorage), "levelIndex");
+        private static readonly FieldInfo FComplete = AccessTools.Field(typeof(CrossLevelStorage), "complete");
+        private static readonly MethodInfo MLoadNewLevel = AccessTools.Method(typeof(CrossLevelStorage), "LoadNewLevel");
+
+        private static PropertyInfo _booksProp;
+        private static Array _booksCache;
+        private static FieldInfo _levelsField;
+        private static FieldInfo _visibleField;
+
+        /// <summary>当前所在书的索引（-1 表示读不到）。</summary>
+        public static int CurrentBookIndex
+        {
+            get
+            {
+                var st = St;
+                if (st == null || FBookIndex == null) return -1;
+                try { return (int)FBookIndex.GetValue(st); } catch (Exception) { return -1; }
+            }
+        }
+
+        /// <summary>当前所在关卡的索引（-1 表示读不到）。</summary>
+        public static int CurrentLevelIndex
+        {
+            get
+            {
+                var st = St;
+                if (st == null || FLevelIndex == null) return -1;
+                try { return (int)FLevelIndex.GetValue(st); } catch (Exception) { return -1; }
+            }
+        }
+
+        /// <summary>用于判断「是否换了一张图」的稳定标识。</summary>
+        public static string LevelKey
+        {
+            get { return CurrentBookIndex + ":" + CurrentLevelIndex; }
+        }
+
+        private static Array GetBooks()
+        {
+            if (_booksCache != null && _booksCache.Length > 0) return _booksCache;
+            try
+            {
+                if (_booksProp == null)
+                {
+                    Type t = AccessTools.TypeByName("AllBookDetails");
+                    if (t != null)
+                        _booksProp = t.GetProperty("inst",
+                            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                }
+                if (_booksProp != null) _booksCache = _booksProp.GetValue(null, null) as Array;
+            }
+            catch (Exception)
+            {
+            }
+            return _booksCache;
+        }
+
+        private static int LevelCount(object bookDetails)
+        {
+            if (bookDetails == null) return 0;
+            try
+            {
+                if (_levelsField == null) _levelsField = AccessTools.Field(bookDetails.GetType(), "levels");
+                Array arr = _levelsField == null ? null : _levelsField.GetValue(bookDetails) as Array;
+                return arr == null ? 0 : arr.Length;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
+
+        private static bool BookVisible(object bookDetails)
+        {
+            if (bookDetails == null) return false;
+            try
+            {
+                if (_visibleField == null) _visibleField = AccessTools.Field(bookDetails.GetType(), "visible");
+                if (_visibleField == null) return true;
+                object v = _visibleField.GetValue(bookDetails);
+                return !(v is bool) || (bool)v;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 切换到下一关，完全复刻游戏自己的 <c>LevelSelectItem.LoadLevel()</c>：
+        /// <c>CrossLevelStorage.LoadNewLevel(levelIndex, bookIndex, scroll)</c> + <c>SceneManager.LoadScene(1)</c>。
+        ///
+        /// 规则：同一本书里顺着往下走，遇到已完成的关卡直接跳过；
+        /// 一本涂完就进下一本（跳过没有关卡或不可见的书）。
+        /// </summary>
+        public static bool LoadNextLevel(out string message)
+        {
+            message = null;
+            var st = St;
+            if (st == null) { message = "存档尚未就绪"; return false; }
+            if (MLoadNewLevel == null) { message = "找不到 LoadNewLevel 方法"; return false; }
+
+            Array books = GetBooks();
+            if (books == null || books.Length == 0) { message = "读取不到书籍列表"; return false; }
+
+            int book = CurrentBookIndex;
+            if (book < 0 || book >= books.Length) { message = "当前书籍索引异常"; return false; }
+
+            int next = CurrentLevelIndex + 1;
+
+            // complete[book] 记录这本书已经完成的关卡数，直接跳到第一个还没完成的。
+            int done = 0;
+            if (FComplete != null)
+            {
+                int[] arr = FComplete.GetValue(st) as int[];
+                if (arr != null && book < arr.Length && arr[book] > 0) done = arr[book];
+            }
+            if (next < done) next = done;
+
+            int guard = 0;
+            while (true)
+            {
+                if (++guard > 4096) { message = "找不到合适的下一关"; return false; }
+                if (book >= books.Length) { message = "已经是最后一本书的最后一关"; return false; }
+
+                object bd = books.GetValue(book);
+                int count = LevelCount(bd);
+
+                if (count <= 0 || !BookVisible(bd))
+                {
+                    book++;
+                    next = 0;
+                    continue;
+                }
+                if (next < count) break;
+
+                book++;
+                next = 0;
+            }
+
+            try
+            {
+                MLoadNewLevel.Invoke(st, new object[] { next, book, 0f });
+                UnityEngine.SceneManagement.SceneManager.LoadScene(1);
+                message = string.Format("第 {0} 本书 · 第 {1} 关", book + 1, next + 1);
+                Log.Info("AutoScheduler 自动切图：" + message);
+                return true;
+            }
+            catch (Exception e)
+            {
+                message = "切换关卡失败：" + e.Message;
+                return false;
+            }
+        }
     }
 }

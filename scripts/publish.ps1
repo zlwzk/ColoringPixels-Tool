@@ -22,7 +22,19 @@
 
         .\scripts\publish.ps1 -Message "..." -NoDesktop
             发版但不往桌面同步 exe。
-#>
+
+        .\scripts\publish.ps1 -Message "..." -GameDir "D:\Steam\...\Coloring Pixels"
+            指定游戏目录，用于发版前重编译插件 DLL（让面板版本跟随安装包版本）。
+
+        .\scripts\publish.ps1 -Message "..." -SkipMod
+            跳过插件重编译，直接用仓库里已提交的 artifacts\ColoringPixelsTool.dll。
+
+        关于版本号的一致性：
+         VERSION 与 Plugin.Version 由本脚本同步；而 CI 打包时用的是仓库里已提交的
+         artifacts\ColoringPixelsTool.dll（CI 拿不到游戏程序集，无法现场编译）。
+         因此发版前必须在本地重编译插件，才能让面板显示的版本与安装包版本一致。
+         本脚本会在提交前自动重编译（除非 -SkipMod）。
+        #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, HelpMessage = '提交信息，例如 "fix: 修复高亮闪烁"')]
@@ -32,6 +44,10 @@ param(
 
     [ValidateSet('patch', 'minor', 'major')]
     [string]$Bump = 'patch',
+
+    [string]$GameDir,
+
+    [switch]$SkipMod,
 
     [switch]$NoRelease,
 
@@ -144,6 +160,88 @@ function Set-ProjectVersion {
     else { Save-PreservingBom -Path $pluginFile -Text $patched }
 }
 
+# 找到游戏目录（用于编译插件）。按优先级依次尝试：
+# 显式参数 > 环境变量 CPT_GAME_DIR > 仓库的上一级 > 几个常见 Steam 安装位置。
+function Resolve-GameDir {
+    param([string]$Explicit)
+
+    $candidates = New-Object System.Collections.ArrayList
+    if (-not [string]::IsNullOrWhiteSpace($Explicit)) { [void]$candidates.Add($Explicit) }
+    if (-not [string]::IsNullOrWhiteSpace($env:CPT_GAME_DIR)) { [void]$candidates.Add($env:CPT_GAME_DIR) }
+    [void]$candidates.Add((Split-Path -Parent $repoRoot))
+    foreach ($c in @(
+            'D:\Steam\steamapps\common\Coloring Pixels',
+            'C:\Program Files (x86)\Steam\steamapps\common\Coloring Pixels',
+            'C:\Program Files\Steam\steamapps\common\Coloring Pixels'
+        )) {
+        [void]$candidates.Add($c)
+    }
+
+    foreach ($c in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        $path = $null
+        try { $path = (Resolve-Path -LiteralPath $c).Path } catch { continue }
+        if (Test-Path -LiteralPath (Join-Path $path 'ColoringPixels_Data\Managed\Assembly-CSharp.dll')) {
+            return $path
+        }
+    }
+    return $null
+}
+
+# 校验 DLL 里是否真的带上了目标版本号。
+# Plugin.Version 是编译期常量，会以 UTF-16 字符串的形式存进程序集元数据，
+# 因此可以直接在字节里找它的 UTF-16 编码，确认面板将显示的版本。
+function Test-DllVersion {
+    param([string]$Dll, [string]$Version)
+
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Dll)
+
+        # 元数据堆通常 4 字节对齐，但为了稳妥，两种对齐都试一遍。
+        if ([System.Text.Encoding]::Unicode.GetString($bytes).Contains($Version)) { return $true }
+        if ($bytes.Length -gt 1 -and
+            [System.Text.Encoding]::Unicode.GetString($bytes, 1, $bytes.Length - 1).Contains($Version)) {
+            return $true
+        }
+        return $false
+    }
+    catch {
+        return $false
+    }
+}
+
+# 重新编译插件，让 artifacts\ColoringPixelsTool.dll 里的 Plugin.Version 与 VERSION 保持一致。
+# 这一步很关键：CI 打包用的是仓库里已提交的 DLL，不在本地重编译的话，
+# 面板上显示的版本就会停在旧版本，和安装包对不上。
+function Invoke-ModBuild {
+    param([string]$Game, [string]$Version)
+
+    if (-not (Test-Path -LiteralPath $pluginFile)) {
+        Warn "未找到插件源码，跳过插件重编译：$pluginFile"
+        return
+    }
+
+    $buildMod = Join-Path $PSScriptRoot 'build-mod.ps1'
+    if (-not (Test-Path -LiteralPath $buildMod)) {
+        Warn "未找到编译脚本，跳过插件重编译：$buildMod"
+        return
+    }
+
+    # build-mod.ps1 自己会在失败时 throw，这里直接透传它的输出即可。
+    & $buildMod -GameDir $Game -Configuration Release
+
+    $dll = Join-Path $repoRoot 'artifacts\ColoringPixelsTool.dll'
+    if (-not (Test-Path -LiteralPath $dll)) { Fail "插件编译后未找到产物：$dll" }
+    Ok ('插件已重新编译：' + $dll)
+
+    if (Test-DllVersion -Dll $dll -Version $Version) {
+        Ok ('已确认面板版本：v' + $Version + '（与安装包一致）')
+    }
+    else {
+        Warn ('未能在插件 DLL 中找到版本号 v' + $Version + '，面板显示的版本可能与安装包不一致')
+    }
+}
+
 function Step-Version {
     param([string]$Current, [string]$Kind)
 
@@ -188,7 +286,7 @@ Ok ("远端：" + $slug)
 
 # ---------------------------------------------------------------- 1. 版本号
 
-Step '1/6  确定版本号'
+Step '1/6  确定版本号并重编译插件'
 $current = Get-CurrentVersion
 
 if (-not [string]::IsNullOrWhiteSpace($Version)) {
@@ -205,6 +303,26 @@ elseif ($release -and (Test-TagExists ('v' + $current))) {
 else {
     $v = $current
     Ok ('使用当前版本 v' + $v)
+}
+
+# 重编译插件，确保 DLL 里的 Plugin.Version 与 VERSION 一致（面板版本跟随安装包版本）。
+if ($SkipMod) {
+    Warn '-SkipMod：跳过插件重编译，直接使用仓库里的 artifacts\ColoringPixelsTool.dll'
+}
+else {
+    $game = Resolve-GameDir -Explicit $GameDir
+    if ($null -eq $game) {
+        Warn @'
+未找到游戏目录，跳过插件重编译。
+  这样一来，安装包里的插件仍是上一次编译的版本，面板显示的版本可能落后于安装包。
+  如需保证一致，请用 -GameDir "…\Coloring Pixels" 指定游戏目录，或按下面方式重编译：
+      .\scripts\build-mod.ps1 -Backend csc -GameDir "D:\Steam\steamapps\common\Coloring Pixels"
+'@
+    }
+    else {
+        Ok ('游戏目录：' + $game)
+        Invoke-ModBuild -Game $game -Version $v
+    }
 }
 
 # ---------------------------------------------------------------- 2. 提交

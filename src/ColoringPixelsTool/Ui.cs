@@ -3,25 +3,75 @@ using UnityEngine;
 
 namespace ColoringPixelsTool
 {
-    /// <summary>一套自绘的 IMGUI 组件，用于构建现代深色面板。</summary>
+    /// <summary>
+    /// 自绘 IMGUI 组件库。
+    ///
+    /// 视觉语言：深靛蓝底 + 青紫霓虹强调 + 微弱玻璃高光的卡片。
+    /// 所有交互控件都带缓动（Tween），避免生硬的瞬时切换。
+    /// </summary>
     internal static class Ui
     {
-        // ------------------------------------------------------------ 配色
+        // ============================================================ 配色
 
-        public static readonly Color Bg = new Color32(0x0E, 0x10, 0x16, 0xF5);
-        public static readonly Color Panel = new Color32(0x15, 0x18, 0x21, 0xFF);
-        public static readonly Color Card = new Color32(0x1C, 0x20, 0x2B, 0xFF);
-        public static readonly Color CardHover = new Color32(0x24, 0x29, 0x37, 0xFF);
-        public static readonly Color Line = new Color32(0x2A, 0x30, 0x40, 0xFF);
-        public static readonly Color TextCol = new Color32(0xE9, 0xEB, 0xF3, 0xFF);
-        public static readonly Color Muted = new Color32(0x88, 0x90, 0xA5, 0xFF);
-        public static readonly Color Accent = new Color32(0x7C, 0x5C, 0xFF, 0xFF);
-        public static readonly Color Accent2 = new Color32(0x22, 0xD3, 0xEE, 0xFF);
-        public static readonly Color Good = new Color32(0x35, 0xD3, 0x99, 0xFF);
-        public static readonly Color Warn = new Color32(0xF5, 0xA6, 0x23, 0xFF);
-        public static readonly Color Bad = new Color32(0xF4, 0x5B, 0x6B, 0xFF);
+        // 层次自深到浅：Bg → Panel → Card → CardHover
+        public static readonly Color Bg = new Color32(0x0A, 0x0C, 0x13, 0xF7);
+        public static readonly Color Panel = new Color32(0x10, 0x13, 0x1D, 0xFF);
+        public static readonly Color Card = new Color32(0x17, 0x1B, 0x27, 0xFF);
+        public static readonly Color CardHover = new Color32(0x20, 0x26, 0x36, 0xFF);
+        public static readonly Color CardEdge = new Color32(0x27, 0x2E, 0x40, 0xFF);
+        public static readonly Color Line = new Color32(0x22, 0x28, 0x38, 0xFF);
+        public static readonly Color Track = new Color32(0x0C, 0x0F, 0x17, 0xFF);
 
-        // ------------------------------------------------------------ 鼠标状态
+        public static readonly Color TextCol = new Color32(0xEC, 0xEF, 0xF7, 0xFF);
+        public static readonly Color Muted = new Color32(0x7C, 0x86, 0x9E, 0xFF);
+
+        public static readonly Color Accent = new Color32(0x8B, 0x5C, 0xFF, 0xFF);
+        public static readonly Color Accent2 = new Color32(0x2B, 0xDD, 0xF5, 0xFF);
+        public static readonly Color Good = new Color32(0x3D, 0xD9, 0x9A, 0xFF);
+        public static readonly Color Warn = new Color32(0xF7, 0xA8, 0x25, 0xFF);
+        public static readonly Color Bad = new Color32(0xF6, 0x5E, 0x6E, 0xFF);
+
+        public static Color Alpha(Color c, float a)
+        {
+            return new Color(c.r, c.g, c.b, a);
+        }
+
+        /// <summary>t &gt; 0 提亮，t &lt; 0 压暗。</summary>
+        public static Color Shade(Color c, float t)
+        {
+            return t >= 0f ? Color.Lerp(c, Color.white, t) : Color.Lerp(c, Color.black, -t);
+        }
+
+        // ============================================================ 缓动
+
+        private static readonly Dictionary<string, float> Tweens = new Dictionary<string, float>();
+
+        /// <summary>0/1 之间的缓动值（悬停、开关状态过渡）。</summary>
+        public static float Tween(string key, bool on, float speed = 15f)
+        {
+            float v;
+            if (!Tweens.TryGetValue(key, out v)) v = on ? 1f : 0f;
+            v = Mathf.MoveTowards(v, on ? 1f : 0f, Time.unscaledDeltaTime * speed);
+            Tweens[key] = v;
+            return v;
+        }
+
+        /// <summary>带缓动的数值追踪（进度条、计数动画）。</summary>
+        public static float TweenTo(string key, float target, float speed = 9f)
+        {
+            float v;
+            if (!Tweens.TryGetValue(key, out v)) v = target;
+            v = Mathf.Lerp(v, target, 1f - Mathf.Exp(-speed * Time.unscaledDeltaTime));
+            Tweens[key] = v;
+            return v;
+        }
+
+        public static void ClearTweens()
+        {
+            Tweens.Clear();
+        }
+
+        // ============================================================ 鼠标状态
 
         /// <summary>当前命中测试使用的鼠标坐标（与传入 Rect 处于同一坐标系）。</summary>
         public static Vector2 Mouse;
@@ -34,7 +84,7 @@ namespace ColoringPixelsTool
             return MouseInside && r.Contains(Mouse);
         }
 
-        // ------------------------------------------------------------ 字体 / 样式
+        // ============================================================ 字体 / 样式
 
         private static Font _font;
         private static readonly string[] FontPreference =
@@ -72,7 +122,7 @@ namespace ColoringPixelsTool
             }
         }
 
-        private static GUIStyle _title, _label, _small, _muted, _mutedSmall, _bold, _center, _value, _tab;
+        private static GUIStyle _title, _label, _small, _muted, _mutedSmall, _bold, _center, _value, _tab, _stat, _hero, _big;
 
         public static GUIStyle Title => _title ?? (_title = Mk(16, TextCol, FontStyle.Bold));
         public static GUIStyle Label => _label ?? (_label = Mk(13, TextCol));
@@ -84,10 +134,19 @@ namespace ColoringPixelsTool
         public static GUIStyle Value => _value ?? (_value = Mk(13, Accent2, FontStyle.Bold, TextAnchor.MiddleRight));
         public static GUIStyle Tab => _tab ?? (_tab = Mk(13, Muted, FontStyle.Bold, TextAnchor.MiddleCenter));
 
+        /// <summary>数据块里的大号数字。</summary>
+        public static GUIStyle Stat => _stat ?? (_stat = Mk(21, TextCol, FontStyle.Bold));
+
+        /// <summary>居中的大号数字（计时器等）。</summary>
+        public static GUIStyle Big => _big ?? (_big = Mk(28, TextCol, FontStyle.Bold, TextAnchor.MiddleCenter));
+
+        /// <summary>首页主时钟的超大数字。</summary>
+        public static GUIStyle Hero => _hero ?? (_hero = Mk(34, TextCol, FontStyle.Bold, TextAnchor.MiddleLeft));
+
         /// <summary>每次 OnGUI 开始时重置，避免皮肤被外部改动后样式失效。</summary>
         public static void ResetStyles()
         {
-            _title = _label = _small = _muted = _mutedSmall = _bold = _center = _value = _tab = null;
+            _title = _label = _small = _muted = _mutedSmall = _bold = _center = _value = _tab = _stat = _hero = _big = null;
         }
 
         private static GUIStyle Mk(int size, Color color, FontStyle style = FontStyle.Normal,
@@ -109,7 +168,7 @@ namespace ColoringPixelsTool
             return s;
         }
 
-        // ------------------------------------------------------------ 贴图
+        // ============================================================ 贴图
 
         private static Texture2D _white;
 
@@ -167,6 +226,7 @@ namespace ColoringPixelsTool
 
         public static void Fill(Rect r, Color color)
         {
+            if (r.width <= 0f || r.height <= 0f) return;
             Color prev = GUI.color;
             GUI.color = color;
             GUI.DrawTexture(r, White);
@@ -223,7 +283,38 @@ namespace ColoringPixelsTool
                 radius - thickness, inner);
         }
 
-        // ------------------------------------------------------------ 文本
+        /// <summary>
+        /// 玻璃质感表面：底色 + 顶部高光 + 底部压暗。
+        /// hover 为 0~1 的缓动值，用于悬停提亮。
+        /// </summary>
+        public static void Surface(Rect r, float radius, float hover = 0f)
+        {
+            Round(r, radius, Color.Lerp(Card, CardHover, Mathf.Clamp01(hover)));
+
+            float inset = radius * 0.7f;
+            if (r.width > inset * 2f + 4f)
+            {
+                Fill(new Rect(r.x + inset, r.y + 1f, r.width - inset * 2f, 1f),
+                    new Color(1f, 1f, 1f, 0.045f + 0.035f * hover));
+                if (r.height > radius * 2f)
+                    Fill(new Rect(r.x + inset, r.yMax - 1.5f, r.width - inset * 2f, 1f),
+                        new Color(0f, 0f, 0f, 0.22f));
+            }
+        }
+
+        /// <summary>带描边的表面（用于需要强调分组的卡片）。</summary>
+        public static void SurfaceEdge(Rect r, float radius, float hover = 0f)
+        {
+            Round(r, radius, Color.Lerp(CardEdge, Alpha(Accent, 0.55f), Mathf.Clamp01(hover)));
+            Round(new Rect(r.x + 1f, r.y + 1f, r.width - 2f, r.height - 2f), radius - 1f,
+                Color.Lerp(Card, CardHover, Mathf.Clamp01(hover)));
+            float inset = radius * 0.7f;
+            if (r.width > inset * 2f + 4f)
+                Fill(new Rect(r.x + inset, r.y + 1.5f, r.width - inset * 2f, 1f),
+                    new Color(1f, 1f, 1f, 0.05f + 0.03f * hover));
+        }
+
+        // ============================================================ 文本
 
         public static void Text(Rect r, string s, GUIStyle style, Color color)
         {
@@ -238,7 +329,7 @@ namespace ColoringPixelsTool
             GUI.Label(r, s, style);
         }
 
-        // ------------------------------------------------------------ 组件
+        // ============================================================ 组件
 
         private static string _activeSlider;
 
@@ -247,31 +338,45 @@ namespace ColoringPixelsTool
         {
             bool hover = Hit(row);
             Event e = Event.current;
+            float hv = Tween("tg-h:" + label, hover, 18f);
+            float on = Tween("tg-v:" + label, value, 16f);
 
-            Round(row, 8f, hover ? CardHover : Card);
+            Surface(row, 9f, hv);
 
-            const float sw = 40f, sh = 22f;
+            // 开启时左侧有一条主色竖线，便于扫读
+            if (on > 0.01f)
+                Round(new Rect(row.x + 1f, row.y + row.height * 0.24f, 3f, row.height * 0.52f), 1.5f,
+                    Alpha(Accent, 0.9f * on));
+
+            const float sw = 42f, sh = 22f;
             var sr = new Rect(row.xMax - sw - 10f, row.y + (row.height - sh) * 0.5f, sw, sh);
-            Round(sr, sh * 0.5f, value ? Accent : new Color32(0x35, 0x3B, 0x4C, 0xFF));
+            var off = new Color32(0x2C, 0x33, 0x45, 0xFF);
+            Round(sr, sh * 0.5f, Color.Lerp(off, Accent, on));
+
+            // 轨道内阴影
+            Fill(new Rect(sr.x + 3f, sr.yMax - 3.5f, sr.width - 6f, 1.5f), new Color(0f, 0f, 0f, 0.25f));
 
             float kr = sh - 6f;
-            var krr = new Rect(value ? sr.xMax - kr - 3f : sr.x + 3f, sr.y + 3f, kr, kr);
-            Round(krr, kr * 0.5f, Color.white);
+            float travel = sw - kr - 6f;
+            var krr = new Rect(sr.x + 3f + travel * on, sr.y + 3f, kr, kr);
+            Round(krr, kr * 0.5f, Color.Lerp(new Color32(0xD8, 0xDD, 0xE8, 0xFF), Color.white, on));
 
             float textW = row.width - sw - 30f;
             if (string.IsNullOrEmpty(desc))
             {
-                GUI.Label(new Rect(row.x + 12f, row.y + (row.height - 20f) * 0.5f, textW, 20f), label, Label);
+                Text(new Rect(row.x + 13f, row.y + (row.height - 20f) * 0.5f, textW, 20f), label, Label,
+                    Color.Lerp(TextCol, Color.white, hv * 0.35f));
             }
             else
             {
-                GUI.Label(new Rect(row.x + 12f, row.y + 7f, textW, 18f), label, Label);
-                GUI.Label(new Rect(row.x + 12f, row.y + 25f, textW, 16f), desc, MutedSmall);
+                GUI.Label(new Rect(row.x + 13f, row.y + 8f, textW, 18f), label, Label);
+                GUI.Label(new Rect(row.x + 13f, row.y + 26f, textW, 16f), desc, MutedSmall);
             }
 
             if (hover && e.type == EventType.MouseDown && e.button == 0)
             {
                 e.Use();
+                Tweens["tg-v:" + label] = value ? 0f : 1f;
                 return !value;
             }
             return value;
@@ -282,21 +387,35 @@ namespace ColoringPixelsTool
             string display, bool integer)
         {
             Event e = Event.current;
-            var track = new Rect(row.x + 12f, row.yMax - 14f, row.width - 24f, 6f);
+            var track = new Rect(row.x + 13f, row.yMax - 15f, row.width - 26f, 6f);
 
-            GUI.Label(new Rect(row.x + 12f, row.y + 6f, row.width * 0.6f, 18f), label, Label);
-            Text(new Rect(row.x, row.y + 6f, row.width - 12f, 18f), display, Value);
+            GUI.Label(new Rect(row.x + 13f, row.y + 6f, row.width * 0.6f, 18f), label, Label);
+            Text(new Rect(row.x, row.y + 6f, row.width - 13f, 18f), display, Value);
 
             float t = Mathf.InverseLerp(min, max, value);
-            Round(track, 3f, new Color32(0x2B, 0x31, 0x41, 0xFF));
-            Round(new Rect(track.x, track.y, Mathf.Max(4f, track.width * t), track.height), 3f, Accent);
+            float vis = TweenTo("sl-v:" + key, t, 22f);
 
-            float knobX = track.x + track.width * t;
-            bool hover = Hit(new Rect(track.x, track.y - 8f, track.width, track.height + 16f));
-            float kr = hover || _activeSlider == key ? 9f : 7f;
+            Round(track, 3f, Track);
+            Fill(new Rect(track.x + 3f, track.yMax - 2.5f, track.width - 6f, 1f), new Color(0f, 0f, 0f, 0.3f));
+
+            float fillW = track.width * Mathf.Clamp01(vis);
+            if (fillW > 1f)
+            {
+                var fill = new Rect(track.x, track.y, fillW, track.height);
+                Round(fill, 3f, Accent);
+                if (fillW > 8f)
+                    Fill(new Rect(fill.x + 3f, fill.y + 1f, fillW - 6f, 1.4f), new Color(1f, 1f, 1f, 0.28f));
+            }
+
+            bool hover = Hit(new Rect(track.x, track.y - 9f, track.width, track.height + 18f));
+            float h = Tween("sl-h:" + key, hover || _activeSlider == key, 20f);
+            float knobX = track.x + track.width * Mathf.Clamp01(vis);
+            float kr = Mathf.Lerp(6.5f, 9f, h);
+
+            Round(new Rect(knobX - kr - 2f, track.center.y - kr - 2f, (kr + 2f) * 2f, (kr + 2f) * 2f), kr + 2f,
+                Alpha(Accent, 0.22f * h));
             Round(new Rect(knobX - kr, track.center.y - kr, kr * 2f, kr * 2f), kr, Color.white);
 
-            bool changed = false;
             if (e.type == EventType.MouseDown && e.button == 0 && hover)
             {
                 _activeSlider = key;
@@ -310,7 +429,6 @@ namespace ColoringPixelsTool
                 if (!Mathf.Approximately(nv, value))
                 {
                     value = nv;
-                    changed = true;
                 }
                 e.Use();
             }
@@ -320,7 +438,7 @@ namespace ColoringPixelsTool
                 e.Use();
             }
 
-            return changed ? value : value;
+            return value;
         }
 
         public static bool Button(Rect r, string label)
@@ -330,22 +448,31 @@ namespace ColoringPixelsTool
 
         public static bool Button(Rect r, string label, Color accent, bool primary)
         {
-            bool hover = Hit(r);
             Event e = Event.current;
+            bool hover = Hit(r);
             bool down = hover && e.type == EventType.MouseDown;
 
-            if (primary)
-                Round(r, 8f, hover ? Color.Lerp(accent, Color.white, 0.12f) : accent);
-            else
-                Round(r, 8f, hover ? CardHover : Card);
+            string tkey = "bt:" + label + ":" + Mathf.RoundToInt(r.y);
+            float h = Tween(tkey, hover, 19f);
 
             if (primary)
+            {
+                Color baseCol = Color.Lerp(accent, Shade(accent, 0.20f), h);
+                Round(r, 9f, baseCol);
+                float inset = Mathf.Min(8f, r.width * 0.12f);
+                Fill(new Rect(r.x + inset, r.y + 1f, r.width - inset * 2f, 1f), new Color(1f, 1f, 1f, 0.24f));
+                Fill(new Rect(r.x + inset, r.yMax - 1.5f, r.width - inset * 2f, 1f), new Color(0f, 0f, 0f, 0.18f));
                 GUI.Label(r, label, Center);
+            }
             else
             {
-                Round(new Rect(r.x + 1f, r.y + r.height * 0.22f, 3f, r.height * 0.56f), 1.5f,
-                    hover ? accent : new Color(accent.r, accent.g, accent.b, 0.55f));
-                GUI.Label(new Rect(r.x + 12f, r.y, r.width - 16f, r.height), label, Label);
+                Surface(r, 9f, h);
+                var dot = new Rect(r.x + 12f, r.center.y - 3f, 6f, 6f);
+                Round(dot, 3f, Alpha(accent, Mathf.Lerp(0.45f, 1f, h)));
+                if (h > 0.01f)
+                    Round(new Rect(r.x + 1f, r.y + r.height * 0.26f, 3f, r.height * 0.48f), 1.5f,
+                        Alpha(accent, 0.75f * h));
+                GUI.Label(new Rect(r.x + 26f, r.y, r.width - 32f, r.height), label, Label);
             }
 
             if (down && e.button == 0)
@@ -358,9 +485,9 @@ namespace ColoringPixelsTool
 
         public static void Section(Rect row, string title)
         {
-            GUI.Label(new Rect(row.x + 4f, row.y, row.width, row.height), title, MutedSmall);
+            Text(new Rect(row.x + 2f, row.y, row.width, row.height), title, MutedSmall);
             float w = MutedSmall.CalcSize(new GUIContent(title)).x;
-            Fill(new Rect(row.x + 10f + w, row.center.y, Mathf.Max(0f, row.width - w - 14f), 1f), Line);
+            Fill(new Rect(row.x + 9f + w, row.center.y, Mathf.Max(0f, row.width - w - 13f), 1f), Line);
         }
 
         public static void InfoRow(Rect row, string key, string val, Color valColor)
@@ -371,22 +498,44 @@ namespace ColoringPixelsTool
 
         public static void ProgressBar(Rect r, float t, Color color)
         {
-            Round(r, r.height * 0.5f, new Color32(0x24, 0x29, 0x37, 0xFF));
-            float w = Mathf.Max(r.height, r.width * Mathf.Clamp01(t));
-            Round(new Rect(r.x, r.y, w, r.height), r.height * 0.5f, color);
+            float vis = TweenTo("pb:" + Mathf.RoundToInt(r.y) + ":" + Mathf.RoundToInt(r.width), Mathf.Clamp01(t), 14f);
+            Round(r, r.height * 0.5f, Track);
+
+            float w = r.width * Mathf.Clamp01(vis);
+            if (w > 1f)
+            {
+                var fill = new Rect(r.x, r.y, w, r.height);
+                Round(fill, r.height * 0.5f, color);
+                if (w > 8f)
+                    Fill(new Rect(fill.x + 4f, fill.y + Mathf.Max(1f, r.height * 0.18f),
+                        w - 8f, Mathf.Max(1f, r.height * 0.30f)), new Color(1f, 1f, 1f, 0.22f));
+            }
         }
 
         public static void Badge(Rect r, string text, Color color)
         {
-            Round(r, 4f, new Color(color.r, color.g, color.b, 0.16f));
-            Text(r, text, MutedSmall, color);
+            RoundOutline(r, r.height * 0.5f, Alpha(color, 0.45f), Alpha(color, 0.13f), 1f);
+            Text(new Rect(r.x + 8f, r.y, r.width - 12f, r.height), text, MutedSmall, color);
+        }
+
+        /// <summary>数据块：小标题 + 大号数值。</summary>
+        public static void StatTile(Rect r, string label, string value, Color color, float hover = 0f)
+        {
+            Surface(r, 10f, hover);
+            Text(new Rect(r.x + 13f, r.y + 9f, r.width - 24f, 16f), label, MutedSmall);
+            Text(new Rect(r.x + 13f, r.yMax - 34f, r.width - 24f, 26f), value, Stat, color);
         }
 
         /// <summary>绘制一个色块（用于调色板预览）。</summary>
         public static void Swatch(Rect r, Color c, bool selected)
         {
-            if (selected) Round(new Rect(r.x - 2f, r.y - 2f, r.width + 4f, r.height + 4f), 6f, Accent);
+            if (selected)
+            {
+                Round(new Rect(r.x - 3f, r.y - 3f, r.width + 6f, r.height + 6f), 7f, Alpha(Accent, 0.85f));
+                Round(new Rect(r.x - 1.5f, r.y - 1.5f, r.width + 3f, r.height + 3f), 5.5f, Bg);
+            }
             Round(r, 4f, c);
+            Fill(new Rect(r.x + 1f, r.yMax - 2f, r.width - 2f, 1f), new Color(0f, 0f, 0f, 0.28f));
         }
     }
 }

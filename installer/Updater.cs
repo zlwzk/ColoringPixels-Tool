@@ -67,22 +67,98 @@ namespace ColoringPixelsTool.Installer
 
         // ------------------------------------------------------------------ 检查
 
-        /// <summary>查询最新 Release。失败时返回 null，并通过 error 给出原因。</summary>
+        /// <summary>
+        /// 查询最新 Release。失败时返回 null，并通过 error 给出原因。
+        ///
+        /// 优先走 API；如果 api.github.com 在当前网络下不可达（国内很常见），
+        /// 自动降级到 <c>github.com/releases/latest</c> 的 302 跳转来拿版本号。
+        /// </summary>
         public static UpdateInfo Check(out string error)
         {
             error = null;
+
+            string apiError = null;
+            UpdateInfo info = null;
+
             try
             {
                 EnableModernTls();
                 string api = "https://api.github.com/repos/" + RepoSlug + "/releases/latest";
                 string json = HttpGet(api);
-                UpdateInfo info = Parse(json);
+                info = Parse(json);
 
-                if (info == null || string.IsNullOrEmpty(info.AssetUrl))
+                if (info != null && !string.IsNullOrEmpty(info.AssetUrl)) return info;
+                apiError = "Release 里没有找到可下载的安装器（*.exe）";
+            }
+            catch (Exception e)
+            {
+                apiError = e.Message;
+            }
+
+            string fallbackError = null;
+            UpdateInfo fallback = CheckViaRedirect(out fallbackError);
+            if (fallback != null)
+            {
+                Log.Info("GitHub API 不可用（" + apiError + "），已改用 releases 重定向方式检查更新。");
+                return fallback;
+            }
+
+            error = apiError + (string.IsNullOrEmpty(fallbackError) ? "" : " / " + fallbackError);
+            return info;
+        }
+
+        /// <summary>
+        /// 备用方案：访问 <c>https://github.com/{repo}/releases/latest</c>，
+        /// 它一定会 302 到 <c>.../releases/tag/vX.Y.Z</c>，版本号就在 Location 里。
+        /// 下载地址按发布资产命名规律拼接。
+        /// </summary>
+        private static UpdateInfo CheckViaRedirect(out string error)
+        {
+            error = null;
+            try
+            {
+                string url = "https://github.com/" + RepoSlug + "/releases/latest";
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req.UserAgent = UserAgent;
+                req.AllowAutoRedirect = false;
+                req.Timeout = TimeoutMs;
+                req.ReadWriteTimeout = TimeoutMs;
+
+                string location;
+                using (WebResponse resp = req.GetResponse())
                 {
-                    error = "Release 里没有找到可下载的安装器（*.exe）";
+                    location = resp.Headers["Location"];
+                }
+
+                if (string.IsNullOrEmpty(location))
+                {
+                    error = "没有拿到 releases/latest 的跳转地址";
                     return null;
                 }
+
+                int idx = location.LastIndexOf("/tag/", StringComparison.OrdinalIgnoreCase);
+                if (idx < 0)
+                {
+                    error = "无法从跳转地址解析版本号";
+                    return null;
+                }
+
+                string tag = location.Substring(idx + 5).Trim('/');
+                if (tag.Length == 0)
+                {
+                    error = "跳转地址里的版本号为空";
+                    return null;
+                }
+
+                UpdateInfo info = new UpdateInfo();
+                info.Tag = tag;
+                info.Version = NormalizeVersion(tag);
+                info.PageUrl = location;
+                info.AssetName = "ColoringPixelsTool-Setup-" + tag + ".exe";
+                info.AssetUrl = "https://github.com/" + RepoSlug + "/releases/download/" + tag + "/"
+                                + info.AssetName;
+
+                Log.Info("通过 releases 跳转识别到最新版本：" + tag);
                 return info;
             }
             catch (Exception e)

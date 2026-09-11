@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Reflection;
 using UnityEngine;
 
 namespace ColoringPixelsTool
@@ -30,6 +29,13 @@ namespace ColoringPixelsTool
         private float _imagePauseTimer;
         private bool _waitingForNextImage;
 
+        // ---- 切图状态 ----
+        private string _levelKey;
+        private bool _paintedThisLevel;
+        private bool _switching;
+        private string _switchFrom;
+        private float _switchTimeout;
+
         private void Awake()
         {
             Instance = this;
@@ -48,6 +54,10 @@ namespace ColoringPixelsTool
             ImagesCompleted = 0;
             ImagesFailed = 0;
             _waitingForNextImage = false;
+            _switching = false;
+            _switchFrom = null;
+            _levelKey = GameApi.LevelKey;
+            _paintedThisLevel = false;
             Running = true;
 
             ApplySpeedPreset(speedPreset);
@@ -111,12 +121,46 @@ namespace ColoringPixelsTool
 
                 if (OnTick != null) OnTick();
 
+                // 切图后场景会重新加载，等关卡索引真正变化再继续。
+                if (_switching)
+                {
+                    _switchTimeout -= Time.unscaledDeltaTime;
+                    string now = GameApi.LevelKey;
+                    if (now != _switchFrom)
+                    {
+                        _switching = false;
+                        _levelKey = now;
+                        _paintedThisLevel = false;
+                    }
+                    else if (_switchTimeout <= 0f)
+                    {
+                        _switching = false;
+                        _levelKey = now;
+                        _paintedThisLevel = false;
+                        SetStatus("切图超时，继续当前关卡");
+                    }
+                    else
+                    {
+                        SetStatus("正在载入下一张图……");
+                        yield return null;
+                        continue;
+                    }
+                }
+
                 var ct = GameApi.Ct;
                 if (ct == null || !GameApi.InLevel(ct))
                 {
                     SetStatus("等待进入关卡……");
                     yield return null;
                     continue;
+                }
+
+                // 换图后重置计数状态（手动换图也能被识别）。
+                string key = GameApi.LevelKey;
+                if (key != _levelKey)
+                {
+                    _levelKey = key;
+                    _paintedThisLevel = false;
                 }
 
                 if (_waitingForNextImage)
@@ -136,89 +180,51 @@ namespace ColoringPixelsTool
                     int remaining = GameApi.RemainingPixels(ct);
                     if (remaining <= 0)
                     {
-                        ImagesCompleted++;
-                        GameApi.SaveNow();
-                        SetStatus(string.Format("已完成 {0} 张图", ImagesCompleted));
-
-                        if (Continuous)
+                        // 本来就涂满的关卡（比如已完成过）不计入成绩，直接跳过。
+                        if (_paintedThisLevel)
                         {
-                            if (TryLoadNextLevel())
-                            {
-                                _waitingForNextImage = true;
-                                _imagePauseTimer = PauseBetweenImages;
-                            }
-                            else
-                            {
-                                ImagesFailed++;
-                                SetStatus("找不到自动切图入口，请手动打开下一张图");
-                                yield return new WaitForSeconds(1f);
-                            }
+                            ImagesCompleted++;
+                            GameApi.SaveNow();
+                            SetStatus(string.Format("已完成 {0} 张图", ImagesCompleted));
                         }
                         else
+                        {
+                            GameApi.SaveNow();
+                        }
+
+                        if (!Continuous)
                         {
                             StopSession("当前图片完成");
                             yield break;
                         }
+
+                        string detail;
+                        if (GameApi.LoadNextLevel(out detail))
+                        {
+                            _switchFrom = _levelKey;
+                            _switching = true;
+                            _switchTimeout = 8f;
+                            _waitingForNextImage = true;
+                            _imagePauseTimer = PauseBetweenImages;
+                            SetStatus(string.Format("已完成 {0} 张图 · 正在切到{1}", ImagesCompleted, detail));
+                        }
+                        else
+                        {
+                            ImagesFailed++;
+                            SetStatus("无法自动切图：" + detail);
+                            // 停在原地等一会儿再试，避免死循环刷屏。
+                            yield return new WaitForSeconds(2f);
+                        }
                     }
                     else
                     {
+                        _paintedThisLevel = true;
                         _painter.StartRun();
                     }
                 }
 
                 yield return null;
             }
-        }
-
-        /// <summary>
-        /// 通过反射寻找并调用游戏的「下一关/下一张图」方法。
-        /// 因为不同版本的游戏方法名可能不同，这里用一组常见名字做启发式匹配。
-        /// </summary>
-        private bool TryLoadNextLevel()
-        {
-            try
-            {
-                string[] instanceNames = new string[] { "NextLevel", "NextImage", "LoadNextLevel", "AdvanceLevel", "Next" };
-                string[] staticNames = new string[] { "NextLevel", "LoadNextLevel", "AdvanceLevel", "LoadNextImage", "NextImage" };
-
-                var ct = GameApi.Ct;
-                if (ct != null)
-                {
-                    Type type = ct.GetType();
-                    foreach (var name in instanceNames)
-                    {
-                        MethodInfo m = type.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                        if (m != null && m.GetParameters().Length == 0)
-                        {
-                            m.Invoke(ct, null);
-                            Log.Info("AutoScheduler 调用下一关: ClickTest." + name);
-                            return true;
-                        }
-                    }
-                }
-
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    foreach (var t in asm.GetTypes())
-                    {
-                        foreach (var name in staticNames)
-                        {
-                            MethodInfo m = t.GetMethod(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                            if (m != null && m.GetParameters().Length == 0)
-                            {
-                                m.Invoke(null, null);
-                                Log.Info("AutoScheduler 调用下一关: " + t.FullName + "." + name);
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                Log.Warn("自动切图失败: " + e.Message);
-            }
-            return false;
         }
     }
 }
