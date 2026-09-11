@@ -2006,10 +2006,11 @@ namespace ColoringPixelsTool
             bool canResume = eng.State == Assist.AssistState.Paused
                           || eng.State == Assist.AssistState.WaitingColour
                           || eng.State == Assist.AssistState.RowPause;
-            string runLabel = canResume ? "继续 (F6)" : (eng.Running ? "暂停 (F6)" : "开始 (F6)");
+            string runLabel = (canResume ? "继续" : (eng.Running ? "暂停" : "开始"))
+                              + KeyHint(AssistOverlay.RunKey);
             if (Ui.Button(new Rect(0f, y, half, 38f), runLabel, Ui.Accent, true))
                 AssistOverlay.Instance.ToggleRun();
-            if (Ui.Button(new Rect(half + 8f, y, half, 38f), "停止 (F8)", Ui.Bad, false))
+            if (Ui.Button(new Rect(half + 8f, y, half, 38f), "停止" + KeyHint(AssistOverlay.StopKey), Ui.Bad, false))
                 AssistOverlay.Instance.StopFromUi();
             y += 44f;
 
@@ -2028,15 +2029,17 @@ namespace ColoringPixelsTool
             if (!eng.Region.HasRegion)
             {
                 InfoCard(w, ref y, 72f, "还没有框选区域",
-                    "按 F7 在屏幕上拖出整个画布区域，然后按 F11 框选其中一个格子自动推算行数与步长。\n" +
+                    "按 " + KeyName(AssistOverlay.SelectKey) + " 在屏幕上拖出整个画布区域，然后按 "
+                    + KeyName(AssistOverlay.CalibrateKey) + " 框选其中一个格子自动推算行数与步长。\n" +
                     "区域框好后还能拖动四角 / 边中点微调。");
             }
             else
             {
                 InfoCard(w, ref y, 72f, "区域已就绪",
                     string.Format("约 {0:0} × {1:0} 像素，共 {2} 行扫描线。\n"
-                                + "F11 框选一个格子可自动校准「扫描行数 / 采样步长」。",
-                        eng.Region.ApproxWidth(), eng.Region.ApproxHeight(), eng.S.Rows));
+                                + "{3} 框选一个格子可自动校准「扫描行数 / 采样步长」。",
+                        eng.Region.ApproxWidth(), eng.Region.ApproxHeight(), eng.S.Rows,
+                        KeyName(AssistOverlay.CalibrateKey)));
             }
 
             float h2 = (w - 8f) * 0.5f;
@@ -2057,9 +2060,12 @@ namespace ColoringPixelsTool
 
             Section(w, ref y, "区域编辑");
             InfoCard(w, ref y, 74f, "怎么用",
-                "F7 全屏拖拽框选；框好后直接拖动四个白点，可以把矩形调成平行四边形或梯形，\n" +
+                KeyName(AssistOverlay.SelectKey) + " 全屏拖拽框选；框好后直接拖动四个白点，可以把矩形调成平行四边形或梯形，\n" +
                 "中间亮起的小圆点是每条边的中点，用来把直边弯成弧线，贴合不规则区域。\n" +
-                "F11 再框一个格子就能自动推算行数与步长；F12 显示 / 隐藏覆盖层。");
+                KeyName(AssistOverlay.CalibrateKey) + " 再框一个格子就能自动推算行数与步长；"
+                + (AssistOverlay.OverlayKey == KeyCode.None
+                    ? "覆盖层开关可在「设置 → 快捷键」里绑定。"
+                    : KeyName(AssistOverlay.OverlayKey) + " 显示 / 隐藏覆盖层。"));
 
             if (eng.Region.HasRegion)
             {

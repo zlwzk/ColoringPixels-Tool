@@ -2,14 +2,15 @@
 
 # 涂色大师 · Tool
 
-**《Coloring Pixels》非官方作弊 / 辅助工具 —— 一键安装，开箱即用**
+**两款涂色游戏的非官方辅助工具 —— 一键安装，开箱即用**
 
-带图形化安装器的 BepInEx 插件：自动定位游戏目录、部署运行时、启动游戏，进入关卡后按 <kbd>F1</kbd> 打开面板。
+一个安装器同时支持《Coloring Pixels》与《涂色大师：像素梦想家》：自动定位游戏目录、部署文件、启动游戏。
+前者是带图形面板的 BepInEx 插件（进入关卡后按 <kbd>F1</kbd> 打开）；后者的游戏本体是 IL2CPP，无法注入，改用独立助手 `PixelAssist.exe`（启动助手后按 <kbd>F7</kbd> 框选画布、<kbd>F11</kbd> 校准格子、<kbd>F6</kbd> 开始）。
 
-[![Release](https://img.shields.io/github/v/release/zlwzk/ColoringPixelsTool?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=5682ff)](https://github.com/zlwzk/ColoringPixels-Tool/releases)
+[![Release](https://img.shields.io/github/v/release/zlwzk/ColoringPixels-Tool?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=5682ff)](https://github.com/zlwzk/ColoringPixels-Tool/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x86-0078d4.svg)](#系统要求)
-[![Build](https://img.shields.io/github/actions/workflow/status/zlwzk/ColoringPixelsTool/build.yml?label=build)](https://github.com/zlwzk/ColoringPixels-Tool/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/zlwzk/ColoringPixels-Tool/build.yml?label=build)](https://github.com/zlwzk/ColoringPixels-Tool/actions)
 
 </div>
 
@@ -17,47 +18,65 @@
 
 ## 简介
 
-本项目是《Coloring Pixels》（Steam AppID **897330**）的辅助工具，由两部分组成：
+支持两款游戏，共用一个安装器：
+
+| 游戏 | Steam AppID | 接入方式 |
+| --- | --- | --- |
+| 《Coloring Pixels》 | **897330** | BepInEx 插件 + 游戏内面板（<kbd>F1</kbd>） |
+| 《涂色大师：像素梦想家》 | **3071670** | 独立助手 `PixelAssist.exe`（IL2CPP，无法注入插件） |
+
+工具由三部分组成：
 
 | 组件 | 说明 |
 | --- | --- |
-| **安装器** `ColoringPixelsTool-Setup.exe` | 单文件、免安装、可视化。自动检测游戏目录 → 部署 BepInEx + 插件 → 启动游戏。 |
-| **插件** `ColoringPixelsTool.dll` | 游戏内作弊面板，提供涂色、拟人涂色、内容解锁、悬浮 HUD 等能力。 |
+| **安装器** `ColoringPixelsTool-Setup.exe` | 单文件、免安装、可视化。顶部可切换两款游戏，各自记忆目录与状态，互不影响。自动检测游戏目录 → 部署文件 → 启动游戏，并支持检查更新。 |
+| **插件** `ColoringPixelsTool.dll` | 《Coloring Pixels》游戏内面板：分「自动完成」「人工辅助」两大模块，提供涂色、拟人涂色、定时连图、内容解锁、悬浮 HUD 等能力。 |
+| **独立助手** `PixelAssist.exe` | 《涂色大师：像素梦想家》的屏幕扫描助手：框选画布后逐行匀速扫过，每一格仍由游戏自己判定。 |
 
 插件基于 **BepInEx 5（x86）** 与 **Harmony** 运行，不改动游戏本体文件（除注入所需的 `winhttp.dll` / `BepInEx/`）。
+独立助手是纯外部程序，通过热键控制鼠标，不向游戏写入任何内容。
 
 ## 特性
 
 - **一键自动化**：安装器自动完成「找目录 → 部署 → 启动」，无需手动解压、复制文件。
-- **智能目录检测**：运行中的进程 → Steam 库（含 `libraryfolders.vdf`）→ 常见路径 → 全盘深度扫描，并读取 PE 头校验 32 位主程序。
+- **双游戏支持**：一个安装包同时处理两款涂色游戏；一款没识别到不影响另一款，两者各自记忆目录与安装状态。
+- **智能目录检测**：运行中的进程 → Steam 库（含 `libraryfolders.vdf`）→ 常见路径 → 全盘深度扫描，并读取 PE 头校验位数。
 - **安全可逆**：安装时自动备份被覆盖的文件，卸载时一键还原；也可连同 BepInEx 本体一起移除。
-- **涂色辅助**：一键涂完本关 / 当前颜色、清空画布、立即保存、重载关卡。
-- **拟人涂色**：按颜色逐个处理，就近分块 + 蛇形扫行 + 随机停顿 + 手速抖动，可选手滑，模拟真实玩家节奏。
-- **人工辅助高亮**：把当前选中颜色在画布上的待涂格子高亮出来，方便肉眼快速定位；高亮颜色、样式、透明度均可自选。
+- **默认上锁**：会写存档的「涂色 / 拟人 / 自动化」三页默认上锁，第一次解锁要确认风险提示（确定键有 3 秒冷静期），随时可在设置里重新上锁。
+- **自动完成**：一键涂完本关 / 当前颜色、清空画布、立即保存、重载关卡；拟人涂色（就近分块 + 蛇形扫行 + 随机停顿 + 手速抖动，可选手滑）；定时自动化可连涂多张图。
+- **人工辅助**：不代替你点，而是「屏幕扫描 + 模拟鼠标」逐行匀速扫过你框选的区域，每一格仍由游戏自己判定是否涂对，进度与统计和手涂一致；插件内和独立助手共用同一套引擎。
+- **画布颜色高亮**：把当前选中颜色在画布上的待涂格子高亮出来，方便肉眼快速定位；高亮颜色、样式、透明度均可自选。
 - **内容解锁**：解锁全部 DLC、免费提示、显示隐藏书籍、标记书籍完成、解锁 Steam 成就。
-- **悬浮 HUD**：实时显示进度、剩余格子、剩余颜色明细，位置/透明度可调。
+- **悬浮 HUD**：实时显示进度、剩余格子、剩余颜色明细与本图用时，位置/透明度可调。
+- **体验增强**：游戏界面汉化、语音换色、等级与称号、经验与统计、游戏内「推荐预设」按钮、新手指引、爱心重置二次确认。
+- **界面自适配**：面板按分辨率自动缩放，低分辨率下也不会文字重叠。
 - **字段调试**：直接编辑存档字段与关卡运行时字段。
-- **命令行模式**：`--silent`、`--detect-only`、`--uninstall` 等，便于脚本化部署。
+- **命令行模式**：`--silent`、`--detect-only`、`--game=pcs`、`--all`、`--uninstall` 等，便于脚本化部署。
 
 ## 快速开始
 
 ### 系统要求
 
 - Windows 10 / 11（x64 或 x86 系统均可）
-- 已安装 Steam 版《Coloring Pixels》（**32 位版本**；本插件不支持 64 位主程序）
+- 已安装 Steam 版的任一款（或两款）受支持游戏
+  - 《Coloring Pixels》需 **32 位版本**：本插件不支持 64 位主程序
+  - 《涂色大师：像素梦想家》为 64 位 IL2CPP，走独立助手，无位数限制
 - 无需安装 .NET 运行时（插件随游戏自带的 Mono 运行；安装器使用系统自带的 .NET Framework）
 
 ### 一键安装
 
 1. 前往 [**Releases**](https://github.com/zlwzk/ColoringPixels-Tool/releases) 下载最新版 `ColoringPixelsTool-Setup-vX.Y.Z.exe`。
-2. 关闭正在运行的《Coloring Pixels》。
+2. 关闭正在运行的游戏。
 3. 双击运行安装器：
    - 若有安全软件拦截，请选择「允许」/「仍要运行」。
    - 若游戏装在 `Program Files` 等受保护目录，安装器会提示以管理员身份重启。
-4. 点击「**一键安装**」，等待进度条走完。
-5. 安装器会**自动启动游戏**；进入任意关卡后按 <kbd>F1</kbd> 打开作弊面板。
+4. 在顶部标签选择要安装的游戏（默认《Coloring Pixels》），确认游戏目录后点击「**一键安装**」，等待进度条走完。
+5. 安装器会**自动启动游戏**：
+   - 《Coloring Pixels》：进入任意关卡后按 <kbd>F1</kbd> 打开面板。
+   - 《涂色大师：像素梦想家》：启动游戏后运行 `PixelAssist\PixelAssist.exe`，按 <kbd>F7</kbd> 框选画布 → <kbd>F11</kbd> 校准格子 → <kbd>F6</kbd> 开始。
 
 > 首次启动游戏时 BepInEx 会初始化，可能比平时稍慢，属正常现象。
+> 两款游戏的目录与状态相互独立：只装了其中一款时，另一款显示未检测到即可，不影响使用。
 
 ### 卸载
 
@@ -70,33 +89,78 @@
 
 ### 快捷键
 
+《Coloring Pixels》插件（全部可在「设置 → 快捷键」里改）：
+
 | 按键 | 功能 | 备注 |
 | --- | --- | --- |
-| <kbd>F1</kbd> | 打开 / 关闭面板 | 可在配置文件修改 |
-| <kbd>F2</kbd> | 一键涂完当前关卡 | |
-| <kbd>F3</kbd> | 开始 / 停止拟人涂色 | |
+| <kbd>F1</kbd> | 打开 / 关闭面板 | |
+| <kbd>F2</kbd> | 一键涂完当前关卡 | 需先解锁自动绘图 |
+| <kbd>F3</kbd> | 开始 / 停止拟人涂色 | 需先解锁自动绘图 |
 | <kbd>F4</kbd> | 清空当前画布 | |
 | <kbd>F5</kbd> | 立即保存当前关卡 | |
 | <kbd>F6</kbd> | 开关画布颜色高亮 | |
+| <kbd>F7</kbd> | 人工辅助：开始 / 暂停 / 继续 | |
+| <kbd>F8</kbd> | 人工辅助：框选扫描区域 | |
+| <kbd>F9</kbd> | 人工辅助：立即停止 | |
+| <kbd>F10</kbd> | 人工辅助：只扫当前这一行 | |
+| <kbd>F11</kbd> | 人工辅助：停止并从头重新整扫 | |
+| <kbd>F12</kbd> | 人工辅助：格子校准 | 框选一个格子推算行数与采样步长 |
+| <kbd>Q</kbd> | 长按 = 一直按住鼠标左键 | 涂色时不用一直压着鼠标 |
+
+独立助手 `PixelAssist.exe`（《涂色大师：像素梦想家》）：
+
+| 按键 | 功能 |
+| --- | --- |
+| <kbd>F6</kbd> | 开始 / 暂停 / 继续 |
+| <kbd>F7</kbd> | 框选画布区域 |
+| <kbd>F8</kbd> | 急停 |
+| <kbd>F9</kbd> | 试扫当前这一行 |
+| <kbd>F10</kbd> | 停止并从头重新整屏扫描 |
+| <kbd>F11</kbd> | 格子校准 |
+| <kbd>F12</kbd> | 显示 / 隐藏遮罩覆盖层 |
 
 ### 面板页面
 
-- **涂色**：一键涂完、涂完当前颜色、清空、保存、重载；查看画布尺寸 / 颜色数量 / 进度；点击调色板色块可直接涂完该颜色。
-- **拟人**：启动 / 停止自动涂色；调节手速、笔触长度、就近分块、停笔概率、手滑概率；可设置「先涂大面积颜色」「同步高亮调色板」「只涂当前颜色」「结束后自动保存」。
-- **辅助**：高亮当前选中颜色在画布上的待涂格子；可自选高亮颜色（预设色块 / R·G·B 滑条）、样式（填充 / 描边 / 四角框）、不透明度，可只高亮未涂格子、可呼吸闪烁。
+面板顶部有两个模块，切换后各自有独立页签：
+
+**自动完成**（替代手涂）
+
+- **首页**：关卡进度、计时器、自动化状态与快捷操作。
+- **涂色**：一键涂完本关 / 当前颜色、清空画布、立即保存、重载关卡；点调色板色块可直接涂完该颜色。
+- **拟人**：调节手速、笔触长度、就近分块、停笔概率、手滑概率，以及「先涂大面积颜色」「同步高亮调色板」「只涂当前颜色」「结束后自动保存」。
+- **自动化**：设定总时长、换图间隔、连续涂图与速度预设，挂机连涂多张图。
+- **辅助**：画布颜色高亮（预设色块 / R·G·B、填充·描边·四角框、不透明度、只高亮未涂格子、呼吸闪烁）。
 - **解锁**：解锁全部 DLC、免费提示（普通 / 重提示）、显示隐藏书籍、标记书籍完成、解锁 Steam 成就。
-- **显示**：HUD 开关、颜色明细、不透明度、屏幕坐标；查看已完成像素 / 点击次数 / 存档累计 / 关卡状态。
-- **字段**：编辑 `CrossLevelStorage` 存档字段与 `ClickTest` 运行时字段（进阶用途，请谨慎修改）。
+- **设置**：用户资料与背景、面板外观、悬浮 HUD、快捷键、游戏汉化、推荐预设、自动化与安全、语音交互、Bug 反馈、新手指引。
+- **调试**：编辑 `CrossLevelStorage` 存档字段与 `ClickTest` 运行时字段（进阶用途，请谨慎修改）。
+
+> 「涂色 / 拟人 / 自动化」三页会写入存档，默认上锁。第一次点「解锁自动绘图」会弹出风险提示，确认键有 3 秒冷静期；确认后长期有效，也可在「设置 → 自动化与安全」里重新上锁。
+
+**人工辅助**（自己涂，但不用一直按住左键）
+
+- **扫描**：开始 / 暂停、试扫本行、重新整扫、格子校准与区域概览。
+- **区域**：四角坐标可拖动成平行四边形 / 梯形，边中点可把直边弯成弧线。
+- **参数**：扫描行数、鼠标速度、采样步长、行间停顿、边缘内缩、形状（蛇形往返）、安全与自动化（开始倒计时、干预判定半径、自动停止）、自动换色。
+- **预设**：参数预设的保存 / 加载 / 删除，内置「通用 / 精细小图 / 大图极速」快速模板。
+- **助手**：引擎状态、使用说明，以及打开独立助手 `%APPDATA%\PixelAssist` 配置目录的入口。
 
 ### 配置文件
 
-首次运行游戏后，插件会把默认配置写入：
+《Coloring Pixels》插件首次运行后会把默认配置写入：
 
 ```
 <游戏目录>\BepInEx\config\coloringpixels.cheatsuite.cfg
 ```
 
-可直接编辑该文件修改热键、参数与默认值（面板内的改动也会实时写回）。
+可直接编辑该文件修改热键、参数与默认值（面板内的改动也会实时写回）。主要分组：`0-通用`、`1-解锁`、`2-显示`、`3-拟人涂色`、`4-人工辅助`、`5-自动化`、`6-面板`、`7-游戏汉化`、`8-推荐预设`、`9-快捷键`、`A-功能开关`、`B-反馈`。
+
+独立助手的配置与预设保存在：
+
+```
+%APPDATA%\PixelAssist\        （Assist.region / Assist.settings / Presets\*.txt）
+```
+
+插件内的人工辅助区域与参数则存在 `BepInEx\config\ColoringPixelsTool.Assist\`，两者互不影响。
 
 ## 命令行参数
 
@@ -106,6 +170,8 @@
 ColoringPixelsTool-Setup.exe [选项]
 
   --dir=<路径>        指定游戏目录（跳过自动检测）
+  --game=<cp|pcs>     指定目标游戏，默认 cp（cp = Coloring Pixels，pcs = 像素梦想家）
+  --all               对所有检测到的游戏各安装一次
   --silent            静默安装，不显示界面
   --detect-only       只检测游戏目录并退出
   --uninstall         卸载本插件
@@ -127,8 +193,14 @@ ColoringPixelsTool-Setup.exe [选项]
 # 静默安装到指定目录，不启动游戏
 .\ColoringPixelsTool-Setup.exe --silent --dir="D:\Steam\steamapps\common\Coloring Pixels" --no-launch
 
-# 只检测游戏目录
-.\ColoringPixelsTool-Setup.exe --detect-only
+# 给第二款游戏安装独立助手
+.\ColoringPixelsTool-Setup.exe --game=pcs --silent --no-launch
+
+# 两款游戏各装一次
+.\ColoringPixelsTool-Setup.exe --all --silent --no-launch
+
+# 只检测游戏目录（两款都检测）
+.\ColoringPixelsTool-Setup.exe --detect-only --all
 ```
 
 ## 常见问题
@@ -143,11 +215,33 @@ ColoringPixelsTool-Setup.exe [选项]
 </details>
 
 <details>
+<summary><b>「涂色 / 拟人 / 自动化」三个页面点不进去、提示已上锁？</b></summary>
+
+这三页会把结果写进当前关卡存档，因此默认上锁。切到「解锁」页点「解锁自动绘图」，
+在风险提示里确认一次（确定键有 3 秒冷静期）即可永久生效；想关掉回到「设置 → 自动化与安全」重新上锁。
+
+</details>
+
+<details>
+<summary><b>《涂色大师：像素梦想家》该怎么用？</b></summary>
+
+这款游戏是 IL2CPP，无法注入插件，安装器改为部署一个独立的 `PixelAssist.exe`：
+
+1. 先启动游戏并进入关卡；
+2. 运行游戏目录下的 `PixelAssist\PixelAssist.exe`；
+3. 按 <kbd>F7</kbd> 框选整个画布区域，按 <kbd>F11</kbd> 框选其中一个格子做校准，再按 <kbd>F6</kbd> 开始；
+4. <kbd>F8</kbd> 随时急停，<kbd>F12</kbd> 开关遮罩覆盖层。
+
+助手只是模拟鼠标逐行扫过，是否涂对仍由游戏自己判定，所以进度和统计与你手涂一致。
+
+</details>
+
+<details>
 <summary><b>安装器提示「目录不可用」或找不到游戏？</b></summary>
 
-- 请选择包含 `ColoringPixels.exe` 的那一层目录。
+- 请选择包含游戏主程序（`ColoringPixels.exe` 或 `PixelCrossStitch.exe`）的那一层目录。
 - 或使用 `--deep` 参数进行全盘深度扫描。
-- 若游戏为 64 位主程序，本插件不支持。
+- 《Coloring Pixels》的 64 位主程序不受支持；《涂色大师：像素梦想家》无此限制。
 
 </details>
 
@@ -192,6 +286,8 @@ ColoringPixelsTool-Setup.exe [选项]
 ```
 CheatTools/
 ├─ src/ColoringPixelsTool/     插件源码（C#，BepInEx + Harmony）
+│  └─ Assist*.cs                人工辅助引擎（区域模型 / 屏幕扫描 / 模拟鼠标），插件与助手共用
+├─ src/PixelAssist/            独立助手源码（C# 5 / WinForms，供 IL2CPP 游戏使用）
 ├─ installer/                   安装器源码（C# 5 / WinForms，单文件）
 │  └─ payload/                  部署包覆盖层（定制 doorstop_config.ini 等）
 ├─ scripts/                     构建脚本（PowerShell）

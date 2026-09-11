@@ -221,36 +221,52 @@ namespace ColoringPixelsTool
             "快捷键与 Bug 反馈"
         };
 
-        private static readonly string[] GuideBodies =
+        // 指引正文里会带上当前快捷键（用户可能在「设置 → 快捷键」里改过），
+        // 因此延迟到真正打开指引时再拼装，避免静态字段初始化时 Plugin 的配置还没绑定。
+        private static string[] _guideBodies;
+
+        private static string[] GuideBodies
         {
-            "这是给《Coloring Pixels》准备的一整套涂色辅助工具：\n\n" +
-            "· 自动完成：一键涂完、拟人涂色、定时连图；\n" +
-            "· 人工辅助：只帮你扫行、点格子，画面交给游戏自己判定；\n" +
-            "· 体验增强：画布配色高亮、语音换色、单图用时统计、界面汉化。\n\n" +
-            "建议花一分钟把后面几页看完。",
+            get
+            {
+                if (_guideBodies == null) _guideBodies = BuildGuideBodies();
+                return _guideBodies;
+            }
+        }
 
-            "「涂色 / 拟人 / 自动化」三页会写入存档，默认上锁。\n\n" +
-            "想用的时候，切到这两个分区里的「解锁」页，点一下「解锁自动绘图」；\n" +
-            "第一次解锁会弹一次风险提示，确认之后才生效。\n" +
-            "解锁状态会被记住，下次启动不必再点。\n\n" +
-            "这么做只是为了防手滑，随时可以在设置里重新上锁。",
+        private static string[] BuildGuideBodies()
+        {
+            return new string[]
+            {
+                "这是给《Coloring Pixels》准备的一整套涂色辅助工具：\n\n" +
+                "· 自动完成：一键涂完、拟人涂色、定时连图；\n" +
+                "· 人工辅助：只帮你扫行、点格子，画面交给游戏自己判定；\n" +
+                "· 体验增强：画布配色高亮、语音换色、单图用时统计、界面汉化。\n\n" +
+                "建议花一分钟把后面几页看完。",
 
-            "只想自己涂、但嫌一格一格点太累？\n\n" +
-            "1. 按 F7（可改）在画布上拖拽框选要涂的区域；\n" +
-            "2. 按 F6 开始，工具会按住鼠标左键逐行匀速扫过；\n" +
-            "3. 按 F8 随时急停。\n\n" +
-            "每一格仍然由游戏自己判定是否涂对，所以进度、统计都和你手涂一模一样。",
+                "「涂色 / 拟人 / 自动化」三页会写入存档，默认上锁。\n\n" +
+                "想用的时候，切到这两个分区里的「解锁」页，点一下「解锁自动绘图」；\n" +
+                "第一次解锁会弹一次风险提示，确认之后才生效。\n" +
+                "解锁状态会被记住，下次启动不必再点。\n\n" +
+                "这么做只是为了防手滑，随时可以在设置里重新上锁。",
 
-            "语音换色：在「设置 → 语音交互」里开启后，直接说颜色编号即可切色，\n" +
-            "支持「五」「5」「number five」等说法（听写模式），也可以只认固定词表（关键词模式）。\n\n" +
-            "单图计时：进入关卡后第一次落笔开始计时，涂满即停表，发呆时间不计入；\n" +
-            "面板和 HUD 都会显示本图用时与历史最快记录。",
+                "只想自己涂、但嫌一格一格点太累？\n\n" +
+                "1. 按 " + KeyName(AssistOverlay.SelectKey) + " 在画布上拖拽框选要涂的区域；\n" +
+                "2. 按 " + KeyName(AssistOverlay.RunKey) + " 开始，工具会按住鼠标左键逐行匀速扫过；\n" +
+                "3. 按 " + KeyName(AssistOverlay.StopKey) + " 随时急停。\n\n" +
+                "每一格仍然由游戏自己判定是否涂对，所以进度、统计都和你手涂一模一样。",
 
-            "所有快捷键都能在「设置 → 快捷键」里改：点一下对应行，再按任意键即可。\n\n" +
-            "遇到问题或想提建议？到「设置 → Bug 反馈与功能建议」，\n" +
-            "选好类型、填上标题和描述，点提交即可发到 GitHub Issues。\n\n" +
-            "日志会自动附在正文里，方便定位问题。"
-        };
+                "语音换色：在「设置 → 语音交互」里开启后，直接说颜色编号即可切色，\n" +
+                "支持「五」「5」「number five」等说法（听写模式），也可以只认固定词表（关键词模式）。\n\n" +
+                "单图计时：进入关卡后第一次落笔开始计时，涂满即停表，发呆时间不计入；\n" +
+                "面板和 HUD 都会显示本图用时与历史最快记录。",
+
+                "所有快捷键都能在「设置 → 快捷键」里改：点一下对应行，再按任意键即可。\n\n" +
+                "遇到问题或想提建议？到「设置 → Bug 反馈与功能建议」，\n" +
+                "选好类型、填上标题和描述，点提交即可发到 GitHub Issues。\n\n" +
+                "日志会自动附在正文里，方便定位问题。"
+            };
+        }
 
         private void DrawGuide()
         {
@@ -448,8 +464,10 @@ namespace ColoringPixelsTool
                 "1. 按 " + KeyName(AssistOverlay.SelectKey) + " 在画布上拖拽，框出要涂的范围；\n" +
                 "2. 按 " + KeyName(AssistOverlay.RunKey) + " 开始，工具按住左键逐行扫过；\n" +
                 "3. 随时按 " + KeyName(AssistOverlay.StopKey) + " 急停，" + KeyName(AssistOverlay.TestRowKey) + " 只扫当前行，\n" +
-                "   " + KeyName(AssistOverlay.RestartKey) + " 从头重扫，" + KeyName(AssistOverlay.CalibrateKey) + " 校准格子，"
-                + KeyName(AssistOverlay.OverlayKey) + " 开关覆盖层。", Ui.MutedStyle);
+                "   " + KeyName(AssistOverlay.RestartKey) + " 从头重扫，" + KeyName(AssistOverlay.CalibrateKey) + " 校准格子；"
+                + (AssistOverlay.OverlayKey == KeyCode.None
+                    ? "覆盖层开关默认未绑定按键。"
+                    : KeyName(AssistOverlay.OverlayKey) + " 开关覆盖层。"), Ui.MutedStyle);
             y += 92f;
 
             if (overlay != null)

@@ -3,6 +3,25 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.1] - 2026-09-11
+
+### 修复
+
+- 修正面板里写死的人工辅助热键：按钮与提示文案此前仍写着独立助手的 F6 / F8，与插件实际默认的
+  F7（开始）/ F9（停止）不符。现在这些文案统一改为读取「设置 → 快捷键」的实际配置，改键后即时更新
+  （涉及「扫描」页按钮、「区域」页说明与新手指引第 3 页）。
+- 覆盖层开关未绑定按键时，不再显示「未设置」这种别扭文案，改为提示可在设置里绑定。
+- 修正 `README.md` 徽章的仓库地址（`zlwzk/ColoringPixelsTool` → `zlwzk/ColoringPixels-Tool`），
+  此前 Release / Build 徽章指向一个不存在的仓库。
+
+### 文档
+
+- `docs/USAGE.md` 全面重写：补齐第二款游戏《涂色大师：像素梦想家》与独立助手 PixelAssist 的用法、
+  面板「自动完成 / 人工辅助」两大模块的逐页说明、自动绘图上锁与解锁流程，以及 12 个配置分组的完整键值表。
+- `README.md` 同步到当前版本：双游戏简介与组件表、特性清单、F1–F12 快捷键、
+  `--game` / `--all` 参数，常见问题新增「三个页面为什么是灰的」「第二款游戏怎么用」。
+- `docs/BUILDING.md` 修正 `publish.ps1` 的错误参数说明与写错的仓库地址。
+
 ## [2.2.0] - 2026-09-11
 
 ### 新增
@@ -186,6 +205,7 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.2.1]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.1
 [2.2.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.0
 [2.1.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.1.0
 [2.0.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.0.0

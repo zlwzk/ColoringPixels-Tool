@@ -43,7 +43,7 @@ cd ColoringPixelsTool
 
 - `Directory.Build.props` 读取它并写入程序集版本；
 - `build-installer.ps1` / `build-release.ps1` 读取它并用于产物文件名。
-- 插件源码中的 `Plugin.Version` 常量需**同步手动修改**（发版时一起改）。
+- 插件源码中的 `Plugin.Version` 常量由 `publish.ps1` 自动同步；手动发版时才需要自己改。
 
 ## 4. 编译插件
 
@@ -119,21 +119,29 @@ dist\SHA256SUMS.txt            安装器与部署包的 SHA256 校验和
 - [`.github/workflows/build.yml`](../.github/workflows/build.yml)：每次 push / PR 触发，验证 `build-release.ps1 -SkipMod` 可正常出包，并上传构建产物。
 - [`.github/workflows/release.yml`](../.github/workflows/release.yml)：推送 `v*` 标签时触发，自动构建并创建 GitHub Release，附带安装器与 `SHA256SUMS.txt`。
 
-发版步骤（推荐用一条命令完成：`.\scripts\publish.ps1 -Message "..." -Version 1.2.0 -Release`，它会同步版本号、提交、推送并打标签）：
+发版推荐用一条命令完成：
 
-1. 更新 `VERSION`、`Plugin.Version` 与 `CHANGELOG.md`；
-2. 提交并推送；
-3. 打标签并推送：
-   ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
-   ```
-4. 等待 Actions 完成，在 Releases 页面确认产物。
+```powershell
+# 提交 + 推送 + 自动升版本 + 打标签 + 等 CI + 把安装器同步到桌面
+.\scripts\publish.ps1 -Message "feat: ..." -GameDir "D:\Steam\steamapps\common\Coloring Pixels"
+
+# 只提交推送，不发版
+.\scripts\publish.ps1 -Message "docs: ..." -NoRelease
+```
+
+脚本会自动同步 `VERSION` 与 `Plugin.Version`、重编译插件（保证面板版本与安装包一致）、提交推送、
+打 `v*` 标签触发 CI，最后把安装器下载到桌面固定名 `ColoringPixelsTool-Setup.exe`。
+当前版本已发过时会自动 +1 patch（也可用 `-Bump` / `-Version` 指定），所以发版前请先把
+`CHANGELOG.md` 与 `RELEASE_NOTES.md`（CI 用它作为 Release 正文）写好。
+
+手动发版：改 `VERSION` / `Plugin.Version` / `CHANGELOG.md` → 提交推送 →
+`git tag vX.Y.Z` 与 `git push origin vX.Y.Z` → 等 Actions 完成后在 Releases 页面确认产物。
 
 ## 9. 自定义（仓库信息 / 图标）
 
-- **仓库地址**：`Directory.Build.props` 的 `RepositoryUrl`、`README.md` 徽章与 `CHANGELOG.md` 的版本链接
-  中均已写入本仓库地址 `zlwzk/ColoringPixelsTool`；若 fork 本项目，请把这 3 处一并改成你自己的仓库路径。
+- **仓库地址**：`Directory.Build.props` 的 `RepositoryUrl`、`installer/AppInfo.cs` 的 `DefaultRepositoryUrl`、
+  `README.md` 徽章与 `CHANGELOG.md` 的版本链接中均已写入本仓库地址 `zlwzk/ColoringPixels-Tool`；
+  若 fork 本项目，请把这几处一并改成你自己的仓库路径。
 - **图标**：编辑 `scripts/make-icon.ps1` 的配色 / 图形后重新生成 `assets/icon.ico`。
 - **安装器文案 / 配色**：见 `installer/Theme.cs` 与 `installer/MainForm.cs`（**保持 C# 5 语法**）。
 - **插件名称 / 版本 / 快捷键**：见 `src/ColoringPixelsTool/Plugin.cs`。
