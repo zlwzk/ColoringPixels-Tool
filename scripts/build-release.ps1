@@ -48,6 +48,16 @@ Write-Host ''
 Write-Host ('  Coloring Pixels Tool  发布构建  v' + $version) -ForegroundColor White
 Write-Host ('  仓库根目录：' + $repoRoot) -ForegroundColor DarkGray
 
+# ---------------------------------------------------------------- 公告
+
+# RELEASE_NOTES.md 是公告唯一来源：先据此生成面板 / 安装器公告源码，
+# 后面编译插件与安装器时就会带上最新公告（CI 也走这条路径）。
+$buildChangelog = Join-Path $PSScriptRoot 'build-changelog.ps1'
+if (Test-Path -LiteralPath $buildChangelog) {
+    Step '0/5  同步更新公告（RELEASE_NOTES.md -> 面板 / 安装器）'
+    & $buildChangelog
+}
+
 # ---------------------------------------------------------------- 清理
 
 if ($Clean) {

@@ -45,6 +45,26 @@ cd ColoringPixelsTool
 - `build-installer.ps1` / `build-release.ps1` 读取它并用于产物文件名。
 - 插件源码中的 `Plugin.Version` 常量由 `publish.ps1` 自动同步；手动发版时才需要自己改。
 
+### 3.1 更新公告（三处同步）
+
+「更新公告」同样只有一个来源：仓库根目录的 [`RELEASE_NOTES.md`](../RELEASE_NOTES.md)。
+
+- CI 把它作为 GitHub Release 正文（见 `release.yml` 的 `body_path`）；
+- [`scripts/build-changelog.ps1`](../scripts/build-changelog.ps1) 把它转成两个源码文件：
+  - `src\ColoringPixelsTool\Changelog.cs` —— 游戏内 <kbd>F1</kbd> 面板的「更新公告」；
+  - `installer\ReleaseNotes.cs` —— 安装器安装完成后的弹窗公告。
+
+因此**改公告只需编辑 `RELEASE_NOTES.md`**，上面两个 `.cs` 由脚本生成，不要手改。
+脚本会在 `publish.ps1` 与 `build-release.ps1` 编译前自动运行，也可单独执行：
+
+```powershell
+.\scripts\build-changelog.ps1          # 生成 / 更新两个公告源码文件
+.\scripts\build-changelog.ps1 -Check   # 只校验是否已同步（未同步时退出码 1）
+```
+
+发版时 `publish.ps1` 会检查 `RELEASE_NOTES.md` 里是否出现新版本号，没写就直接报错——
+所以升版本时**先更新公告，再发版**。
+
 ## 4. 编译插件
 
 ```powershell
@@ -81,6 +101,9 @@ cd ColoringPixelsTool
 ## 6. 分步构建
 
 ```powershell
+# ⓪ 生成更新公告源码（RELEASE_NOTES.md -> 面板 / 安装器）
+.\scripts\build-changelog.ps1
+
 # ① 仅编译插件
 .\scripts\build-mod.ps1
 
@@ -98,6 +121,7 @@ cd ColoringPixelsTool
 
 | 脚本 | 主要参数 |
 | --- | --- |
+| `build-changelog.ps1` | `-Check` |
 | `build-mod.ps1` | `-GameDir` `-Configuration` `-Output` `-Backend` `-Clean` |
 | `build-payload.ps1` | `-Output` `-ModDll` `-GameDir` `-SkipZip` |
 | `build-installer.ps1` | `-Version` `-Output` `-PayloadZip` |

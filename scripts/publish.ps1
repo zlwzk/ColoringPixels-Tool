@@ -311,6 +311,26 @@ else {
     Ok ('使用当前版本 v' + $v)
 }
 
+# 从 RELEASE_NOTES.md 重新生成「更新公告」源码（游戏内面板 + 安装器弹窗），
+# 保证三处公告一致；发版时还要求公告里确实写到了新版本号，避免又忘了更新公告。
+$notesFile = Join-Path $repoRoot 'RELEASE_NOTES.md'
+if ($release) {
+    if (-not (Test-Path -LiteralPath $notesFile)) { Fail "缺少公告文件：$notesFile" }
+    if (([System.IO.File]::ReadAllText($notesFile)) -notmatch [regex]::Escape($v)) {
+        Fail ('RELEASE_NOTES.md 里没有出现 v' + $v + '。请先把公告更新到新版本再发版——' +
+              '游戏内面板公告与安装器弹窗都由它生成。')
+    }
+}
+
+$buildChangelog = Join-Path $PSScriptRoot 'build-changelog.ps1'
+if (Test-Path -LiteralPath $buildChangelog) {
+    Step '1.5/6  同步更新公告（RELEASE_NOTES.md -> 面板 / 安装器）'
+    & $buildChangelog
+}
+else {
+    Warn "未找到 $buildChangelog，跳过更新公告同步"
+}
+
 # 重编译插件，确保 DLL 里的 Plugin.Version 与 VERSION 一致（面板版本跟随安装包版本）。
 if ($SkipMod) {
     Warn '-SkipMod：跳过插件重编译，直接使用仓库里的 artifacts\ColoringPixelsTool.dll'

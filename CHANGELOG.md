@@ -3,6 +3,31 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.3] - 2026-09-11
+
+### 修复
+
+- **面板与安装器的「更新公告」现在会自动跟随版本**：此前公告散落在 `RELEASE_NOTES.md`、
+  插件 `Changelog.cs`、安装器 `ChangelogDialog.cs` 三处手写，版本一升，后两处常被漏改
+  （v2.2.2 就出现了「安装包是新的、面板公告还停在 2.2.1」）。
+  现在 `RELEASE_NOTES.md` 是唯一来源，新增 `scripts/build-changelog.ps1` 生成
+  `src/ColoringPixelsTool/Changelog.cs` 与 `installer/ReleaseNotes.cs`；
+  `publish.ps1` 与 `build-release.ps1`（CI）都会在编译前自动执行，发版时若公告未写到新版本号则直接报错。
+- 公告文本由 Markdown 转为纯文本时，统一处理标题、加粗、列表、表格与 `<kbd>` 按键标记，
+  面板与弹窗中不再出现 Markdown 符号。
+
+### 文档
+
+- `docs/BUILDING.md` 新增「更新公告」小节，说明公告唯一来源与生成命令。
+
+## [2.2.2] - 2026-09-11
+
+### 修复
+
+- **修复安装器启动失败**：`NeonButton` 在声明 `SupportsTransparentBackColor` 之前就设置了
+  `BackColor = Color.Transparent`，部分 .NET Framework / 高 DPI 环境下会抛出
+  「控件不支持透明的背景色」而无法启动。现改为先 `SetStyle(...)` 再设置透明背景色。
+
 ## [2.2.1] - 2026-09-11
 
 ### 修复
@@ -205,6 +230,8 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.2.3]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.3
+[2.2.2]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.2
 [2.2.1]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.1
 [2.2.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.0
 [2.1.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.1.0
