@@ -230,6 +230,108 @@ namespace PixelAssist
             if (maxGroups > 0 && groups.Count > maxGroups) groups.RemoveRange(maxGroups, groups.Count - maxGroups);
             return groups;
         }
+
+        // ---------------------------------------------------------------- 按「册」统计
+        //
+        // 存档里有两份互补的记录：
+        //   · PicturesCompletedInPacks —— 涂完了哪些图（权威，完成后就不再变）；
+        //   · Progress —— 进行中的图（格子级的进度都在这里）。
+        // 把它们合起来，才知道「这一册玩了几张、还剩多少」。
+
+        /// <summary>聚合每册（图片包）的进度。按册号升序返回。</summary>
+        public static List<PcsPackStat> LoadPackStats(string path)
+        {
+            var order = new List<int>();
+            var map = new Dictionary<int, PcsPackStat>();
+
+            string text = ReadPlainText(path);
+            if (string.IsNullOrEmpty(text)) return new List<PcsPackStat>();
+
+            object root;
+            try
+            {
+                root = MiniJson.Parse(text);
+            }
+            catch (Exception)
+            {
+                return new List<PcsPackStat>();
+            }
+
+            var rootObj = root as Dictionary<string, object>;
+            if (rootObj == null) return new List<PcsPackStat>();
+
+            // 1) 已涂完的图
+            var completed = MiniJson.GetArray(rootObj, "PicturesCompletedInPacks");
+            if (completed != null)
+            {
+                for (int i = 0; i < completed.Count; i++)
+                {
+                    var entry = completed[i] as Dictionary<string, object>;
+                    if (entry == null) continue;
+
+                    int pack = MiniJson.GetInt(entry, "PackageNumber", -1);
+                    if (pack < 0) continue;
+
+                    StatOf(map, order, pack).Completed++;
+                }
+            }
+
+            // 2) 涂到一半的图（顺带把还差多少格也累计上）
+            var progress = MiniJson.GetArray(rootObj, "Progress");
+            if (progress != null)
+            {
+                for (int i = 0; i < progress.Count; i++)
+                {
+                    var entry = progress[i] as Dictionary<string, object>;
+                    if (entry == null) continue;
+                    if (MiniJson.GetBool(entry, "Completed", false)) continue;
+
+                    int pack = MiniJson.GetInt(entry, "PackageNumber", -1);
+                    if (pack < 0) continue;
+
+                    PcsPackStat stat = StatOf(map, order, pack);
+                    stat.InProgress++;
+
+                    PcsLevel level = ParseLevel(entry);
+                    if (level != null) stat.RemainingCells += level.RemainingCells;
+                }
+            }
+
+            var list = new List<PcsPackStat>();
+            for (int i = 0; i < order.Count; i++) list.Add(map[order[i]]);
+            list.Sort(delegate(PcsPackStat a, PcsPackStat b) { return a.PackageNumber.CompareTo(b.PackageNumber); });
+            return list;
+        }
+
+        private static PcsPackStat StatOf(Dictionary<int, PcsPackStat> map, List<int> order, int pack)
+        {
+            PcsPackStat stat;
+            if (!map.TryGetValue(pack, out stat))
+            {
+                stat = new PcsPackStat();
+                stat.PackageNumber = pack;
+                map[pack] = stat;
+                order.Add(pack);
+            }
+            return stat;
+        }
+    }
+
+    /// <summary>一册（图片包）的进度。</summary>
+    internal sealed class PcsPackStat
+    {
+        public int PackageNumber;
+        /// <summary>已涂完的图数（来自 PicturesCompletedInPacks）。</summary>
+        public int Completed;
+        /// <summary>涂到一半的图数。</summary>
+        public int InProgress;
+        /// <summary>进行中的图还差多少格。</summary>
+        public long RemainingCells;
+
+        /// <summary>这一册碰过的图数（涂完 + 涂到一半）。</summary>
+        public int Touched { get { return Completed + InProgress; } }
+
+        public string Title { get { return "第 " + PackageNumber + " 册"; } }
     }
 
     /// <summary>存档里的一格：它该涂成什么颜色（0~255），以及是否已经涂过了。</summary>

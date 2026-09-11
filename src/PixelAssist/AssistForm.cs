@@ -71,9 +71,9 @@ namespace PixelAssist
         private const int TabBarHeight = 46;
         private BackdropPanel _tabBar;
         private BackdropPanel _content;
-        private BackdropPanel _pageHome, _pageAuto, _pageAssist, _pagePreview, _pageRank, _pageSettings;
+        private BackdropPanel _pageHome, _pageAuto, _pageAssist, _pagePreview, _pagePacks, _pageRank, _pageSettings;
         private readonly List<NeonButton> _tabButtons = new List<NeonButton>();
-        private readonly string[] _tabNames = { "首页", "自动绘图", "人工辅助", "预览", "等级", "设置" };
+        private readonly string[] _tabNames = { "首页", "自动绘图", "人工辅助", "预览", "图片包", "等级", "设置" };
         private int _selectedTab;
 
         // ---------------------------------------------------------------- 首页控件
@@ -131,6 +131,11 @@ namespace PixelAssist
         private CheckBox _previewFlip;
         private float _previewTimer;
 
+        // ---------------------------------------------------------------- 图片包 / DLC 控件
+        private Label _packSummary;
+        private Label _packDetail;
+        private Label _dlcTip;
+
         // ---------------------------------------------------------------- 等级控件
         private AssistProgress _rankProgressManual, _rankProgressAuto;
         private Label _rankManualLevel, _rankAutoLevel;
@@ -176,6 +181,7 @@ namespace PixelAssist
             BuildAutoPage();
             BuildAssistPage();
             BuildPreviewPage();
+            BuildPackPage();
             BuildRankPage();
             BuildSettingsPage();
 
@@ -266,8 +272,9 @@ namespace PixelAssist
             else if (idx == 1) _pageAuto.Visible = true;
             else if (idx == 2) _pageAssist.Visible = true;
             else if (idx == 3) _pagePreview.Visible = true;
-            else if (idx == 4) _pageRank.Visible = true;
-            else if (idx == 5) _pageSettings.Visible = true;
+            else if (idx == 4) _pagePacks.Visible = true;
+            else if (idx == 5) _pageRank.Visible = true;
+            else if (idx == 6) _pageSettings.Visible = true;
 
             for (int i = 0; i < _tabButtons.Count; i++)
             {
@@ -278,6 +285,7 @@ namespace PixelAssist
             if (idx == 0) UpdateHomeLevel();
             if (idx == 1) UpdatePaletteInfo();
             if (idx == 2) UpdateRegionUi();
+            if (idx == 4) UpdatePackPage();
 
             AssistStore.SaveValue("tab", idx.ToString());
         }
@@ -404,7 +412,12 @@ namespace PixelAssist
             _homeQuickAssist.Click += delegate { SelectTab(2); };
             _pageHome.Controls.Add(_homeQuickAssist);
 
-            y += 22;
+            // 图片包入口：79 个 DLC 里 23 个是免费的，很多人第一眼就想知道「还有哪些能玩」
+            NeonButton quickPacks = FlatButton("图片包与免费 DLC", CardBg, 16, y, 420, 32);
+            quickPacks.Click += delegate { SelectTab(4); };
+            _pageHome.Controls.Add(quickPacks);
+
+            y += 62;
             Add2(_pageHome, Heading("当前关卡"), 16, y, 200, 22);
             _homeTimerLabel = Sub("未计时");
             _homeTimerLabel.SetBounds(236, y + 3, 200, 18);
@@ -822,6 +835,198 @@ namespace PixelAssist
             _previewBox.FlipVertical = _previewFlip.Checked;
 
             Add2(_pagePreview, Sub("滚轮缩放 · 按住左键拖拽平移 · 鼠标悬停看单格坐标与颜色\n此处的「纵向翻转」同样作用于自动绘图的落点"), 16, y + 4, 420, 34);
+        }
+
+        // ---------------------------------------------------------------- 图片包页
+
+        /// <summary>
+        /// 「图片包」页：本机有多少册、玩到哪儿了、免费的去哪儿领。
+        ///
+        /// 这一页的由头是一个反复被问到的问题 ——「包锁着，工具能不能直接解锁？」
+        /// 答案是不能，而且不是「没实现」：解锁状态是游戏运行时问 Steam 要的
+        /// （ISteamApps_BIsDlcInstalled），存档里连一个 DLC 字段都没有，
+        /// 付费包的图也不在本机。但 79 个 DLC 里有 23 个是免费的（每套图的首包），
+        /// 没领就会在游戏里显示成未拥有 —— 把这一点讲清楚、顺手给个一键领取，
+        /// 比含糊地写一句「不支持」有用得多。
+        /// </summary>
+        private void BuildPackPage()
+        {
+            _pagePacks = CreatePage();
+            int y = 14;
+
+            Add2(_pagePacks, Heading("图片包与 DLC"), 16, y, 420, 24); y += 30;
+            Add2(_pagePacks, Sub("本机能玩的册、进度，以及免费包上哪儿领"), 16, y, 420, 18); y += 26;
+
+            // ---- 汇总卡
+            AddCard(_pagePacks, 16, y, 420, 138);
+
+            _packSummary = new Label();
+            _packSummary.SetBounds(30, y + 12, 392, 64);
+            _packSummary.ForeColor = TextCol;
+            _packSummary.BackColor = Color.Transparent;
+            _pagePacks.Controls.Add(_packSummary);
+
+            _packDetail = new Label();
+            _packDetail.SetBounds(30, y + 80, 392, 50);
+            _packDetail.ForeColor = Muted;
+            _packDetail.BackColor = Color.Transparent;
+            _packDetail.Font = new Font("Microsoft YaHei UI", 8.5f);
+            _pagePacks.Controls.Add(_packDetail);
+            y += 148;
+
+            // ---- 免费包：一键送进 Steam
+            List<PcsDlc.Entry> free = PcsDlc.FreeItems();
+            Add2(_pagePacks, Heading("免费包 · " + free.Count + " 个"), 16, y, 300, 22); y += 26;
+            Add2(_pagePacks, Sub("每套图的首包免费，领了才进你的库；续包才收费"), 16, y, 420, 18); y += 24;
+
+            NeonButton claimAll = FlatButton("全部领取", Accent, 16, y, 130, 30);
+            claimAll.Click += delegate { ClaimAllFreeDlc(); };
+            _pagePacks.Controls.Add(claimAll);
+
+            NeonButton storeList = FlatButton("打开商店页", CardBg, 154, y, 130, 30);
+            storeList.Click += delegate { PcsDlc.OpenStoreList(); };
+            _pagePacks.Controls.Add(storeList);
+            y += 36;
+
+            _dlcTip = new Label();
+            _dlcTip.SetBounds(16, y, 420, 32);
+            _dlcTip.ForeColor = Muted;
+            _dlcTip.BackColor = Color.Transparent;
+            _dlcTip.Font = new Font("Microsoft YaHei UI", 8.5f);
+            _dlcTip.Text = "点「领取」会唤起 Steam 的安装确认；已经领过的再点一次也不会有副作用。";
+            _pagePacks.Controls.Add(_dlcTip);
+            y += 38;
+
+            for (int i = 0; i < free.Count; i++)
+            {
+                PcsDlc.Entry entry = free[i];
+
+                var name = new Label();
+                name.SetBounds(20, y + 3, 292, 20);
+                name.ForeColor = TextCol;
+                name.BackColor = Color.Transparent;
+                name.Text = entry.Name;
+                _pagePacks.Controls.Add(name);
+
+                int appId = entry.AppId;
+                NeonButton claim = FlatButton("领取", CardBg, 320, y, 116, 26);
+                claim.Click += delegate { ClaimDlc(appId); };
+                _pagePacks.Controls.Add(claim);
+
+                y += 30;
+            }
+
+            // ---- 付费包：把「为什么不能解锁」摆清楚，免得用户一直等一个不存在的能力
+            y += 12;
+            Add2(_pagePacks, Heading("付费包 · " + PcsDlc.CountPaid() + " 个"), 16, y, 420, 22); y += 26;
+
+            var note = new Label();
+            note.SetBounds(16, y, 420, 200);
+            note.ForeColor = Muted;
+            note.BackColor = Color.Transparent;
+            note.Font = new Font("Microsoft YaHei UI", 8.5f);
+            note.Text =
+                "付费包要购买后由 Steam 下载，工具不会去绕开这一步 —— 也绕不开：" + "\r\n\r\n" +
+                "· 解锁状态不在存档里：把存档解码后全文搜 DLC / Unlock / Owned，命中数全是 0，" +
+                "所以改存档对解锁毫无作用；" + "\r\n" +
+                "· 游戏是运行时问 Steam 要的（BIsDlcInstalled）。连不上 Steam 时游戏自己会提示" +
+                "\u201cCould not connect to Steam. Cannot verify DLC's.\u201d；" + "\r\n" +
+                "· 付费包的图也不在本机：本机只有本体那一份内容，就算骗过检查也没图可涂。";
+            _pagePacks.Controls.Add(note);
+        }
+
+        /// <summary>把某个包交给 Steam 领取（免费包会直接进库并开始安装）。</summary>
+        private void ClaimDlc(int appId)
+        {
+            if (PcsDlc.SendToSteam(appId))
+            {
+                LogLine("已把 DLC " + appId + " 交给 Steam 处理（Steam 会弹安装确认）");
+                return;
+            }
+
+            MessageBox.Show(this,
+                "没能唤起 Steam。\n\n可以点上面的「打开商店页」，在浏览器里手动领取。",
+                "领取免费包", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        /// <summary>把全部免费包依次交给 Steam。Steam 每个包弹一次确认，这是它的机制。</summary>
+        private void ClaimAllFreeDlc()
+        {
+            List<PcsDlc.Entry> free = PcsDlc.FreeItems();
+            if (free.Count == 0) return;
+
+            DialogResult answer = MessageBox.Show(this,
+                "会依次把 " + free.Count + " 个免费包交给 Steam。\n\n" +
+                "Steam 每个包都会弹一次安装确认，领过的再点也不会有副作用。\n\n继续吗？",
+                "全部领取", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (answer != DialogResult.OK) return;
+
+            for (int i = 0; i < free.Count; i++) PcsDlc.SendToSteam(free[i].AppId);
+
+            LogLine("已把 " + free.Count + " 个免费包交给 Steam 领取。");
+            if (_dlcTip != null)
+                _dlcTip.Text = "已送出 " + free.Count + " 个领取请求。若 Steam 没弹窗，多半是早就领过了。";
+        }
+
+        /// <summary>刷新图片包页：本机包数 + 存档里各册的进度。</summary>
+        private void UpdatePackPage()
+        {
+            if (_packSummary == null) return;
+
+            List<PcsPackStat> stats = PcsSave.LoadPackStats(PcsSave.DefaultPath());
+
+            int finished = 0;
+            int running = 0;
+            long remaining = 0;
+            for (int i = 0; i < stats.Count; i++)
+            {
+                finished += stats[i].Completed;
+                running += stats[i].InProgress;
+                remaining += stats[i].RemainingCells;
+            }
+
+            _packSummary.Text = string.Format(
+                "本机游戏目录里有 {0} 个图片包\r\n存档里碰过 {1} 册 · {2} 张图：涂完 {3} 张，涂到一半 {4} 张\r\n待涂格子合计 {5:N0} 格",
+                LocalPackCount(), stats.Count, finished + running, finished, running, remaining);
+
+            var text = new StringBuilder();
+            for (int i = 0; i < stats.Count && i < 6; i++)
+            {
+                PcsPackStat stat = stats[i];
+                if (text.Length > 0) text.Append("\r\n");
+
+                text.Append(stat.Title).Append("：完成 ").Append(stat.Completed).Append(" 张");
+                if (stat.InProgress > 0)
+                {
+                    text.Append(" · 进行中 ").Append(stat.InProgress)
+                        .Append(" 张 · 还差 ").Append(stat.RemainingCells).Append(" 格");
+                }
+            }
+
+            if (stats.Count == 0) text.Append("还没有进度：在游戏里打开一张图，点「刷新存档」就会接上。");
+            if (stats.Count > 6) text.Append("\r\n…还有 ").Append(stats.Count - 6).Append(" 册");
+
+            _packDetail.Text = text.ToString();
+        }
+
+        /// <summary>本机游戏目录里的图片包数量（pack*.bundle）。拿不到返回 0。</summary>
+        private static int LocalPackCount()
+        {
+            try
+            {
+                // 助手就装在 <游戏目录>\PixelAssist 下，往上一层正是游戏根目录
+                string gameDir = Path.GetDirectoryName(Application.StartupPath);
+                if (string.IsNullOrEmpty(gameDir)) return 0;
+
+                string dataDir = Path.Combine(gameDir, "PixelCrossStitch_Data");
+                if (!Directory.Exists(dataDir)) return 0;
+
+                return Directory.GetFiles(dataDir, "pack*.bundle", SearchOption.AllDirectories).Length;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
         }
 
         // ---------------------------------------------------------------- 等级页
