@@ -31,6 +31,15 @@ namespace ColoringPixelsTool
         public static readonly Color Warn = new Color32(0xF7, 0xA8, 0x25, 0xFF);
         public static readonly Color Bad = new Color32(0xF6, 0x5E, 0x6E, 0xFF);
 
+        /// <summary>比 Card 再亮一档的次级表面，用于分区底 / 内嵌区域。</summary>
+        public static readonly Color PanelHi = new Color32(0x14, 0x18, 0x23, 0xFF);
+
+        /// <summary>强调色的柔光铺底（大面积极光用）。</summary>
+        public static readonly Color AccentSoft = new Color32(0x23, 0x1C, 0x3E, 0xFF);
+
+        /// <summary>键帽底色。</summary>
+        public static readonly Color KeyCapCol = new Color32(0x2A, 0x31, 0x45, 0xFF);
+
         public static Color Alpha(Color c, float a)
         {
             return new Color(c.r, c.g, c.b, a);
@@ -122,7 +131,7 @@ namespace ColoringPixelsTool
             }
         }
 
-        private static GUIStyle _title, _label, _small, _muted, _mutedSmall, _bold, _center, _value, _tab, _stat, _hero, _big;
+        private static GUIStyle _title, _label, _small, _muted, _mutedSmall, _bold, _center, _value, _tab, _stat, _hero, _big, _keycap;
 
         public static GUIStyle Title => _title ?? (_title = Mk(16, TextCol, FontStyle.Bold));
         public static GUIStyle Label => _label ?? (_label = Mk(13, TextCol));
@@ -143,10 +152,13 @@ namespace ColoringPixelsTool
         /// <summary>首页主时钟的超大数字。</summary>
         public static GUIStyle Hero => _hero ?? (_hero = Mk(34, TextCol, FontStyle.Bold, TextAnchor.MiddleLeft));
 
+        /// <summary>键帽上的小字。</summary>
+        public static GUIStyle KeyCapStyle => _keycap ?? (_keycap = Mk(11, TextCol, FontStyle.Bold, TextAnchor.MiddleCenter));
+
         /// <summary>每次 OnGUI 开始时重置，避免皮肤被外部改动后样式失效。</summary>
         public static void ResetStyles()
         {
-            _title = _label = _small = _muted = _mutedSmall = _bold = _center = _value = _tab = _stat = _hero = _big = null;
+            _title = _label = _small = _muted = _mutedSmall = _bold = _center = _value = _tab = _stat = _hero = _big = _keycap = null;
         }
 
         private static GUIStyle Mk(int size, Color color, FontStyle style = FontStyle.Normal,
@@ -289,13 +301,17 @@ namespace ColoringPixelsTool
         /// </summary>
         public static void Surface(Rect r, float radius, float hover = 0f)
         {
-            Round(r, radius, Color.Lerp(Card, CardHover, Mathf.Clamp01(hover)));
+            float hv = Mathf.Clamp01(hover);
+            Round(r, radius, Color.Lerp(Card, CardHover, hv));
+
+            // magicui「Magic Card」：悬停时鼠标位置出现一团柔光（只在悬停时才有开销）
+            if (hv > 0.02f) UiFx.CardSpotlight(r, radius, hv, UiFx.GlowB);
 
             float inset = radius * 0.7f;
             if (r.width > inset * 2f + 4f)
             {
                 Fill(new Rect(r.x + inset, r.y + 1f, r.width - inset * 2f, 1f),
-                    new Color(1f, 1f, 1f, 0.045f + 0.035f * hover));
+                    new Color(1f, 1f, 1f, 0.045f + 0.035f * hv));
                 if (r.height > radius * 2f)
                     Fill(new Rect(r.x + inset, r.yMax - 1.5f, r.width - inset * 2f, 1f),
                         new Color(0f, 0f, 0f, 0.22f));
@@ -305,13 +321,18 @@ namespace ColoringPixelsTool
         /// <summary>带描边的表面（用于需要强调分组的卡片）。</summary>
         public static void SurfaceEdge(Rect r, float radius, float hover = 0f)
         {
-            Round(r, radius, Color.Lerp(CardEdge, Alpha(Accent, 0.55f), Mathf.Clamp01(hover)));
+            float hv = Mathf.Clamp01(hover);
+            Round(r, radius, Color.Lerp(CardEdge, Alpha(Accent, 0.55f), hv));
             Round(new Rect(r.x + 1f, r.y + 1f, r.width - 2f, r.height - 2f), radius - 1f,
-                Color.Lerp(Card, CardHover, Mathf.Clamp01(hover)));
+                Color.Lerp(Card, CardHover, hv));
+
+            if (hv > 0.02f) UiFx.CardSpotlight(
+                new Rect(r.x + 1f, r.y + 1f, r.width - 2f, r.height - 2f), radius - 1f, hv, UiFx.GlowA);
+
             float inset = radius * 0.7f;
             if (r.width > inset * 2f + 4f)
                 Fill(new Rect(r.x + inset, r.y + 1.5f, r.width - inset * 2f, 1f),
-                    new Color(1f, 1f, 1f, 0.05f + 0.03f * hover));
+                    new Color(1f, 1f, 1f, 0.05f + 0.03f * hv));
         }
 
         // ============================================================ 文本
@@ -455,23 +476,54 @@ namespace ColoringPixelsTool
             string tkey = "bt:" + label + ":" + Mathf.RoundToInt(r.y);
             float h = Tween(tkey, hover, 19f);
 
+            float press = down ? 1f : 0f;
+
             if (primary)
             {
+                // 按下时轻微下沉，松手回弹（magicui 的弹簧手感）
+                float sink = UiFx.Smooth("bt-sink:" + tkey, press, 26f);
+                var rr = new Rect(r.x, r.y + sink * 1.2f, r.width, r.height);
+
+                // 背光：悬停时按钮背后晕开一圈同色光
+                if (h > 0.02f)
+                    UiFx.Spotlight(rr, rr.center, accent, 0.20f * h, Mathf.Max(rr.width, rr.height) * 0.78f);
+
                 Color baseCol = Color.Lerp(accent, Shade(accent, 0.20f), h);
-                Round(r, 9f, baseCol);
-                float inset = Mathf.Min(8f, r.width * 0.12f);
-                Fill(new Rect(r.x + inset, r.y + 1f, r.width - inset * 2f, 1f), new Color(1f, 1f, 1f, 0.24f));
-                Fill(new Rect(r.x + inset, r.yMax - 1.5f, r.width - inset * 2f, 1f), new Color(0f, 0f, 0f, 0.18f));
-                GUI.Label(r, label, Center);
+                Round(rr, 9f, baseCol);
+
+                // 纵向渐变增加体积感
+                Color prev = GUI.color;
+                GUI.color = new Color(1f, 1f, 1f, 0.10f);
+                GUI.DrawTexture(new Rect(rr.x + 1f, rr.y + 1f, rr.width - 2f, rr.height * 0.55f),
+                    UiFx.GradTex(new Color(1f, 1f, 1f, 0.22f), new Color(1f, 1f, 1f, 0f), true),
+                    ScaleMode.StretchToFill, true);
+                GUI.color = prev;
+
+                float inset = Mathf.Min(8f, rr.width * 0.12f);
+                Fill(new Rect(rr.x + inset, rr.y + 1f, rr.width - inset * 2f, 1f), new Color(1f, 1f, 1f, 0.30f));
+                Fill(new Rect(rr.x + inset, rr.yMax - 1.5f, rr.width - inset * 2f, 1f), new Color(0f, 0f, 0f, 0.18f));
+
+                // Shimmer Button：周期性斜向掠过的流光
+                UiFx.Shimmer(rr, 9f, Color.white, 0.24f, 3.1f);
+                UiFx.Glare(rr, h, Color.white, 0.13f);
+
+                GUI.Label(rr, label, Center);
             }
             else
             {
                 Surface(r, 9f, h);
+                UiFx.Glare(r, h, Color.white, 0.07f);
                 var dot = new Rect(r.x + 12f, r.center.y - 3f, 6f, 6f);
                 Round(dot, 3f, Alpha(accent, Mathf.Lerp(0.45f, 1f, h)));
                 if (h > 0.01f)
+                {
                     Round(new Rect(r.x + 1f, r.y + r.height * 0.26f, 3f, r.height * 0.48f), 1.5f,
                         Alpha(accent, 0.75f * h));
+                    // 悬停时左侧指示条有一道小光点掠过
+                    float sweep = Mathf.Repeat(Time.unscaledTime * 0.6f, 1f);
+                    Round(new Rect(r.x + 1f, r.y + Mathf.Lerp(r.height * 0.26f, r.height * 0.60f, sweep),
+                        3f, 5f), 1.5f, Alpha(Color.white, 0.55f * h));
+                }
                 GUI.Label(new Rect(r.x + 26f, r.y, r.width - 32f, r.height), label, Label);
             }
 
@@ -485,9 +537,29 @@ namespace ColoringPixelsTool
 
         public static void Section(Rect row, string title)
         {
-            Text(new Rect(row.x + 2f, row.y, row.width, row.height), title, MutedSmall);
+            // 主色小竖条 + 标题 + 渐隐分隔线：给分区一个稳定的视觉锚点
+            Round(new Rect(row.x + 1f, row.center.y - 5f, 2.5f, 10f), 1.25f, Alpha(Accent2, 0.9f));
+            Text(new Rect(row.x + 9f, row.y, row.width, row.height), title, MutedSmall,
+                Color.Lerp(Muted, TextCol, 0.42f));
+
             float w = MutedSmall.CalcSize(new GUIContent(title)).x;
-            Fill(new Rect(row.x + 9f + w, row.center.y, Mathf.Max(0f, row.width - w - 13f), 1f), Line);
+            float x = row.x + 18f + w;
+            float lineW = Mathf.Max(0f, row.xMax - x - 2f);
+            if (lineW > 4f)
+            {
+                Color prev = GUI.color;
+                GUI.color = new Color(1f, 1f, 1f, 0.75f);
+                GUI.DrawTexture(new Rect(x, row.center.y, lineW, 1f),
+                    UiFx.GradTex(Line, new Color(Line.r, Line.g, Line.b, 0f), false),
+                    ScaleMode.StretchToFill, true);
+                GUI.color = prev;
+            }
+        }
+
+        /// <summary>细分隔线。</summary>
+        public static void Divider(Rect r)
+        {
+            Fill(r, Line);
         }
 
         public static void InfoRow(Rect row, string key, string val, Color valColor)
@@ -536,6 +608,55 @@ namespace ColoringPixelsTool
             }
             Round(r, 4f, c);
             Fill(new Rect(r.x + 1f, r.yMax - 2f, r.width - 2f, 1f), new Color(0f, 0f, 0f, 0.28f));
+        }
+
+        // ============================================================ 动效组件
+
+        /// <summary>magicui「Number Ticker」：数值平滑滚动的大号数据块。</summary>
+        public static void StatTileCount(Rect r, string label, string key, float value, string format,
+            Color color, float hover = 0f)
+        {
+            Surface(r, 10f, hover);
+            Text(new Rect(r.x + 13f, r.y + 9f, r.width - 24f, 16f), label, MutedSmall);
+            Text(new Rect(r.x + 13f, r.yMax - 34f, r.width - 24f, 26f),
+                UiFx.CountText(key, value, format), Stat, color);
+        }
+
+        /// <summary>键帽：把快捷键画成一个小按键。</summary>
+        public static void KeyCap(Rect r, string text, bool active)
+        {
+            Round(r, 6f, active ? Alpha(Accent, 0.92f) : KeyCapCol);
+            Fill(new Rect(r.x + 2f, r.y + 1f, r.width - 4f, 1f),
+                new Color(1f, 1f, 1f, active ? 0.28f : 0.10f));
+            Fill(new Rect(r.x + 2f, r.yMax - 2.5f, r.width - 4f, 1f), new Color(0f, 0f, 0f, 0.35f));
+            Text(r, text, KeyCapStyle, active ? Color.white : TextCol);
+        }
+
+        /// <summary>
+        /// Hero 数值带：底部渐变条 + 左右柔光，用来承载首页时钟 / 大数字。
+        /// 参考 magicui「Animated Gradient Text」的底色处理方式。
+        /// </summary>
+        public static void HeroBand(Rect r, Color tint, float hover = 0f)
+        {
+            Round(r, 12f, Color.Lerp(PanelHi, Shade(tint, -0.55f), 0.35f + 0.25f * hover));
+            Color prev = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.55f);
+            GUI.DrawTexture(new Rect(r.x + 1f, r.yMax - 4f, r.width - 2f, 3f),
+                UiFx.GradTex(Alpha(tint, 0f), Alpha(tint, 0.95f), false),
+                ScaleMode.StretchToFill, true);
+            GUI.color = prev;
+            UiFx.Spotlight(r, new Vector2(r.x + r.width * 0.16f, r.center.y), tint, 0.10f + 0.06f * hover,
+                Mathf.Max(r.height * 1.7f, 40f));
+        }
+
+        /// <summary>状态点：带呼吸光晕的小圆点。</summary>
+        public static void StatusDot(Rect r, Color color, bool active)
+        {
+            float pulse = active ? UiFx.Pulse(2.4f, r.x * 0.07f) : 0f;
+            if (active)
+                UiFx.Spotlight(r, r.center, color, 0.35f * (0.4f + 0.6f * pulse),
+                    Mathf.Max(r.width * 3.4f, 16f));
+            Round(r, r.width * 0.5f, active ? color : Shade(color, -0.45f));
         }
     }
 }

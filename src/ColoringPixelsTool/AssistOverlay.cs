@@ -20,13 +20,14 @@ namespace ColoringPixelsTool
     {
         public static AssistOverlay Instance;
 
-        public static KeyCode RunKey = KeyCode.F6;
-        public static KeyCode SelectKey = KeyCode.F7;
-        public static KeyCode StopKey = KeyCode.F8;
-        public static KeyCode TestRowKey = KeyCode.F9;
-        public static KeyCode RestartKey = KeyCode.F10;
-        public static KeyCode CalibrateKey = KeyCode.F11;
-        public static KeyCode OverlayKey = KeyCode.F12;
+        // 热键统一由 Plugin 的配置托管，这样「设置 → 快捷键」里改完立刻生效。
+        public static KeyCode RunKey { get { return Plugin.KeyAssistRun.Value; } }
+        public static KeyCode SelectKey { get { return Plugin.KeyAssistSelect.Value; } }
+        public static KeyCode StopKey { get { return Plugin.KeyAssistStop.Value; } }
+        public static KeyCode TestRowKey { get { return Plugin.KeyAssistTestRow.Value; } }
+        public static KeyCode RestartKey { get { return Plugin.KeyAssistRestart.Value; } }
+        public static KeyCode CalibrateKey { get { return Plugin.KeyAssistCalibrate.Value; } }
+        public static KeyCode OverlayKey { get { return Plugin.KeyAssistOverlay.Value; } }
 
         public AssistEngine Engine;
 
@@ -44,20 +45,6 @@ namespace ColoringPixelsTool
 
         public static void Init(BepInEx.Configuration.ConfigFile config)
         {
-            if (config != null)
-            {
-                // 独立的热键分组：老的 Assist 分组里存过 F8=开始 / F9=停止，
-                // 直接复用会把两套语义搅在一起，所以另起一段，保证默认值生效。
-                const string S = "AssistHotkeys";
-                RunKey = config.Bind(S, "RunKey", KeyCode.F6, "人工辅助：开始/暂停/继续热键").Value;
-                SelectKey = config.Bind(S, "SelectKey", KeyCode.F7, "人工辅助：框选区域热键").Value;
-                StopKey = config.Bind(S, "StopKey", KeyCode.F8, "人工辅助：停止热键").Value;
-                TestRowKey = config.Bind(S, "TestRowKey", KeyCode.F9, "人工辅助：只扫当前这一行").Value;
-                RestartKey = config.Bind(S, "RestartKey", KeyCode.F10, "人工辅助：停止并重新整屏扫描").Value;
-                CalibrateKey = config.Bind(S, "CalibrateKey", KeyCode.F11, "人工辅助：框选一个格子做校准").Value;
-                OverlayKey = config.Bind(S, "OverlayKey", KeyCode.F12, "人工辅助：显示/隐藏覆盖层热键").Value;
-            }
-
             try
             {
                 if (config != null && !string.IsNullOrEmpty(config.ConfigFilePath))
@@ -117,6 +104,18 @@ namespace ColoringPixelsTool
             _saveTimer = 3f;
         }
 
+        /// <summary>覆盖层当前是否显示（供面板按钮读取）。</summary>
+        public bool OverlayVisible
+        {
+            get { return _showOverlay; }
+        }
+
+        /// <summary>供面板按钮调用：显示 / 隐藏覆盖层。</summary>
+        public void ToggleOverlayFromUi()
+        {
+            _showOverlay = !_showOverlay;
+        }
+
         /// <summary>供面板按钮调用：等同于按下 F7。</summary>
         public void BeginSelectFromUi()
         {
@@ -163,14 +162,16 @@ namespace ColoringPixelsTool
         {
             float dt = Time.unscaledDeltaTime;
 
-            if (Input.GetKeyDown(RunKey)) ToggleRun();
-            if (Input.GetKeyDown(SelectKey)) BeginSelect(0);
-            if (Input.GetKeyDown(StopKey)) StopFromUi();
-            if (Input.GetKeyDown(TestRowKey)) TestRowFromUi();
-            if (Input.GetKeyDown(RestartKey)) RestartFromUi();
-            if (Input.GetKeyDown(CalibrateKey)) BeginSelect(1);
-            if (Input.GetKeyDown(OverlayKey)) _showOverlay = !_showOverlay;
+            if (KeyDown(RunKey)) ToggleRun();
+            if (KeyDown(SelectKey)) BeginSelect(0);
+            if (KeyDown(StopKey)) StopFromUi();
+            if (KeyDown(TestRowKey)) TestRowFromUi();
+            if (KeyDown(RestartKey)) RestartFromUi();
+            if (KeyDown(CalibrateKey)) BeginSelect(1);
+            if (KeyDown(OverlayKey)) _showOverlay = !_showOverlay;
+            if (KeyDown(Plugin.KeyVoice.Value)) VoiceColor.Toggle();
 
+            HandleHoldLeft();
             HandleSelection();
             HandleCornerDrag();
 
@@ -181,6 +182,58 @@ namespace ColoringPixelsTool
                 _saveTimer -= dt;
                 if (_saveTimer <= 0f) Save();
             }
+        }
+
+        /// <summary>热键为 None 时视为「未绑定」，避免 KeyCode.None 被当成某个真实按键。</summary>
+        private static bool KeyDown(KeyCode key)
+        {
+            return key != KeyCode.None && Input.GetKeyDown(key);
+        }
+
+        // ---------------------------------------------------------------- 长按左键
+
+        private bool _holdLeftDown;
+
+        /// <summary>
+        /// 「长按左键」热键（默认 Q）：按住时帮玩家一直按着鼠标左键，松开就抬起。
+        /// 涂整行、涂大块颜色时不用一直捏着鼠标。
+        /// </summary>
+        private void HandleHoldLeft()
+        {
+            KeyCode key = Plugin.KeyHoldLeft != null ? Plugin.KeyHoldLeft.Value : KeyCode.None;
+
+            bool want = key != KeyCode.None
+                        && Input.GetKey(key)
+                        && !CheatPanel.TextFieldFocused
+                        && !(Engine != null && Engine.Running);
+
+            if (want && !_holdLeftDown)
+            {
+                AssistWin32.LeftDown();
+                _holdLeftDown = true;
+            }
+            else if (!want && _holdLeftDown)
+            {
+                ReleaseHoldLeft();
+            }
+        }
+
+        /// <summary>抬起被热键按住的左键（面板关闭、插件卸载、按键改动时都要调）。</summary>
+        public void ReleaseHoldLeft()
+        {
+            if (!_holdLeftDown) return;
+            _holdLeftDown = false;
+            try { AssistWin32.LeftUp(); } catch (Exception) { }
+        }
+
+        public bool HoldLeftActive
+        {
+            get { return _holdLeftDown; }
+        }
+
+        private void OnDestroy()
+        {
+            ReleaseHoldLeft();
         }
 
         public void ToggleRun()
@@ -397,15 +450,27 @@ namespace ColoringPixelsTool
             if (Engine == null) return;
 
             bool active = Engine.Running || Engine.State == AssistState.Done || !string.IsNullOrEmpty(Engine.Message);
-            string status = Engine.StateText;
-            if (!string.IsNullOrEmpty(Engine.Message)) status += " · " + Engine.Message;
-
-            if (!active) return;
+            bool timerOnly = !active
+                             && Plugin.TimerInHud != null && Plugin.TimerInHud.Value
+                             && PaintTimer.Running;
+            if (!active && !timerOnly) return;
 
             float w = 420f;
-            var box = new Rect((Screen.width - w) * 0.5f, 16f, w, 58f);
+            float h = timerOnly ? 34f : 58f;
+            var box = new Rect((Screen.width - w) * 0.5f, 16f, w, h);
             Ui.Round(box, 12f, new Color(0.06f, 0.07f, 0.11f, 0.90f));
             Ui.RoundOutline(box, 12f, Ui.Accent, new Color(0f, 0f, 0f, 0f), 1.5f);
+
+            if (timerOnly)
+            {
+                string only = "本图用时 " + PaintTimer.Format(PaintTimer.CurrentSeconds);
+                if (VoiceColor.Listening) only += "    语音 " + VoiceStatusText();
+                Ui.Text(new Rect(box.x + 16f, box.y + 9f, w - 32f, 18f), only, Ui.Bold, Ui.TextCol);
+                return;
+            }
+
+            string status = Engine.StateText;
+            if (!string.IsNullOrEmpty(Engine.Message)) status += " · " + Engine.Message;
 
             Ui.Text(new Rect(box.x + 16f, box.y + 8f, w - 32f, 20f),
                 "人工辅助 · " + status, Ui.Bold, Ui.TextCol);
@@ -413,9 +478,24 @@ namespace ColoringPixelsTool
             var bar = new Rect(box.x + 16f, box.y + 32f, w - 32f, 8f);
             Ui.ProgressBar(bar, Engine.Progress, Ui.Accent2);
 
-            string info = string.Format("第 {0}/{1} 行   已用 {2:0.0}s   F6 暂停  F8 停止  F10 重扫",
-                Engine.CurrentRow + 1, Mathf.Max(1, Engine.TotalRows), Engine.ElapsedSeconds);
+            string info = string.Format("第 {0}/{1} 行   已用 {2:0.0}s   {3} 暂停  {4} 停止",
+                Engine.CurrentRow + 1, Mathf.Max(1, Engine.TotalRows), Engine.ElapsedSeconds,
+                KeyLabel(RunKey), KeyLabel(StopKey));
+            if (Plugin.TimerInHud != null && Plugin.TimerInHud.Value)
+                info += "   本图 " + PaintTimer.Format(PaintTimer.CurrentSeconds);
+            if (VoiceColor.Listening)
+                info += "   语音 " + VoiceStatusText();
             Ui.Text(new Rect(box.x + 16f, box.y + 42f, w - 32f, 14f), info, Ui.MutedSmall);
+        }
+
+        private static string VoiceStatusText()
+        {
+            return string.IsNullOrEmpty(VoiceColor.LastAction) ? "待命" : VoiceColor.LastAction;
+        }
+
+        private static string KeyLabel(KeyCode key)
+        {
+            return key == KeyCode.None ? "—" : key.ToString();
         }
 
         private void Line(double x0, double y0, double x1, double y1, Color color, float width)

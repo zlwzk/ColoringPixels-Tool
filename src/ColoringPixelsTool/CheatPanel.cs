@@ -8,11 +8,14 @@ using UnityEngine;
 namespace ColoringPixelsTool
 {
     /// <summary>作弊器主面板与悬浮 HUD。</summary>
-    internal class CheatPanel : MonoBehaviour
+    internal partial class CheatPanel : MonoBehaviour
     {
         public static CheatPanel Instance;
 
         private static bool _visible = true;
+
+        /// <summary>面板里有输入框正在接受键盘输入（供「长按左键」这类字母热键让路）。</summary>
+        public static bool TextFieldFocused;
 
         /// <summary>面板在「设计坐标」下的矩形；实际屏幕尺寸 = 设计尺寸 × UiScale。</summary>
         private static Rect _window = new Rect(28f, 28f, 560f, 760f);
@@ -31,14 +34,14 @@ namespace ColoringPixelsTool
 
         private static readonly string[] TabsManual =
         {
-            "扫描", "区域", "参数", "预设", "设置", "调试"
+            "扫描", "区域", "参数", "预设", "助手", "设置", "调试"
         };
 
         private const float Pad = 14f;
         private const float HeaderH = 72f;
         private const float ModuleH = 34f;
         private const float TabH = 40f;
-        private const float FooterH = 50f;
+        private const float FooterH = 66f;
 
         private int _module = ModuleAuto;
         private int _tab;
@@ -83,6 +86,10 @@ namespace ColoringPixelsTool
             _showAnnouncement = PendingAnnouncement;
             PendingAnnouncement = false;
             UiScale = ComputeScale();
+
+            // 第一次用这个工具时弹一次新手指引。
+            _showGuide = Plugin.GuideShown == null || !Plugin.GuideShown.Value;
+            _guidePage = 0;
         }
 
         public static bool Visible
@@ -185,6 +192,13 @@ namespace ColoringPixelsTool
             UserProfile.Tick(Time.unscaledDeltaTime);
             UserProfile.TickSave(Time.unscaledDeltaTime);
 
+            // 单图绘画用时
+            PaintTimer.Tick(Time.unscaledDeltaTime);
+
+            // 语音换色：把配置同步给识别器，并处理静音超时后的自动重启
+            VoiceColor.Sync(Plugin.VoiceEnabled.Value, Plugin.VoiceMode.Value);
+            VoiceColor.Tick();
+
             // 升级提示
             int lvUp = UserProfile.PendingLevelUp;
             if (lvUp > 0)
@@ -218,12 +232,32 @@ namespace ColoringPixelsTool
             // 计时器
             if (_timerRunning)
                 _timerElapsed = _timerOffset + (Time.unscaledTime - _timerStartUnscaled);
+
+            // 动效：粒子推进 + 本图涂满的瞬间撒一把彩纸（magicui Confetti / Sparkles）
+            UiFx.TickParticles(Time.unscaledDeltaTime);
+
+            var ctl = GameApi.Ct;
+            bool inLvl = GameApi.InLevel(ctl);
+            float prog = inLvl ? GameApi.Progress(ctl) : 0f;
+            if (inLvl && prog >= 0.999f && !_wasComplete)
+            {
+                _wasComplete = true;
+                UiFx.Burst(PanelScreenPoint(_window.center), Ui.Good, 46, 1.15f);
+                UiFx.Burst(PanelScreenPoint(new Vector2(_window.x + 70f, _window.y + HeaderH * 0.5f)),
+                    Ui.Accent2, 20, 0.8f);
+            }
+            else if (!inLvl || prog < 0.99f)
+            {
+                _wasComplete = false;
+            }
         }
 
         // ============================================================ 操作
 
         private void DoInstantFill()
         {
+            if (!RequireAutoUnlocked("一键涂完")) return;
+
             int n = GameApi.InstantFill();
             if (n > 0)
             {
@@ -250,6 +284,9 @@ namespace ColoringPixelsTool
         {
             var painter = AutoPainter.Instance;
             if (painter == null) return;
+
+            if (!painter.Running && !RequireAutoUnlocked("拟人涂色")) return;
+
             if (painter.Running) painter.StopRun();
             else painter.StartRun();
         }
@@ -285,10 +322,30 @@ namespace ColoringPixelsTool
             Ui.Mouse = GuiMouse;
             Ui.MouseInside = true;
 
+            // 有输入框在取字时，「长按左键」这类字母热键要让路
+            TextFieldFocused = _visible && GUIUtility.keyboardControl != 0;
+
             if (Plugin.ShowHud.Value) DrawHud();
 
             // 面板没打开时也要能看到（例如在游戏设置界面点了「推荐预设」）
             DrawGameToast();
+
+            // 粒子（彩纸 / 微光）：在缩放矩阵之外绘制，任何界面状态下都可见
+            if (UiFx.ParticlesAlive) UiFx.DrawParticles();
+
+            // 爱心二次确认：最优先，玩家正在重置进度，别被其它窗口挡住
+            if (HeartGuard.Pending)
+            {
+                DrawHeartConfirm();
+                return;
+            }
+
+            // 新手指引：独占显示，避免和后面的面板抢同一次点击
+            if (_showGuide)
+            {
+                DrawGuide();
+                return;
+            }
 
             if (!_visible) return;
 
@@ -348,6 +405,25 @@ namespace ColoringPixelsTool
             Ui.Round(new Rect(_window.x + 1.5f, _window.y + 1.5f, _window.width - 3f, _window.height - 3f), 15f,
                 new Color(0.082f, 0.09f, 0.13f, opacity));
 
+            // ---- 氛围层：极光 + 点阵 + 噪点（Aceternity：Aurora / Dot Background / Noise）----
+            GUI.BeginClip(_window);
+            var inside = new Rect(0f, 0f, _window.width, _window.height);
+            UiFx.Aurora(inside, 0.55f);
+            UiFx.DotGrid(inside, 0.028f, 30f);
+            UiFx.GrainOverlay(inside, 0.028f);
+            GUI.EndClip();
+
+            // 顶部渐变高光条（强调色，作为窗口的"品牌线"）
+            var accentBar = new Rect(_window.x + 20f, _window.y + 2.5f, _window.width - 40f, 2.5f);
+            Color prevAccent = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.9f);
+            GUI.DrawTexture(accentBar, UiFx.GradTex(UiFx.GlowA, UiFx.GlowB, false), ScaleMode.StretchToFill, true);
+            GUI.color = prevAccent;
+
+            // magicui Border Beam：沿描边缓慢跑动的小光点
+            UiFx.BorderBeam(new Rect(_window.x + 1f, _window.y + 1f, _window.width - 2f, _window.height - 2f),
+                UiFx.GlowB, 0.09f, 58f, 0.7f);
+
             DrawHeader(e);
             DrawModuleSwitch();
             DrawTabs();
@@ -403,6 +479,11 @@ namespace ColoringPixelsTool
             }
             if (e.type == EventType.MouseUp) _dragging = false;
 
+            // 顶部聚光（Aceternity Spotlight）：鼠标移到标题栏时有一束柔光跟随
+            if (header.Contains(Ui.Mouse))
+                UiFx.Spotlight(header, new Vector2(Ui.Mouse.x, header.y + 8f), Ui.Accent2, 0.085f,
+                    Mathf.Max(header.width * 0.5f, 170f));
+
             // 关闭按钮（先算位置，资料区紧贴其左侧）
             var close = new Rect(_window.xMax - 38f, _window.y + 22f, 26f, 26f);
             bool hov = Ui.Hit(close);
@@ -449,8 +530,13 @@ namespace ColoringPixelsTool
                 e.Use();
             }
 
-            // 标题栏底部分隔线
-            Ui.Fill(new Rect(_window.x + Pad, _window.y + HeaderH - 1f, _window.width - Pad * 2f, 1f), Ui.Line);
+            // 标题栏底部分隔线：左起渐隐，避免一条生硬的横线
+            Color prevLine = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.9f);
+            GUI.DrawTexture(new Rect(_window.x + Pad, _window.y + HeaderH - 1f, _window.width - Pad * 2f, 1f),
+                UiFx.GradTex(new Color(Ui.Line.r, Ui.Line.g, Ui.Line.b, 0f), Ui.Line, false),
+                ScaleMode.StretchToFill, true);
+            GUI.color = prevLine;
         }
 
         /// <summary>把文本按可用宽度截断，超出部分用「…」代替。</summary>
@@ -580,28 +666,31 @@ namespace ColoringPixelsTool
                 new Color(0.031f, 0.039f, 0.059f, 0.85f));
             Ui.Fill(new Rect(bar.x + 12f, bar.y + 6.5f, bar.width - 24f, 1f), new Color(0f, 0f, 0f, 0.35f));
 
+            // ---- 滑动指示块（Aceternity Tabs / Moving Border：整块平滑滑到当前页）----
+            float slide = UiFx.Smooth("tabslide:" + _module, Mathf.Clamp(_tab, 0, tabs.Length - 1), 17f);
+            var pill = new Rect(bar.x + tw * slide + 3f, bar.y + 8f, tw - 6f, bar.height - 16f);
+            Ui.Round(pill, 8f, Ui.Alpha(Ui.Accent, 0.20f));
+            Color prevPill = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.7f);
+            GUI.DrawTexture(new Rect(pill.x + 6f, pill.y + 1f, Mathf.Max(1f, pill.width - 12f), 1.4f),
+                UiFx.GradTex(UiFx.GlowA, UiFx.GlowB, false), ScaleMode.StretchToFill, true);
+            GUI.color = prevPill;
+            UiFx.ShineBorder(pill, 8f, UiFx.GlowA, UiFx.GlowB, 0.30f);
+            Ui.Round(new Rect(pill.x + pill.width * 0.26f, pill.yMax - 2.5f, pill.width * 0.48f, 2.5f), 1.25f,
+                Ui.Accent2);
+
             for (int i = 0; i < tabs.Length; i++)
             {
                 var r = new Rect(bar.x + tw * i, bar.y + 6f, tw, bar.height - 12f);
                 bool active = _tab == i;
                 bool hov = Ui.Hit(r);
 
-                float av = Ui.Tween("tab-a:" + i, active, 17f);
-                float hv = Ui.Tween("tab-h:" + i, hov, 18f);
-
-                if (av > 0.005f)
-                {
-                    Ui.Round(r, 9f, Ui.Alpha(Ui.Accent, 0.22f * av));
-                    Ui.Round(new Rect(r.x + tw * 0.24f, r.yMax - 2.5f, tw * 0.52f, 2.5f), 1.25f,
-                        Ui.Alpha(Ui.Accent2, av));
-                }
-                else if (hv > 0.005f)
-                {
-                    Ui.Round(r, 9f, new Color(1f, 1f, 1f, 0.04f * hv));
-                }
+                float hv = UiFx.To("tab-h:" + _module + ":" + i, hov, 18f);
+                if (!active && hv > 0.005f)
+                    Ui.Round(r, 9f, new Color(1f, 1f, 1f, 0.045f * hv));
 
                 Ui.Text(r, Ellipsize(tabs[i], Ui.Tab, tw - 4f), Ui.Tab,
-                    Color.Lerp(Ui.Muted, Ui.TextCol, Mathf.Clamp01(Mathf.Max(av, hv * 0.65f))));
+                    Color.Lerp(Ui.Muted, Ui.TextCol, Mathf.Clamp01(Mathf.Max(active ? 1f : 0f, hv * 0.6f))));
 
                 if (hov && e.type == EventType.MouseDown && e.button == 0)
                 {
@@ -639,6 +728,20 @@ namespace ColoringPixelsTool
 
             float y = -_scroll.y + 6f;
 
+            // magicui Blur Fade：切页时内容淡入、并自下方轻微上浮
+            string token = _module + ":" + _tab;
+            if (_enterToken != token)
+            {
+                _enterToken = token;
+                UiFx.Forget("enter:" + token);
+            }
+            float enter = UiFx.Enter("enter:" + token, 8f);
+            float slideY = (1f - enter) * 12f;
+            Ui.Mouse -= new Vector2(0f, slideY);
+            y += slideY;
+            Color prevGui = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.06f, 1f, enter));
+
             if (_module == ModuleManual)
             {
                 switch (_tab)
@@ -647,9 +750,15 @@ namespace ColoringPixelsTool
                     case 1: TabAssistRegion(w, ref y); break;
                     case 2: TabAssistParams(w, ref y); break;
                     case 3: TabAssistPresets(w, ref y); break;
-                    case 4: TabSettings(w, ref y); break;
+                    case 4: TabManualAssist(w, ref y); break;
+                    case 5: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
+            }
+            else if (AutoLocked && IsAutoDrawTab(_tab))
+            {
+                // 自动绘图默认上锁，先让用户点解锁键，避免一进游戏就手滑把图涂完。
+                DrawAutoLock(w, ref y);
             }
             else
             {
@@ -666,6 +775,8 @@ namespace ColoringPixelsTool
                 }
             }
 
+            y -= slideY;                        // 高度按最终位置计算，避免动画期间滚动条抖动
+            GUI.color = prevGui;
             _contentHeight = y + _scroll.y;
             Ui.MouseInside = true;
             Ui.Mouse = absMouse;
@@ -708,13 +819,23 @@ namespace ColoringPixelsTool
                 left = "未进入关卡（进入任意关卡后功能生效）";
             }
 
-            Ui.Text(new Rect(footer.x + Pad, footer.y + 8f, footer.width - Pad * 2f - 90f, 18f), left, Ui.MutedStyle);
+            // 状态点：进入关卡时呼吸发光
+            bool live = GameApi.InLevel(ct);
+            Ui.StatusDot(new Rect(footer.x + Pad, footer.y + 12.5f, 7f, 7f), live ? Ui.Good : Ui.Muted, live);
+
+            Ui.Text(new Rect(footer.x + Pad + 14f, footer.y + 7f, footer.width - Pad * 2f - 104f, 18f),
+                left, Ui.MutedStyle);
 
             string right = Plugin.KeyToggle.Value == KeyCode.None ? "" : $"{Plugin.KeyToggle.Value} 开关";
-            Ui.Text(new Rect(footer.x, footer.y + 8f, footer.width - Pad, 18f), right, Ui.MutedSmall);
+            Ui.Text(new Rect(footer.x, footer.y + 7f, footer.width - Pad, 18f), right, Ui.MutedSmall);
 
-            Ui.ProgressBar(new Rect(footer.x + Pad, footer.y + 29f, footer.width - Pad * 2f, 6f), progress,
+            Ui.ProgressBar(new Rect(footer.x + Pad, footer.y + 27f, footer.width - Pad * 2f, 6f), progress,
                 progress >= 1f ? Ui.Good : Ui.Accent);
+
+            // 底部免责声明（需求：面板底部固定展示）
+            Ui.Text(new Rect(footer.x + Pad, footer.y + 40f, footer.width - Pad * 2f, 16f),
+                Ellipsize(Disclaimer, Ui.MutedSmall, footer.width - Pad * 2f), Ui.MutedSmall,
+                new Color(Ui.Muted.r, Ui.Muted.g, Ui.Muted.b, 0.75f));
 
             if (!string.IsNullOrEmpty(_toast) && Time.unscaledTime < _toastUntil)
             {
@@ -723,6 +844,7 @@ namespace ColoringPixelsTool
                 var r = new Rect(_window.center.x - sz.x * 0.5f - 14f, _window.y + HeaderH + 4f, sz.x + 28f, 30f);
                 var toastBg = new Color(0.10f, 0.11f, 0.15f, 0.96f * a);
                 Ui.RoundOutline(r, 8f, new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.5f * a), toastBg);
+                UiFx.ShineBorder(r, 8f, UiFx.GlowA, UiFx.GlowB, 0.65f * a);
                 Ui.Text(r, _toast, Ui.Bold, new Color(1f, 1f, 1f, a));
             }
         }
@@ -803,8 +925,9 @@ namespace ColoringPixelsTool
             var right = new Rect(half + 10f, y, half, cardH);
             Ui.Surface(right, 11f);
             Ui.Text(new Rect(right.x + 13f, y + 11f, half - 24f, 16f), "当前关卡进度", Ui.MutedSmall);
+            // magicui Number Ticker：百分比平滑滚动，而不是瞬变
             Ui.Text(new Rect(right.x + 13f, y + 27f, half - 24f, 30f),
-                inLevel ? $"{prog * 100f:0.0}%" : "未进入",
+                inLevel ? UiFx.CountText("home-prog", prog * 100f, "0.0") + "%" : "未进入",
                 Ui.Stat, inLevel ? (prog >= 1f ? Ui.Good : Ui.Accent2) : Ui.Muted);
             Ui.ProgressBar(new Rect(right.x + 13f, y + 62f, half - 26f, 6f), prog,
                 prog >= 1f ? Ui.Good : Ui.Accent);
@@ -1443,14 +1566,8 @@ namespace ColoringPixelsTool
                 "HUD 纵向位置", $"{Plugin.HudY.Value} px", true);
 
             y += 6f;
-            Section(w, ref y, "热键");
-
-            KeyButton(w, ref y, "面板热键", Plugin.KeyToggle);
-            KeyButton(w, ref y, "一键涂完热键", Plugin.KeyFill);
-            KeyButton(w, ref y, "拟人涂色热键", Plugin.KeyAuto);
-            KeyButton(w, ref y, "清空画布热键", Plugin.KeyErase);
-            KeyButton(w, ref y, "保存热键", Plugin.KeySave);
-            KeyButton(w, ref y, "颜色高亮热键", Plugin.KeyHighlight);
+            Section(w, ref y, "快捷键");
+            KeyBindingSections(w, ref y);
 
             y += 6f;
             Section(w, ref y, "游戏界面汉化");
@@ -1536,6 +1653,31 @@ namespace ColoringPixelsTool
                 Toast("Canvas 层级已写入 BepInEx 日志");
             }
             y += 52f;
+
+            y += 6f;
+            Section(w, ref y, "自动化与安全");
+
+            Plugin.AutoUnlocked.Value = Toggle(w, ref y, Plugin.AutoUnlocked.Value,
+                "自动绘图已解锁", "关掉后「涂色 / 拟人 / 自动化」三页会重新上锁，相关快捷键也会被拦截");
+
+            string heartNote = "游戏里点爱心 = 清空全部进度并回到第 1 关，开启后插件会再确认一次";
+            if (HeartGuard.Blocked > 0) heartNote += "　（本次已拦下 " + HeartGuard.Blocked + " 次）";
+            Plugin.HeartConfirm.Value = Toggle(w, ref y, Plugin.HeartConfirm.Value, "爱心二次确认", heartNote);
+
+            Plugin.TimerInHud.Value = Toggle(w, ref y, Plugin.TimerInHud.Value,
+                "HUD 显示本图用时", "在屏幕悬浮 HUD 上显示当前这张图的绘画用时");
+
+            y += 6f;
+            Section(w, ref y, "语音交互");
+            VoiceSection(w, ref y);
+
+            y += 6f;
+            Section(w, ref y, "Bug 反馈与功能建议");
+            FeedbackSection(w, ref y);
+
+            y += 6f;
+            Section(w, ref y, "新手指引");
+            GuideSection(w, ref y);
 
             y += 6f;
             Section(w, ref y, "关于");
@@ -1851,11 +1993,11 @@ namespace ColoringPixelsTool
             y += 44f;
 
             float third = (w - 16f) / 3f;
-            if (Ui.Button(new Rect(0f, y, third, 34f), "试扫本行 (F9)", Ui.Accent2, false))
+            if (Ui.Button(new Rect(0f, y, third, 34f), "试扫本行" + KeyHint(AssistOverlay.TestRowKey), Ui.Accent2, false))
                 AssistOverlay.Instance.TestRowFromUi();
-            if (Ui.Button(new Rect(third + 8f, y, third, 34f), "重新整扫 (F10)", Ui.Accent2, false))
+            if (Ui.Button(new Rect(third + 8f, y, third, 34f), "重新整扫" + KeyHint(AssistOverlay.RestartKey), Ui.Accent2, false))
                 AssistOverlay.Instance.RestartFromUi();
-            if (Ui.Button(new Rect((third + 8f) * 2f, y, third, 34f), "格子校准 (F11)", Ui.Accent2, false))
+            if (Ui.Button(new Rect((third + 8f) * 2f, y, third, 34f), "格子校准" + KeyHint(AssistOverlay.CalibrateKey), Ui.Accent2, false))
                 AssistOverlay.Instance.BeginCalibrateFromUi();
             y += 40f;
 
@@ -1877,7 +2019,7 @@ namespace ColoringPixelsTool
             }
 
             float h2 = (w - 8f) * 0.5f;
-            if (Ui.Button(new Rect(0f, y, h2, 34f), "重新框选 (F7)", Ui.Accent2, false))
+            if (Ui.Button(new Rect(0f, y, h2, 34f), "重新框选" + KeyHint(AssistOverlay.SelectKey), Ui.Accent2, false))
                 AssistOverlay.Instance.BeginSelectFromUi();
             if (Ui.Button(new Rect(h2 + 8f, y, h2, 34f), "清除区域", Ui.Bad, false))
             {

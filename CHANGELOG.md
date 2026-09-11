@@ -3,6 +3,36 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.0] - 2026-09-11
+
+### 新增
+
+- **全端 UI 美化与动效升级**：把 magicui / Aceternity 的设计语言移植到 GDI+ / IMGUI，零第三方依赖
+  - 插件端（Coloring Pixels 游戏内 F1 面板）：
+    - 新增 `UiFx.cs` 动效库，含 Shimmer、Glare、ShineBorder、Spotlight、Aurora Background、Dot Grid、Grain、Border Beam、Pulse、CountText、Confetti 彩纸、缓动等
+    - 标题栏 Spotlight 跟随鼠标，窗口背景加 Aurora + 点阵 + 噪点
+    - 图标带 Shimmer 与光晕，Tab 改为滑动指示块 + ShineBorder
+    - 内容区 Blur Fade 入场，按钮按下回弹 + 背光 + 渐变 + 指示条
+    - 进度条渐变 + Shimmer + 前沿呼吸光点
+    - 完成图片时撒彩纸，首页 `HeroBand` + 滚动百分比
+  - 安装器端：
+    - 新增 `installer/Fx.cs` 动效层
+    - 主窗口背景加 Aurora，卡片顶部加品牌渐隐光条
+    - `NeonButton` 自绘：渐变底 + Shimmer + Glare + 悬停背光 + 按下回弹
+    - `ProgressBarEx` 数值平滑、Shimmer、前沿 Blob 呼吸 / 完成光晕
+    - 安装完成后检测到游戏主窗口出现 2 秒自动关闭安装器（60 秒超时）
+  - 独立助手端（PixelAssist）：
+    - 新增 `AssistFx.cs` / `AssistControls.cs`，复刻同一套无依赖动效
+    - 助手窗口背景加 Aurora + Dot Grid + Grain
+    - 状态卡片圆角玻璃质感 + 顶部品牌光条
+    - 霓虹按钮、状态呼吸点、霓虹进度条（渐变 + Shimmer + 前沿光点）
+    - 全屏覆盖层 HUD 改为圆角玻璃卡片 + ShineBorder + 呼吸状态点 + 霓虹进度条 + 当前行脉冲高亮
+
+### 修复
+
+- 修复 v2.2.0 插件源码遗留的编译错误：`CheatPanel.Extras.cs` 补齐未定义成员、`HeartGuard.cs` 替换 Harmony 过时 API、`PaintTimer.cs` 清理未定义字段
+- 修复安装器 `MainForm.cs` 被截断导致的编译错误，并把自动关闭相关 `Timer` 限定为 `System.Windows.Forms.Timer` 避免二义性
+
 ## [2.1.0] - 2026-09-11
 
 ### 新增

@@ -8,6 +8,8 @@ namespace PixelAssist
 {
     /// <summary>
     /// 全屏点击穿透覆盖层：只负责画区域和状态条，所有鼠标事件都放给下面的游戏。
+    ///
+    /// 视觉上和主窗口保持一致：圆角玻璃卡片 + 渐变进度 + 呼吸光点 + 转圈高光边。
     /// </summary>
     internal sealed class OverlayForm : Form
     {
@@ -17,9 +19,12 @@ namespace PixelAssist
         private const int WS_EX_TOOLWINDOW = 0x00000080;
 
         private static readonly Color Key = Color.FromArgb(1, 1, 1);
-        private static readonly Color Accent = Color.FromArgb(0x5B, 0x8C, 0xFF);
-        private static readonly Color Accent2 = Color.FromArgb(0x2F, 0xD4, 0xC8);
+        private static readonly Color Accent = Ui.Accent;
+        private static readonly Color Accent2 = Ui.Accent2;
         private static readonly Color PanelBg = Color.FromArgb(0x10, 0x14, 0x1D);
+
+        private const int HudW = 528;
+        private const int HudH = 86;
 
         public AssistEngine Engine;
 
@@ -63,40 +68,78 @@ namespace PixelAssist
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            if (Selection.HasValue)
+            DrawSelection(g);
+            DrawRegion(g);
+            DrawHud(g);
+        }
+
+        // ---------------------------------------------------------------- 选择框
+
+        private void DrawSelection(Graphics g)
+        {
+            if (!Selection.HasValue) return;
+
+            Rectangle sel = Selection.Value;
+            sel.Offset(-Bounds.X, -Bounds.Y);
+
+            using (GraphicsPath path = Ui.Rounded(sel, 6))
             {
-                var sel = Selection.Value;
-                sel.Offset(-Bounds.X, -Bounds.Y);
-                using (var pen = new Pen(Accent, 2f) { DashStyle = DashStyle.Dash })
-                    g.DrawRectangle(pen, sel);
-                using (var brush = new SolidBrush(Color.White))
-                using (var font = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold))
-                    g.DrawString(string.Format("{0:0} × {1:0}", sel.Width, sel.Height),
-                        font, brush, sel.X + 8, sel.Y + 6);
+                using (SolidBrush fill = new SolidBrush(Ui.Alpha(Accent, 0.12f)))
+                    g.FillPath(fill, path);
+                using (Pen pen = new Pen(Ui.Alpha(Color.White, 0.9f), 1.6f) { DashStyle = DashStyle.Dash })
+                    g.DrawPath(pen, path);
+                Fx.ShineBorder(g, sel, 6, Accent2, 0.75f, 1.6f);
             }
 
-            var r = Engine.Region;
-            if (r != null && r.HasRegion)
+            string caption = string.Format("{0:0} × {1:0}", sel.Width, sel.Height);
+            using (Font font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold))
             {
-                using (var pen = new Pen(Color.FromArgb(220, Accent2), 2f))
+                Size sz = TextRenderer.MeasureText(caption, font);
+                Rectangle chip = new Rectangle(sel.X + 8, sel.Y + 8, sz.Width + 16, sz.Height + 8);
+                using (GraphicsPath cp = Ui.Rounded(chip, 5))
+                using (SolidBrush br = new SolidBrush(Ui.Alpha(PanelBg, 0.92f)))
+                    g.FillPath(br, cp);
+                TextRenderer.DrawText(g, caption, font, chip, Ui.Text,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+        }
+
+        // ---------------------------------------------------------------- 区域
+
+        private void DrawRegion(Graphics g)
+        {
+            var r = Engine.Region;
+            if (r == null || !r.HasRegion) return;
+
+            // 外轮廓：先描一层宽柔光，再描实线，得到霓虹描边
+            using (Pen glow = new Pen(Ui.Alpha(Accent2, 0.22f), 6f))
+            using (Pen line = new Pen(Color.FromArgb(225, Accent2), 2f))
+            {
+                for (int edge = 0; edge < 4; edge++)
                 {
-                    for (int edge = 0; edge < 4; edge++)
+                    PointF prev = Point.Empty;
+                    for (int i = 0; i <= 16; i++)
                     {
-                        PointF prev = Point.Empty;
-                        for (int i = 0; i <= 16; i++)
+                        double px, py;
+                        r.EdgePoint(edge, i / 16.0, out px, out py);
+                        var cur = new PointF((float)px, (float)py);
+                        if (i > 0)
                         {
-                            double px, py;
-                            r.EdgePoint(edge, i / 16.0, out px, out py);
-                            var cur = new PointF((float)px, (float)py);
-                            if (i > 0) g.DrawLine(pen, prev, cur);
-                            prev = cur;
+                            g.DrawLine(glow, prev, cur);
+                            g.DrawLine(line, prev, cur);
                         }
+                        prev = cur;
                     }
                 }
+            }
 
-                using (var rowPen = new Pen(Color.FromArgb(46, 255, 255, 255), 1f))
+            int rows = Math.Max(1, Engine.S.Rows);
+
+            // 扫描线网格：淡，只在运行时才需要
+            if (Engine.Running)
+            {
+                using (Pen rowPen = new Pen(Color.FromArgb(40, 255, 255, 255), 1f))
                 {
-                    int rows = Math.Max(1, Engine.S.Rows);
                     for (int i = 0; i <= rows; i++)
                     {
                         double v = i / (double)rows;
@@ -107,20 +150,41 @@ namespace PixelAssist
                     }
                 }
 
-                using (var brush = new SolidBrush(Color.White))
-                using (var fill = new SolidBrush(Accent))
+                // 当前行高亮：一道横向游走的渐变光带
+                double cv = (Engine.CurrentRow + 0.5) / rows;
+                if (cv > 0 && cv < 1)
                 {
-                    for (int i = 0; i < 4; i++)
+                    double ax, ay, bx, by;
+                    r.Point(0, cv, out ax, out ay);
+                    r.Point(1, cv, out bx, out by);
+
+                    float pulse = Fx.Pulse(3.0f, 0f);
+                    using (Pen hot = new Pen(Ui.Alpha(Accent, 0.55f + 0.35f * pulse), 2.4f))
                     {
-                        var c = new RectangleF((float)r.X[i] - 7f, (float)r.Y[i] - 7f, 14f, 14f);
-                        g.FillEllipse(fill, c);
-                        g.DrawEllipse(Pens.White, c);
+                        g.DrawLine(hot, (float)ax, (float)ay, (float)bx, (float)by);
+                        using (Pen halo = new Pen(Ui.Alpha(Accent, 0.14f), 9f))
+                            g.DrawLine(halo, (float)ax, (float)ay, (float)bx, (float)by);
                     }
+                    Fx.Blob(g, new PointF((float)ax, (float)ay), 42f, Accent2, 0.35f);
+                    Fx.Blob(g, new PointF((float)bx, (float)by), 42f, Accent2, 0.35f);
                 }
             }
 
-            DrawHud(g);
+            // 四角把手：内实心 + 外呼吸圈
+            float pulse2 = Fx.Pulse(2.2f, 0f);
+            for (int i = 0; i < 4; i++)
+            {
+                var c = new PointF((float)r.X[i], (float)r.Y[i]);
+                Fx.Blob(g, c, 34f, Accent, 0.22f + 0.14f * pulse2);
+                var dot = new RectangleF(c.X - 6f, c.Y - 6f, 12f, 12f);
+                using (SolidBrush fill = new SolidBrush(Accent))
+                    g.FillEllipse(fill, dot);
+                using (Pen ring = new Pen(Color.FromArgb(230, Color.White), 1.6f))
+                    g.DrawEllipse(ring, dot);
+            }
         }
+
+        // ---------------------------------------------------------------- HUD
 
         private void DrawHud(Graphics g)
         {
@@ -131,32 +195,85 @@ namespace PixelAssist
             string status = Engine.StateText;
             if (!string.IsNullOrEmpty(Engine.Message)) status += " · " + Engine.Message;
 
-            var box = new Rectangle(
-                (SystemInformation.VirtualScreen.Width - 520) / 2,
-                24, 520, 74);
+            int x = (SystemInformation.VirtualScreen.Width - HudW) / 2;
+            var box = new Rectangle(x, 24, HudW, HudH);
 
-            using (var bg = new SolidBrush(PanelBg))
-            using (var pen = new Pen(Accent, 2f))
+            using (GraphicsPath path = Ui.Rounded(box, 12))
             {
-                g.FillRectangle(bg, box);
-                g.DrawRectangle(pen, box);
+                using (LinearGradientBrush br = new LinearGradientBrush(
+                    new Rectangle(box.X, box.Y, box.Width, box.Height),
+                    Ui.CardHi, PanelBg, LinearGradientMode.Vertical))
+                    g.FillPath(br, path);
+
+                Fx.Aurora(g, box, 0.55f);
+
+                using (Pen pen = new Pen(Ui.Alpha(Accent, 0.50f), 1.5f))
+                    g.DrawPath(pen, path);
             }
 
-            using (var title = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold))
-            using (var small = new Font("Microsoft YaHei UI", 8.5f))
-            using (var white = new SolidBrush(Color.White))
-            using (var grey = new SolidBrush(Color.FromArgb(0xAF, 0xC0, 0xDA)))
-            {
-                g.DrawString("人工辅助 · " + status, title, white, box.X + 14, box.Y + 9);
-                g.DrawString(string.Format("第 {0}/{1} 行   已用 {2:0.0}s   F6 暂停  F8 停止  F10 重扫",
-                    Engine.CurrentRow + 1, Math.Max(1, Engine.TotalRows), Engine.ElapsedSeconds),
-                    small, grey, box.X + 14, box.Y + 50);
+            Fx.ShineBorder(g, box, 12, Accent2, 0.55f, 1.8f);
 
-                var bar = new Rectangle(box.X + 14, box.Y + 34, box.Width - 28, 8);
-                using (var track = new SolidBrush(Color.FromArgb(0x23, 0x2B, 0x3B)))
-                    g.FillRectangle(track, bar);
-                using (var fill = new SolidBrush(Accent2))
-                    g.FillRectangle(fill, bar.X, bar.Y, (int)(bar.Width * Math.Max(0f, Math.Min(1f, Engine.Progress))), bar.Height);
+            // 状态点
+            bool running = Engine.Running;
+            float pulse = running ? Fx.Pulse(2.6f, 0f) : 0.35f;
+            Color dotCol = running ? Accent2 : (Engine.State == AssistState.Done ? Accent : Ui.Muted);
+            var dotAt = new PointF(box.X + 22f, box.Y + 26f);
+            Fx.Blob(g, dotAt, 28f, dotCol, 0.16f + 0.30f * pulse);
+            using (SolidBrush br = new SolidBrush(Ui.Alpha(dotCol, 0.55f + 0.45f * pulse)))
+                g.FillEllipse(br, dotAt.X - 4f, dotAt.Y - 4f, 8f, 8f);
+
+            using (Font title = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold))
+            using (Font small = new Font("Microsoft YaHei UI", 8.5f))
+            {
+                TextRenderer.DrawText(g, "人工辅助 · " + status, title,
+                    new Rectangle(box.X + 38, box.Y + 12, box.Width - 52, 22), Color.White,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+                TextRenderer.DrawText(g, string.Format(
+                    "第 {0}/{1} 行   已用 {2:0.0}s   F6 暂停  F8 停止  F10 重扫",
+                    Engine.CurrentRow + 1, Math.Max(1, Engine.TotalRows), Engine.ElapsedSeconds),
+                    small, new Rectangle(box.X + 38, box.Y + 57, box.Width - 52, 16),
+                    Color.FromArgb(0xAF, 0xC0, 0xDA),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+
+            DrawHudProgress(g, new Rectangle(box.X + 22, box.Y + 42, box.Width - 44, 9));
+        }
+
+        private void DrawHudProgress(Graphics g, Rectangle bar)
+        {
+            int radius = Math.Max(2, bar.Height / 2);
+            using (GraphicsPath track = Ui.Rounded(bar, radius))
+            using (SolidBrush br = new SolidBrush(Color.FromArgb(0x23, 0x2B, 0x3B)))
+                g.FillPath(br, track);
+
+            float progress = Math.Max(0f, Math.Min(1f, Engine.Progress));
+            int w = (int)Math.Round(bar.Width * progress);
+            if (w <= 1) return;
+
+            var fill = new Rectangle(bar.X, bar.Y, Math.Max(radius * 2, w), bar.Height);
+            GraphicsState st = g.Save();
+            try
+            {
+                using (GraphicsPath clip = Ui.Rounded(bar, radius))
+                    g.SetClip(clip, CombineMode.Replace);
+
+                using (LinearGradientBrush br = new LinearGradientBrush(
+                    new Rectangle(bar.X, bar.Y, Math.Max(2, bar.Width), Math.Max(2, bar.Height)),
+                    Accent, Accent2, LinearGradientMode.Horizontal))
+                    g.FillRectangle(br, fill);
+
+                Fx.Shimmer(g, fill, 0, 2.2f, Color.White, 0.36f, 0.30f);
+
+                float pulse = Fx.Pulse(3.4f, 0f);
+                Fx.Blob(g, new PointF(bar.X + w, bar.Y + bar.Height * 0.5f),
+                    bar.Height * 3.2f, Color.White, 0.20f + 0.18f * pulse);
+                Fx.Blob(g, new PointF(bar.X + w, bar.Y + bar.Height * 0.5f),
+                    bar.Height * 5.0f, Accent2, 0.18f + 0.16f * pulse);
+            }
+            finally
+            {
+                g.Restore(st);
             }
         }
     }

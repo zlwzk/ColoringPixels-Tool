@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.1.0";
+        public const string Version = "2.2.0";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -24,6 +24,32 @@ namespace ColoringPixelsTool
         internal static ConfigEntry<KeyCode> KeyErase;
         internal static ConfigEntry<KeyCode> KeySave;
         internal static ConfigEntry<KeyCode> KeyHighlight;
+
+        // ---- 人工辅助热键（全部可在「设置 → 快捷键」里改） ----
+        internal static ConfigEntry<KeyCode> KeyAssistRun;
+        internal static ConfigEntry<KeyCode> KeyAssistSelect;
+        internal static ConfigEntry<KeyCode> KeyAssistStop;
+        internal static ConfigEntry<KeyCode> KeyAssistTestRow;
+        internal static ConfigEntry<KeyCode> KeyAssistRestart;
+        internal static ConfigEntry<KeyCode> KeyAssistCalibrate;
+        internal static ConfigEntry<KeyCode> KeyAssistOverlay;
+        internal static ConfigEntry<KeyCode> KeyHoldLeft;
+        internal static ConfigEntry<KeyCode> KeyVoice;
+
+        // ---- 功能开关 / 状态 ----
+        internal static ConfigEntry<bool> AutoUnlocked;
+        internal static ConfigEntry<bool> GuideShown;
+        internal static ConfigEntry<bool> HeartConfirm;
+        internal static ConfigEntry<bool> TimerInHud;
+        internal static ConfigEntry<bool> VoiceEnabled;
+        internal static ConfigEntry<int> VoiceMode;
+
+        // ---- 反馈 ----
+        internal static ConfigEntry<string> FeedbackToken;
+        internal static ConfigEntry<string> FeedbackContact;
+        internal static ConfigEntry<int> FeedbackKind;
+        internal static ConfigEntry<string> FeedbackTitle;
+        internal static ConfigEntry<string> FeedbackBody;
 
         // ---- 人工辅助（画布颜色高亮） ----
         internal static ConfigEntry<bool> HighlightEnabled;
@@ -103,6 +129,7 @@ namespace ColoringPixelsTool
             BindConfig();
 
             UserProfile.Load();
+            PaintTimer.Load();
             if (UserProfile.LastVersion != Version)
             {
                 CheatPanel.PendingAnnouncement = true;
@@ -132,6 +159,16 @@ namespace ColoringPixelsTool
             catch (System.Exception e)
             {
                 Log.Error("Harmony 补丁失败: " + e);
+            }
+
+            // 爱心二次确认单独装配：单独 try 一下，免得游戏更新后找不到目标就带崩整个 PatchAll。
+            try
+            {
+                HeartGuard.Patch(HarmonyInstance);
+            }
+            catch (System.Exception e)
+            {
+                Log.Warn("爱心二次确认未启用：" + e.Message);
             }
 
             gameObject.AddComponent<AutoPainter>();
@@ -253,6 +290,51 @@ namespace ColoringPixelsTool
                 new ConfigDescription("高亮颜色 B 通道", new AcceptableValueRange<int>(0, 255)));
             HighlightAlpha = Config.Bind(h, "高亮不透明度", 0.55f,
                 new ConfigDescription("高亮叠加的透明度", new AcceptableValueRange<float>(0.05f, 1f)));
+
+            var k = "9-快捷键";
+            KeyAssistRun = Config.Bind(k, "人工辅助-开始/暂停/继续", KeyCode.F7,
+                "人工辅助：开始 / 暂停 / 继续整屏扫描");
+            KeyAssistSelect = Config.Bind(k, "人工辅助-框选区域", KeyCode.F8,
+                "人工辅助：拖拽框选扫描区域");
+            KeyAssistStop = Config.Bind(k, "人工辅助-停止", KeyCode.F9,
+                "人工辅助：立即停止");
+            KeyAssistTestRow = Config.Bind(k, "人工辅助-试扫当前行", KeyCode.F10,
+                "人工辅助：只扫当前这一行");
+            KeyAssistRestart = Config.Bind(k, "人工辅助-重新整扫", KeyCode.F11,
+                "人工辅助：停止并从头重新整屏扫描");
+            KeyAssistCalibrate = Config.Bind(k, "人工辅助-格子校准", KeyCode.F12,
+                "人工辅助：框选一个格子，自动推算行数与采样步长");
+            KeyAssistOverlay = Config.Bind(k, "人工辅助-显示覆盖层", KeyCode.None,
+                "人工辅助：显示 / 隐藏屏幕覆盖层（默认不占按键，可在设置里指定）");
+            KeyHoldLeft = Config.Bind(k, "长按左键", KeyCode.Q,
+                "按住这个键 = 一直按着鼠标左键，涂色时不用一直压着鼠标（默认 Q）");
+            KeyVoice = Config.Bind(k, "语音换色开关", KeyCode.None,
+                "开 / 关语音换色（默认不占用按键）");
+
+            var f = "A-功能开关";
+            AutoUnlocked = Config.Bind(f, "自动绘图已解锁", false,
+                "自动绘图（一键涂完 / 拟人涂色 / 自动化）默认是上锁的，在面板上点解锁后这里会记成 true，之后不再上锁");
+            GuideShown = Config.Bind(f, "已看过新手指引", false,
+                "首次启动会弹出新手指引，点「不再提示」后这里会记成 true");
+            HeartConfirm = Config.Bind(f, "爱心二次确认", true,
+                "游戏里点爱心（清空全部进度并回到第 1 关）前，再让插件确认一次");
+            TimerInHud = Config.Bind(f, "HUD显示本图用时", true,
+                "在屏幕悬浮 HUD 上显示当前这张图的绘画用时");
+            VoiceEnabled = Config.Bind(f, "启用语音换色", false,
+                "打开后可以通过说颜色编号来切换调色板（需要系统支持语音识别）");
+            VoiceMode = Config.Bind(f, "语音识别模式", 0,
+                new ConfigDescription("0 = 听写（自由说，可识别中文/英文/阿拉伯数字），1 = 关键词（只认一 ~ 三十，可离线）",
+                    new AcceptableValueRange<int>(0, 1)));
+
+            var fb = "B-反馈";
+            FeedbackToken = Config.Bind(fb, "GitHub Token", "",
+                "填一个有 issues 写权限的 GitHub Token 后可以在面板里一键提交 Bug / 建议；留空则打开浏览器预填好的新建 issue 页面");
+            FeedbackContact = Config.Bind(fb, "联系方式", "",
+                "可选。留个 QQ / 邮箱，方便问题需要进一步确认时联系你");
+            FeedbackKind = Config.Bind(fb, "反馈类型", 0,
+                new ConfigDescription("0 = Bug 反馈，1 = 功能建议", new AcceptableValueRange<int>(0, 1)));
+            FeedbackTitle = Config.Bind(fb, "反馈标题草稿", "", "面板里填写后自动保存，避免误关面板丢内容");
+            FeedbackBody = Config.Bind(fb, "反馈正文草稿", "", "面板里填写后自动保存，避免误关面板丢内容");
         }
 
         private void OnDestroy()

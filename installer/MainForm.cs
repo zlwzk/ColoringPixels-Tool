@@ -32,7 +32,7 @@ namespace ColoringPixelsTool.Installer
         private StatusDot _dot;
         private Button _btnDetect;
         private Button _btnBrowse;
-        private Button _btnInstall;
+        private NeonButton _btnInstall;
         private Button _btnUninstall;
         private Button _btnOpenDir;
         private Button _btnLaunch;
@@ -52,6 +52,12 @@ namespace ColoringPixelsTool.Installer
 
         private bool _busy;
         private string _source;
+
+        // 「游戏打开后自动关闭安装器」
+        private System.Windows.Forms.Timer _autoCloseTimer;
+        private Process _gameProcess;
+        private DateTime _launchedAt;
+        private bool _autoClosed;
 
         public MainForm(Options options)
         {
@@ -296,8 +302,11 @@ namespace ColoringPixelsTool.Installer
             int wLaunch = Theme.S(110);
 
             int x = Theme.S(BaseWidth - Side) - wInstall;
-            _btnInstall = Theme.MakeButton("一键安装", Theme.Accent, Color.White, wInstall, h, true, OnInstallClick);
+            // 主行动按钮用自绘的霓虹按钮：渐变底 + 流光 + 悬停背光
+            _btnInstall = new NeonButton("一键安装", Theme.Accent);
+            _btnInstall.Size = new Size(wInstall, h);
             _btnInstall.Location = new Point(x, y);
+            _btnInstall.Click += OnInstallClick;
             Controls.Add(_btnInstall);
 
             x -= gap + wUninstall;
@@ -359,6 +368,12 @@ namespace ColoringPixelsTool.Installer
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             Log.Line -= OnLogLine;
+            if (_autoCloseTimer != null)
+            {
+                try { _autoCloseTimer.Stop(); _autoCloseTimer.Dispose(); }
+                catch (Exception) { }
+                _autoCloseTimer = null;
+            }
             base.OnFormClosed(e);
         }
 
@@ -382,6 +397,9 @@ namespace ColoringPixelsTool.Installer
             // 顶部品牌细条：紫 → 青
             Theme.GradientH(g, new Rectangle(0, 0, Math.Max(1, Width), Theme.S(3)), 0,
                 Theme.Accent, Theme.Accent2);
+
+            // Aceternity Aurora：在卡片之间露出的背景上做两团漂移柔光
+            Fx.Aurora(g, new Rectangle(0, titleH, Math.Max(1, Width), Math.Max(1, Height - titleH)), 0.75f);
 
             using (Pen pen = new Pen(Theme.CardEdge))
             {
@@ -610,6 +628,8 @@ namespace ColoringPixelsTool.Installer
             if (!info.Usable)
             {
                 _dot.DotColor = string.IsNullOrEmpty(_txtDir.Text) ? Theme.Muted : Theme.Bad;
+                // 还没找到目录时让状态点呼吸，表示"仍在等待/检测"
+                _dot.Pulsing = string.IsNullOrEmpty(_txtDir.Text);
                 _lblStatus.ForeColor = Theme.Muted;
                 _lblStatus.Text = string.IsNullOrEmpty(_txtDir.Text)
                     ? "请选择或让安装器自动检测「" + _game.DisplayName + "」的游戏目录。"
@@ -620,6 +640,7 @@ namespace ColoringPixelsTool.Installer
             }
 
             _dirByGame[_game.Key] = info.Directory;
+            _dot.Pulsing = false;
 
             bool installed = PayloadInstaller.IsInstalled(info.Directory, _game);
             string version = PayloadInstaller.InstalledVersion(info.Directory, _game);
@@ -877,6 +898,70 @@ namespace ColoringPixelsTool.Installer
             }
 
             Log.Info(game.TipText);
+            WatchGameAndAutoClose(p);
+        }
+
+        /// <summary>
+        /// 「游戏打开后自动关闭安装器」：
+        /// 启动游戏后每 400ms 看一眼进程有没有出现主窗口，出现后再等 2 秒关闭
+        /// （留 2 秒是为了不和游戏的启动动画抢焦点）。
+        /// </summary>
+        private void WatchGameAndAutoClose(Process game)
+        {
+            _gameProcess = game;
+            _launchedAt = DateTime.UtcNow;
+            _autoClosed = false;
+
+            if (_autoCloseTimer == null)
+            {
+                _autoCloseTimer = new System.Windows.Forms.Timer();
+                _autoCloseTimer.Interval = 400;
+                _autoCloseTimer.Tick += OnAutoCloseTick;
+            }
+            _autoCloseTimer.Start();
+            Log.Info("检测到游戏窗口后，安装器会自动关闭。");
+        }
+
+        private void OnAutoCloseTick(object sender, EventArgs e)
+        {
+            if (_autoClosed || _autoCloseTimer == null) return;
+
+            Process p = _gameProcess;
+            if (p == null)
+            {
+                _autoCloseTimer.Stop();
+                return;
+            }
+
+            // 正在安装 / 更新时不要关，等流程走完
+            if (_busy) return;
+
+            // 最多盯 60 秒，超时放弃，避免进程一直挂在后台
+            if ((DateTime.UtcNow - _launchedAt).TotalSeconds > 60)
+            {
+                _autoCloseTimer.Stop();
+                return;
+            }
+
+            bool ready;
+            try { ready = p.HasExited || p.MainWindowHandle != IntPtr.Zero; }
+            catch (Exception) { _autoCloseTimer.Stop(); return; }
+            if (!ready) return;
+
+            _autoClosed = true;
+            _autoCloseTimer.Stop();
+            Log.Ok("游戏已打开，安装器将在 2 秒后自动关闭。");
+
+            System.Windows.Forms.Timer delay = new System.Windows.Forms.Timer();
+            delay.Interval = 2000;
+            delay.Tick += delegate
+            {
+                delay.Stop();
+                delay.Dispose();
+                try { if (!IsDisposed) Close(); }
+                catch (Exception) { }
+            };
+            delay.Start();
         }
 
         // ============================================================ 其它按钮

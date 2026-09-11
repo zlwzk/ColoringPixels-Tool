@@ -16,13 +16,13 @@ namespace PixelAssist
     /// </summary>
     internal sealed class AssistForm : Form
     {
-        private static readonly Color Bg = Color.FromArgb(0x0D, 0x10, 0x17);
-        private static readonly Color CardBg = Color.FromArgb(0x16, 0x1B, 0x26);
-        private static readonly Color Accent = Color.FromArgb(0x5B, 0x8C, 0xFF);
-        private static readonly Color Accent2 = Color.FromArgb(0x2F, 0xD4, 0xC8);
-        private static readonly Color Danger = Color.FromArgb(0xE5, 0x5A, 0x6B);
-        private static readonly Color TextCol = Color.FromArgb(0xE8, 0xEE, 0xF9);
-        private static readonly Color Muted = Color.FromArgb(0x8B, 0x9A, 0xB5);
+        private static readonly Color Bg = Ui.Bg;
+        private static readonly Color CardBg = Ui.Card;
+        private static readonly Color Accent = Ui.Accent;
+        private static readonly Color Accent2 = Ui.Accent2;
+        private static readonly Color Danger = Ui.Danger;
+        private static readonly Color TextCol = Ui.Text;
+        private static readonly Color Muted = Ui.Muted;
 
         private readonly AssistEngine _engine = new AssistEngine();
         private readonly OverlayForm _overlay = new OverlayForm();
@@ -42,8 +42,9 @@ namespace PixelAssist
         // 控件
         private Label _stateLabel;
         private Label _detailLabel;
-        private ProgressBar _progress;
-        private Button _runButton;
+        private AssistProgress _progress;
+        private StatusDot _dot;
+        private NeonButton _runButton;
         private Label _regionLabel;
         private NumericUpDown _rows, _speed, _step, _rowPause, _margin, _delay, _autoStop, _switchEvery, _switchWait, _failRadius;
         private CheckBox _snake, _hold, _detect;
@@ -68,6 +69,11 @@ namespace PixelAssist
             ForeColor = TextCol;
             Font = new Font("Microsoft YaHei UI", 9f);
             TopMost = true;
+
+            // 自绘氛围底（Aurora + 点阵 + 噪点）需要双缓冲，否则拖动窗口会闪。
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
             AssistRegion savedRegion = AssistStore.LoadRegion();
             if (savedRegion != null && savedRegion.HasRegion) _engine.Region.CopyFrom(savedRegion);
@@ -95,6 +101,24 @@ namespace PixelAssist
 
         // ---------------------------------------------------------------- 界面
 
+        /// <summary>
+        /// 窗口底色：深靛蓝 + 缓慢漂移的 Aurora 柔光 + 极淡点阵与噪点（Aceternity 的 Aurora Background）。
+        /// 画在 OnPaintBackground 里，Color.Transparent 的子控件才能透出来。
+        /// </summary>
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            Rectangle r = ClientRectangle;
+            if (r.Width <= 0 || r.Height <= 0) return;
+
+            Graphics g = e.Graphics;
+            using (SolidBrush br = new SolidBrush(Bg))
+                g.FillRectangle(br, r);
+
+            Fx.Aurora(g, r, 0.62f);
+            Fx.DotGrid(g, r, 22, 0.032f);
+            Fx.Grain(g, r, 0.022f);
+        }
+
         private void BuildUi()
         {
             int y = 14;
@@ -103,19 +127,25 @@ namespace PixelAssist
             Add(Sub("F7 框选画布 → F11 校准格子 → F6 开始，剩下的交给它"), 16, y, 420, 18); y += 26;
 
             Add(Card("状态"), 16, y, 420, 104); y += 112;
+
+            _dot = new StatusDot();
+            _dot.SetBounds(30, y - 96 + 4, 12, 12);
+            _dot.Tint = Muted;
+            Add(_dot);
+
             _stateLabel = new Label();
-            _stateLabel.SetBounds(30, y - 96, 392, 20);
+            _stateLabel.SetBounds(50, y - 96, 372, 20);
             _stateLabel.ForeColor = TextCol;
-            _stateLabel.BackColor = CardBg;
+            _stateLabel.BackColor = Color.Transparent;
             Add(_stateLabel);
 
             _detailLabel = new Label();
             _detailLabel.SetBounds(30, y - 74, 392, 18);
             _detailLabel.ForeColor = Muted;
-            _detailLabel.BackColor = CardBg;
+            _detailLabel.BackColor = Color.Transparent;
             Add(_detailLabel);
 
-            _progress = new ProgressBar();
+            _progress = new AssistProgress();
             _progress.SetBounds(30, y - 52, 392, 12);
             Add(_progress);
 
@@ -123,7 +153,7 @@ namespace PixelAssist
             hint.Text = "区域：未框选";
             hint.SetBounds(30, y - 32, 392, 18);
             hint.ForeColor = Accent2;
-            hint.BackColor = CardBg;
+            hint.BackColor = Color.Transparent;
             Add(hint);
             _regionLabel = hint;
 
@@ -148,9 +178,9 @@ namespace PixelAssist
             y += 42;
 
             // ---- 参数区（可滚动） ----
-            var panel = new Panel();
+            var panel = new BackdropPanel();
+            panel.Ambience = 0.4f;
             panel.SetBounds(12, y, 428, 372);
-            panel.BackColor = Bg;
             panel.AutoScroll = true;
             Controls.Add(panel);
 
@@ -254,23 +284,18 @@ namespace PixelAssist
             return l;
         }
 
-        private static Panel Card(string title)
+        private static AssistCard Card(string title)
         {
-            var p = new Panel();
-            p.BackColor = CardBg;
+            var p = new AssistCard();
             return p;
         }
 
-        private static Button FlatButton(string text, Color back, int x, int y, int w, int h)
+        private static NeonButton FlatButton(string text, Color back, int x, int y, int w, int h)
         {
-            var b = new Button();
-            b.Text = text;
+            // 主色按钮（强调色 / 危险色）带常驻掠光，其余按钮只在悬停时发光，省 CPU。
+            bool primary = back == Accent || back == Danger || back == Accent2;
+            var b = new NeonButton(text, back, primary);
             b.SetBounds(x, y, w, h);
-            b.FlatStyle = FlatStyle.Flat;
-            b.FlatAppearance.BorderSize = 0;
-            b.BackColor = back;
-            b.ForeColor = Color.White;
-            b.Cursor = Cursors.Hand;
             return b;
         }
 
@@ -517,15 +542,23 @@ namespace PixelAssist
 
             _engine.Tick(dt);
 
+            bool running = _engine.Running;
             bool canResume = _engine.State == AssistState.Paused
                           || _engine.State == AssistState.WaitingColour
                           || _engine.State == AssistState.RowPause;
-            _runButton.Text = canResume ? "继续 (F6)" : (_engine.Running ? "暂停 (F6)" : "开始 (F6)");
+            _runButton.Text = canResume ? "继续 (F6)" : (running ? "暂停 (F6)" : "开始 (F6)");
+            _runButton.Tint = running ? Accent2 : Accent;
             _stateLabel.Text = "状态：" + _engine.StateText
                 + (string.IsNullOrEmpty(_engine.Message) ? "" : " · " + _engine.Message);
             _detailLabel.Text = string.Format("第 {0}/{1} 行   已用 {2:0.0}s   进度 {3:0}%",
                 _engine.CurrentRow + 1, Math.Max(1, _engine.TotalRows), _engine.ElapsedSeconds, _engine.Progress * 100f);
             _progress.Value = (int)Math.Max(0, Math.Min(100, _engine.Progress * 100f));
+
+            // 状态点：运行中呼吸、完成变强调色、其余熄灭
+            _dot.Pulsing = running;
+            _dot.Tint = running ? Accent2
+                      : (_engine.State == AssistState.Done ? Accent
+                      : (_engine.State == AssistState.Paused ? Danger : Muted));
 
             // 框选/校准时把预览虚线框交给覆盖层一起画。
             if (_selecting) _overlay.Selection = RectFrom(_selStart, _selNow);
