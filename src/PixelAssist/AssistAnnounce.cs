@@ -7,25 +7,28 @@ namespace PixelAssist
     /// <summary>助手面板的更新公告与功能总览文本（来源：RELEASE_NOTES.md、FEATURES.md / VERSION）。</summary>
     internal static class AssistAnnounce
     {
-        public const string Version = "2.3.6";
+        public const string Version = "2.3.7";
 
         public const string Changelog =
-"欢迎回来，Coloring Pixels Tool V2.3.6！\r\n" +
+"欢迎回来，Coloring Pixels Tool V2.3.7！\r\n" +
 "\r\n" +
-"紧急修复 V2.3.5 中可能出现的「游戏内面板消失」问题。\r\n" +
+"这次修的是「装完之后启动游戏会闪退」——现在交给 Steam 来开机。\r\n" +
 "\r\n" +
-"修复：新手指引不再顶掉整个面板\r\n" +
+"修复：安装器直接拉 exe 导致游戏闪退\r\n" +
 "\r\n" +
-"· V2.3.5 里，卸载重装后会重置 已看过新手指引 = false，导致新手指引独占 OnGUI，\r\n" +
-"  整个作弊面板完全不绘制。玩家按 F1 看不到面板，会误以为插件没装上。\r\n" +
-"· 现在改为：先画面板，再画引导遮罩。即使新手指引弹出，玩家仍能看到后面的面板，\r\n" +
-"  点「开始使用」或按 F1 后即可正常操作。\r\n" +
-"· 恢复出厂逻辑也做了收敛：不再主动重置 已看过新手指引，只保留用户明确要求的\r\n" +
-"  「自动绘图上锁」和「完整功能总览公告」；新手指引是否弹出交给配置默认值决定。\r\n" +
+"· 这两款游戏都是在 Steam 上卖的，游戏启动时要靠 Steam 客户端接管 Steamworks。\r\n" +
+"  安装器以前是直接 Process.Start 游戏 exe，Steam 没参与，游戏起来几百毫秒就自己退了，\r\n" +
+"  用户看到的就是「刚弹出个黑框就没了」，只能再去 Steam 库里手动点一次启动。\r\n" +
+"· 现在「启动游戏」和「安装完成后自动启动」都会先走 steam://rungameid/，\r\n" +
+"  由 Steam 把游戏正常拉起来。Steam 没开着也没关系，协议会自动叫醒它。\r\n" +
+"· 只有确认「这个目录就是 Steam 库里装的这一份」（对得上 appmanifest_.acf）才走 Steam，\r\n" +
+"  绿色版 / 非 Steam 版仍然直接启动，不会被丢到商店页干瞪眼。\r\n" +
 "\r\n" +
-"等级与经验\r\n" +
+"顺带\r\n" +
 "\r\n" +
-"· 仍然不受影响：等级存档依旧在 %APPDATA% 里，卸载不会清进度。";
+"· Steam 启动时拿不到游戏进程句柄，所以「游戏打开后自动关闭安装器」改成按进程名轮询，\r\n" +
+"  等游戏真的起来再自动关闭（等待上限从 60 秒放宽到 90 秒，Steam 拉起来会慢一截）。\r\n" +
+"· 游戏已经在运行时，依然只把窗口切到前台，不会多开一个。";
 
         public const string Features =
 "欢迎来到 涂色大师 · Tool\r\n" +
@@ -52,6 +55,9 @@ namespace PixelAssist
 "· 自动找目录：先看正在跑的进程，再翻 Steam 库（含 libraryfolders.vdf），再试常见路径；\r\n" +
 "  实在找不到就 --deep 全盘扫一遍，顺手读 PE 头确认 32 / 64 位对不对。\r\n" +
 "· 一键装完：检测目录 → 部署文件 → 启动游戏，全程不用手动解压、复制、翻文件夹。\r\n" +
+"· 认得出 Steam：装完点「启动游戏」走的是 steam://，由 Steam 客户端把游戏拉起来 ——\r\n" +
+"  这两款游戏直接双击 exe 会因为 Steamworks 没被接管而当场闪退，所以一律交给 Steam 启动；\r\n" +
+"  万一机器上没有 Steam（绿色版），会自动退回直接启动，不会点了没反应。\r\n" +
 "· 安全可逆：覆盖前先备份，卸载时按选项还原；也能顺手把 BepInEx 本体一起请走。\r\n" +
 "· 会看更新：启动时顺手查一下有没有新版本。\r\n" +
 "· 能脚本化：--silent、--dir=、--game=pcs、--all、--detect-only、--uninstall……\r\n" +

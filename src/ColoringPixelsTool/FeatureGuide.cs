@@ -32,6 +32,9 @@ namespace ColoringPixelsTool
 "· 自动找目录：先看正在跑的进程，再翻 Steam 库（含 libraryfolders.vdf），再试常见路径；\n" +
 "  实在找不到就 --deep 全盘扫一遍，顺手读 PE 头确认 32 / 64 位对不对。\n" +
 "· 一键装完：检测目录 → 部署文件 → 启动游戏，全程不用手动解压、复制、翻文件夹。\n" +
+"· 认得出 Steam：装完点「启动游戏」走的是 steam://，由 Steam 客户端把游戏拉起来 ——\n" +
+"  这两款游戏直接双击 exe 会因为 Steamworks 没被接管而当场闪退，所以一律交给 Steam 启动；\n" +
+"  万一机器上没有 Steam（绿色版），会自动退回直接启动，不会点了没反应。\n" +
 "· 安全可逆：覆盖前先备份，卸载时按选项还原；也能顺手把 BepInEx 本体一起请走。\n" +
 "· 会看更新：启动时顺手查一下有没有新版本。\n" +
 "· 能脚本化：--silent、--dir=、--game=pcs、--all、--detect-only、--uninstall……\n" +

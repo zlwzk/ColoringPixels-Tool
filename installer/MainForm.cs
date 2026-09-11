@@ -56,6 +56,7 @@ namespace ColoringPixelsTool.Installer
         // 「游戏打开后自动关闭安装器」
         private System.Windows.Forms.Timer _autoCloseTimer;
         private Process _gameProcess;
+        private GameDescriptor _watchGame;
         private DateTime _launchedAt;
         private bool _autoClosed;
 
@@ -1016,25 +1017,33 @@ namespace ColoringPixelsTool.Installer
         {
             string error;
             bool alreadyRunning;
-            Process p = PayloadInstaller.LaunchGame(dir, game, out alreadyRunning, out error);
-            if (p == null)
-            {
-                Log.Error("启动游戏失败：" + error);
-                return;
-            }
+            bool viaSteam;
+            Process p = PayloadInstaller.LaunchGame(dir, game, out alreadyRunning, out viaSteam, out error);
 
-            if (alreadyRunning)
+            if (alreadyRunning && p != null)
             {
                 // 已经在跑就只把窗口切到前台。Unity 游戏不拦多开，再启动一次
                 // 只会多出一个游戏窗口 —— 用户看到的就是「游戏画面冒出来好几遍」。
                 Log.Warn("游戏已经在运行（PID " + p.Id + "），不再重复启动，已把窗口切到前台。");
                 FocusWindow(p);
                 MarkGameRunning();
-                WatchGameAndAutoClose(p);
+                WatchGameAndAutoClose(game, p);
                 return;
             }
 
-            Log.Ok("已启动游戏（PID " + p.Id + "）");
+            // Steam 启动时拿不到游戏进程句柄（游戏由 Steam 稍后拉起来），
+            // 所以只有「既不是 Steam 启动、又没有进程」才算失败。
+            if (p == null && !viaSteam)
+            {
+                Log.Error("启动游戏失败：" + error);
+                return;
+            }
+
+            if (viaSteam)
+                Log.Ok("已通过 Steam 启动游戏（AppID " + game.SteamAppId + "），游戏窗口稍后出现。");
+            else
+                Log.Ok("已启动游戏（PID " + p.Id + "）");
+
             MarkGameRunning();
 
             // 非注入式游戏还得把配套的独立助手拉起来。
@@ -1048,7 +1057,7 @@ namespace ColoringPixelsTool.Installer
             }
 
             Log.Info(game.TipText);
-            WatchGameAndAutoClose(p);
+            WatchGameAndAutoClose(game, p);
         }
 
         /// <summary>
@@ -1100,19 +1109,20 @@ namespace ColoringPixelsTool.Installer
         /// 永远不会 Tick。这正是「游戏都开好了，安装器还杵在那不关」的原因，
         /// 所以起表之前先切回 UI 线程。
         /// </summary>
-        private void WatchGameAndAutoClose(Process game)
+        private void WatchGameAndAutoClose(GameDescriptor game, Process p)
         {
-            Ui(delegate { StartAutoCloseWatch(game); });
+            Ui(delegate { StartAutoCloseWatch(game, p); });
         }
 
-        private void StartAutoCloseWatch(Process game)
+        private void StartAutoCloseWatch(GameDescriptor game, Process p)
         {
             if (IsDisposed) return;
 
             // 已经在盯同一个进程了就别重来一遍（安装后自动启动 + 手点「启动游戏」）。
             if (!_autoClosed && _autoCloseTimer != null && _autoCloseTimer.Enabled) return;
 
-            _gameProcess = game;
+            _watchGame = game;
+            _gameProcess = p;
             _launchedAt = DateTime.UtcNow;
             _autoClosed = false;
 
@@ -1130,22 +1140,30 @@ namespace ColoringPixelsTool.Installer
         {
             if (_autoClosed || _autoCloseTimer == null) return;
 
-            Process p = _gameProcess;
-            if (p == null)
-            {
-                _autoCloseTimer.Stop();
-                return;
-            }
-
             // 正在安装 / 更新时不要关，等流程走完
             if (_busy) return;
 
-            // 最多盯 60 秒，超时放弃，避免进程一直挂在后台
-            if ((DateTime.UtcNow - _launchedAt).TotalSeconds > 60)
+            // 最多盯 90 秒，超时放弃，避免进程一直挂在后台。
+            // 走 Steam 启动时要等 Steam 把游戏主进程拉起来，比直接启动慢一截。
+            if ((DateTime.UtcNow - _launchedAt).TotalSeconds > 90)
             {
                 _autoCloseTimer.Stop();
                 return;
             }
+
+            Process p = _gameProcess;
+
+            // Steam 启动时一开始是没有进程句柄的，按进程名轮询，等游戏真的起来。
+            if (p == null && _watchGame != null) p = GameLocator.GetRunningGame(_watchGame);
+
+            if (p == null)
+            {
+                // 连要盯哪款游戏都不知道：没得等，收工。
+                if (_watchGame == null) _autoCloseTimer.Stop();
+                return;
+            }
+
+            _gameProcess = p;
 
             bool ready;
             try { ready = p.HasExited || p.MainWindowHandle != IntPtr.Zero; }

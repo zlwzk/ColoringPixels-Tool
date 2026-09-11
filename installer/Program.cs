@@ -155,9 +155,12 @@ namespace ColoringPixelsTool.Installer
             {
                 string error;
                 bool alreadyRunning;
-                System.Diagnostics.Process p = PayloadInstaller.LaunchGame(dir, game, out alreadyRunning, out error);
-                if (p == null) Log.Warn("启动游戏失败：" + error);
-                else if (alreadyRunning) Log.Info("游戏已经在运行（PID " + p.Id + "），不再重复启动。");
+                bool viaSteam;
+                System.Diagnostics.Process p = PayloadInstaller.LaunchGame(dir, game,
+                    out alreadyRunning, out viaSteam, out error);
+                if (p == null && !viaSteam) Log.Warn("启动游戏失败：" + error);
+                else if (alreadyRunning && p != null) Log.Info("游戏已经在运行（PID " + p.Id + "），不再重复启动。");
+                else if (viaSteam) Log.Info("已通过 Steam 启动游戏（AppID " + game.SteamAppId + "）。");
 
                 if (game.AssistExeRelativePath != null)
                 {
