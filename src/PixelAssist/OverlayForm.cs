@@ -28,6 +28,9 @@ namespace PixelAssist
 
         public AssistEngine Engine;
 
+        /// <summary>自动绘图引擎（正在自动涂色时用来高亮当前格子与显示进度）；不用时为 null。</summary>
+        public AutoPainter Auto;
+
         /// <summary>框选过程中的临时选择框（null 表示没有）。</summary>
         public Rectangle? Selection;
 
@@ -70,7 +73,61 @@ namespace PixelAssist
 
             DrawSelection(g);
             DrawRegion(g);
+            DrawAuto(g);
             DrawHud(g);
+        }
+
+        // ---------------------------------------------------------------- 自动绘图高亮
+
+        private void DrawAuto(Graphics g)
+        {
+            if (Auto == null || !Auto.Running) return;
+
+            PcsLevel level = Auto.CurrentLevel;
+            if (level == null || !Auto.HasCurrentCell) return;
+
+            var region = Engine.Region;
+            if (region == null || !region.HasRegion) return;
+
+            // 一格的屏幕像素大小（画布近似宽高 ÷ 格子数）
+            float cellW = (float)region.ApproxWidth() / Math.Max(1, level.Width);
+            float cellH = (float)region.ApproxHeight() / Math.Max(1, level.Height);
+            if (cellW < 2f || cellH < 2f) return;
+
+            Point c = Auto.CurrentCellCenter;
+            var box = new RectangleF(c.X - cellW * 0.5f, c.Y - cellH * 0.5f, cellW, cellH);
+
+            float pulse = Fx.Pulse(4.2f, 0f);
+
+            // 目标色的底：涂之前先让用户看见这一格该是什么颜色
+            Color target = Auto.CurrentGroupColor == Color.Empty ? Accent : Auto.CurrentGroupColor;
+            using (SolidBrush fill = new SolidBrush(Ui.Alpha(target, 0.35f + 0.15f * pulse)))
+                g.FillRectangle(fill, box);
+
+            // 脉动白框 + 外圈光晕
+            Fx.Blob(g, new PointF(c.X, c.Y), Math.Max(cellW, cellH) * 3.2f, Accent2, 0.30f + 0.25f * pulse);
+            using (Pen ring = new Pen(Color.FromArgb((int)(180 + 60 * pulse), Color.White), 1.8f))
+                g.DrawRectangle(ring, box.X, box.Y, box.Width, box.Height);
+
+            // 十字准星
+            using (Pen cross = new Pen(Ui.Alpha(Color.White, 0.85f), 1f))
+            {
+                g.DrawLine(cross, c.X - cellW * 0.9f, c.Y, c.X + cellW * 0.9f, c.Y);
+                g.DrawLine(cross, c.X, c.Y - cellH * 0.9f, c.X, c.Y + cellH * 0.9f);
+            }
+
+            // 颜色小标签
+            string hex = "#" + target.R.ToString("X2") + target.G.ToString("X2") + target.B.ToString("X2");
+            using (Font small = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Bold))
+            {
+                Size sz = TextRenderer.MeasureText(hex, small);
+                var chip = new Rectangle((int)(box.Right + 8), c.Y - sz.Height / 2 - 4, sz.Width + 14, sz.Height + 8);
+                using (GraphicsPath path = Ui.Rounded(chip, 5))
+                using (SolidBrush br = new SolidBrush(Color.FromArgb(225, 0x10, 0x14, 0x1D)))
+                    g.FillPath(br, path);
+                TextRenderer.DrawText(g, hex, small, chip, Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
         }
 
         // ---------------------------------------------------------------- 选择框
@@ -238,16 +295,73 @@ namespace PixelAssist
             }
 
             DrawHudProgress(g, new Rectangle(box.X + 22, box.Y + 42, box.Width - 44, 9));
+
+            if (Auto != null && Auto.Running) DrawAutoHud(g, box);
+        }
+
+        /// <summary>自动绘图时的第二条 HUD：当前颜色 + 进度 + 快捷键。</summary>
+        private void DrawAutoHud(Graphics g, Rectangle above)
+        {
+            int total = Math.Max(1, Auto.TargetCells);
+            int done = Auto.PaintedCells;
+            float progress = Math.Max(0f, Math.Min(1f, (float)done / total));
+
+            var box = new Rectangle(above.X, above.Bottom + 10, above.Width, 66);
+
+            using (GraphicsPath path = Ui.Rounded(box, 12))
+            {
+                using (LinearGradientBrush br = new LinearGradientBrush(
+                    new Rectangle(box.X, box.Y, box.Width, box.Height),
+                    Ui.CardHi, PanelBg, LinearGradientMode.Vertical))
+                    g.FillPath(br, path);
+                Fx.Aurora(g, box, 0.45f);
+                using (Pen pen = new Pen(Ui.Alpha(Accent, 0.45f), 1.5f))
+                    g.DrawPath(pen, path);
+            }
+            Fx.ShineBorder(g, box, 12, Accent2, 0.45f, 1.6f);
+
+            // 当前颜色圆点
+            Color target = Auto.CurrentGroupColor == Color.Empty ? Accent : Auto.CurrentGroupColor;
+            float pulse = Auto.Paused ? 0.3f : Fx.Pulse(2.6f, 0f);
+            var dotAt = new PointF(box.X + 22f, box.Y + 22f);
+            Fx.Blob(g, dotAt, 26f, target, 0.18f + 0.28f * pulse);
+            using (SolidBrush br = new SolidBrush(target))
+                g.FillEllipse(br, dotAt.X - 6f, dotAt.Y - 6f, 12f, 12f);
+            using (Pen ring = new Pen(Color.FromArgb(200, Color.White), 1.4f))
+                g.DrawEllipse(ring, dotAt.X - 6f, dotAt.Y - 6f, 12f, 12f);
+
+            string hex = "#" + target.R.ToString("X2") + target.G.ToString("X2") + target.B.ToString("X2");
+            using (Font title = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold))
+            using (Font small = new Font("Microsoft YaHei UI", 8.5f))
+            {
+                TextRenderer.DrawText(g, (Auto.Paused ? "自动绘图 · 已暂停 · " : "自动绘图 · ") + hex, title,
+                    new Rectangle(box.X + 38, box.Y + 8, box.Width - 52, 22), Color.White,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+                TextRenderer.DrawText(g, string.Format(
+                    "已涂 {0}/{1} 格   本颜色还剩 {2} 格   F6 暂停  F8 停止",
+                    done, Auto.TargetCells, Math.Max(0, Auto.CurrentColorRemaining)),
+                    small, new Rectangle(box.X + 38, box.Y + 32, box.Width - 52, 16),
+                    Color.FromArgb(0xAF, 0xC0, 0xDA),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+
+            DrawHudProgress(g, new Rectangle(box.X + 22, box.Y + box.Height - 15, box.Width - 44, 9), progress);
         }
 
         private void DrawHudProgress(Graphics g, Rectangle bar)
+        {
+            DrawHudProgress(g, bar, Engine.Progress);
+        }
+
+        private void DrawHudProgress(Graphics g, Rectangle bar, float rawProgress)
         {
             int radius = Math.Max(2, bar.Height / 2);
             using (GraphicsPath track = Ui.Rounded(bar, radius))
             using (SolidBrush br = new SolidBrush(Color.FromArgb(0x23, 0x2B, 0x3B)))
                 g.FillPath(br, track);
 
-            float progress = Math.Max(0f, Math.Min(1f, Engine.Progress));
+            float progress = Math.Max(0f, Math.Min(1f, rawProgress));
             int w = (int)Math.Round(bar.Width * progress);
             if (w <= 1) return;
 

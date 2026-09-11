@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.2.11";
+        public const string Version = "2.2.12";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -130,6 +130,12 @@ namespace ColoringPixelsTool
         {
             Instance = this;
             Log.Bind(Logger);
+
+            // 等级系统是两个游戏共用的（插件 + 《涂色大师》助手读写同一份存档），
+            // 这里把日志出口和镜像目录交给插件来提供。
+            ProfileLog.InfoTarget = Log.Info;
+            ProfileLog.WarnTarget = Log.Warn;
+            UserProfile.MirrorDirectory = GameLocalizer.ConfigDirectory();
 
             BindConfig();
 

@@ -13,7 +13,8 @@
 
 - **《Coloring Pixels》**（Steam AppID 897330）：装的是游戏内插件，进关卡后按 <kbd>F1</kbd> 呼出面板。
 - **《涂色大师：像素梦想家》**（Steam AppID 3071670）：这游戏是 IL2CPP，插件插不进去，
-  所以改用独立助手 `PixelAssist.exe`：<kbd>F7</kbd> 框画布 → <kbd>F11</kbd> 校准格子 → <kbd>F6</kbd> 开扫。
+  所以改用独立助手 `PixelAssist.exe`：<kbd>F7</kbd> 框画布 → <kbd>F5</kbd> 框调色板 → <kbd>F6</kbd> 开始自动绘图，
+  也保留了人工辅助扫描模式。两块游戏的等级与进度共用一份存档。
 
 一个安装包同时管这两款：哪款没装就不管哪款，两款各记各的目录和状态，互不打扰。
 

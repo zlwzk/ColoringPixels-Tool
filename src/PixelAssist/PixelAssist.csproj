@@ -33,6 +33,9 @@
     <Compile Include="..\ColoringPixelsTool\AssistEngine.cs" />
     <Compile Include="..\ColoringPixelsTool\AssistStore.cs" />
     <Compile Include="..\ColoringPixelsTool\AssistWin32.cs" />
+    <Compile Include="..\ColoringPixelsTool\UserProfile.cs">
+      <Link>Shared\UserProfile.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>

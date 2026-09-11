@@ -130,7 +130,7 @@ function Compile-WithCsc {
     foreach ($f in (Get-ChildItem -LiteralPath $projDir -Filter '*.cs' -File | Sort-Object Name)) {
         [void]$sources.Add($f.FullName)
     }
-    foreach ($name in @('AssistRegion.cs', 'AssistEngine.cs', 'AssistStore.cs', 'AssistWin32.cs')) {
+    foreach ($name in @('AssistRegion.cs', 'AssistEngine.cs', 'AssistStore.cs', 'AssistWin32.cs', 'UserProfile.cs')) {
         $p = Join-Path $sharedDir $name
         if (-not (Test-Path -LiteralPath $p)) { Fail "缺少共享源文件：$p" }
         [void]$sources.Add($p)

@@ -110,6 +110,7 @@ namespace PixelAssist
     {
         private Color _tint;
         private readonly bool _primary;
+        private Color _textColor = Color.Empty;
 
         /// <summary>是否常驻掠光（主按钮开，次级按钮只在悬停时动画，省 CPU）。</summary>
         public bool Shimmer;
@@ -126,6 +127,18 @@ namespace PixelAssist
             {
                 if (_tint == value) return;
                 _tint = value;
+                Invalidate();
+            }
+        }
+
+        /// <summary>文字颜色覆盖；设为 Color.Empty 时回退到按状态自动计算的颜色。</summary>
+        public Color TextColor
+        {
+            get { return _textColor; }
+            set
+            {
+                if (_textColor == value) return;
+                _textColor = value;
                 Invalidate();
             }
         }
@@ -203,7 +216,8 @@ namespace PixelAssist
 
             Rectangle textBox = new Rectangle(0, (int)Math.Round(lift), Width, Height);
             Color fg = !Enabled ? Ui.Alpha(Ui.Muted, 0.75f)
-                     : (_primary ? Color.White : Ui.Mix(Ui.Text, Color.White, 0.6f * _hover));
+                     : (_textColor != Color.Empty ? _textColor
+                        : (_primary ? Color.White : Ui.Mix(Ui.Text, Color.White, 0.6f * _hover)));
             TextRenderer.DrawText(g, Text, Font, textBox, fg,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }

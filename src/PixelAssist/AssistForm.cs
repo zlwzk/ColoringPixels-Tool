@@ -1,18 +1,31 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
+using ColoringPixelsTool;
 using ColoringPixelsTool.Assist;
 
 namespace PixelAssist
 {
     /// <summary>
-    /// 独立「人工辅助」助手。
+    /// 《涂色大师：像素梦想家》配套助手面板。
     ///
-    /// 第二个游戏《涂色大师：像素梦想家》是 IL2CPP 构建，没法像 Coloring Pixels 那样
-    /// 直接注入 BepInEx 插件，所以这里做了一个与游戏完全无关的屏幕扫描助手：
-    /// 全局热键 + 模拟鼠标，任何 2D 涂色游戏都能用。
+    /// 该游戏是 IL2CPP 构建，无法像 Coloring Pixels 那样注入 BepInEx 插件，
+    /// 所以助手做成与游戏无关的 WinForms 程序：全局热键 + 模拟鼠标 + 屏幕扫描 + 自动绘图。
+    ///
+    /// V2.3 之后面板扩展为多页签，与 Coloring Pixels 插件的功能对齐：
+    ///   · 首页：状态总览与快捷入口
+    ///   · 自动绘图：读取游戏存档，照着目标颜色一键自动涂完整张图
+    ///   · 人工辅助：原有的扫描逐行涂色
+    ///   · 等级：人工辅助 / 自动绘图两条经验轨、称号、统计
+    ///   · 设置：热键与配置目录
+    ///
+    /// 等级系统与 Coloring Pixels 的插件共用同一份存档：
+    ///   %APPDATA%\ColoringPixelsTool\ColoringPixelsTool.Profile.json
+    /// 两个程序会互相合并进度，经验与统计只增不减。
     /// </summary>
     internal sealed class AssistForm : Form
     {
@@ -24,6 +37,7 @@ namespace PixelAssist
         private static readonly Color TextCol = Ui.Text;
         private static readonly Color Muted = Ui.Muted;
 
+        // ---------------------------------------------------------------- 引擎与状态
         private readonly AssistEngine _engine = new AssistEngine();
         private readonly OverlayForm _overlay = new OverlayForm();
         private readonly KeyboardHook _keys = new KeyboardHook();
@@ -32,16 +46,37 @@ namespace PixelAssist
         private readonly Stopwatch _watch = new Stopwatch();
 
         private bool _selecting;
-        private int _selectMode;   // 0 = 框选扫描区域，1 = 框选一个格子做校准
+        private int _selectMode;   // 0 = 框选扫描区域/画布，1 = 框选一个格子做校准，2 = 框选调色板
         private Point _selStart;
         private Point _selNow;
         private int _dragCorner = -1;
-        // 绘图可视框（遮罩层）默认关闭：它是盖在游戏画面上的特效层，不涂的时候挡视线。
-        // 按 F12 / 点窗口按钮，或者主动框选（F7/F11）时都会自动打开。
         private bool _overlayVisible = false;
         private float _saveTimer;
 
-        // 控件
+        // ---------------------------------------------------------------- 自动绘图
+        private readonly ScreenSampler _sampler = new ScreenSampler();
+        private readonly PaletteMap _palette = new PaletteMap();
+        private AutoPainter _autoPainter;
+        private List<PcsLevel> _levels = new List<PcsLevel>();
+        private PcsLevel _currentLevel;
+        private DateTime _lastSaveStamp = DateTime.MinValue;
+        private bool _updatingLevelBox;
+
+        // ---------------------------------------------------------------- 页签系统
+        private const int TabBarHeight = 46;
+        private BackdropPanel _tabBar;
+        private BackdropPanel _content;
+        private BackdropPanel _pageHome, _pageAuto, _pageAssist, _pagePreview, _pageRank, _pageSettings;
+        private readonly List<NeonButton> _tabButtons = new List<NeonButton>();
+        private readonly string[] _tabNames = { "首页", "自动绘图", "人工辅助", "预览", "等级", "设置" };
+        private int _selectedTab;
+
+        // ---------------------------------------------------------------- 首页控件
+        private Label _homeStatus;
+        private StatusDot _homeDot;
+        private NeonButton _homeQuickAuto, _homeQuickAssist;
+
+        // ---------------------------------------------------------------- 人工辅助控件
         private Label _stateLabel;
         private Label _detailLabel;
         private AssistProgress _progress;
@@ -55,40 +90,73 @@ namespace PixelAssist
         private ComboBox _presetBox;
         private TextBox _presetName;
 
+        // ---------------------------------------------------------------- 自动绘图控件
+        private Label _autoStatusLabel;
+        private Label _autoDetailLabel;
+        private AssistProgress _autoProgress;
+        private StatusDot _autoDot;
+        private ComboBox _levelBox;
+        private Label _levelInfoLabel;
+        private Label _paletteInfoLabel;
+        private NeonButton _btnRefreshSave, _btnCalibratePalette, _btnStartAuto, _btnStopAuto, _btnPauseAuto;
+        private NumericUpDown _autoSpeed, _autoStroke, _autoPause, _autoMistake;
+        private CheckBox _autoCurrentColor, _autoDrag, _autoRefreshDone;
+        private Label _autoColorPreview;
+
+        // ---------------------------------------------------------------- 预览控件
+        private LevelPreviewBox _previewBox;
+        private Label _previewInfo;
+        private CheckBox _previewGhost;
+        private CheckBox _previewFlip;
+        private float _previewTimer;
+
+        // ---------------------------------------------------------------- 等级控件
+        private AssistProgress _rankProgressManual, _rankProgressAuto;
+        private Label _rankManualLevel, _rankAutoLevel;
+        private Label _rankManualTitle, _rankAutoTitle;
+        private Label _rankManualNext, _rankAutoNext;
+        private Label _rankStats;
+
+        // ---------------------------------------------------------------- 设置控件
+        private TextBox _logBox;
+
         private static readonly int[] SwitchKeyVks = { 0, 0x20, 0x09, 0x31, 0x32, 0x33, 0x34, 0x35, 0x51, 0x45, 0x52, 0x46 };
         private static readonly string[] SwitchKeyNames = { "关闭", "空格", "Tab", "1", "2", "3", "4", "5", "Q", "E", "R", "F" };
 
         public AssistForm()
         {
-            // 参数与区域放在 %APPDATA%\PixelAssist：安装包升级 / 换安装目录都不会把配置升丢。
+            // 参数与区域放在 %APPDATA%\PixelAssist；等级放在 %APPDATA%\ColoringPixelsTool。
             AssistStore.Dir = ResolveConfigDir();
 
-            Text = "人工辅助 · 涂色大师：像素梦想家";
+            // 把等级模块的日志接到面板上
+            ProfileLog.InfoTarget = LogLine;
+            ProfileLog.WarnTarget = LogLine;
+
+            Text = "涂色大师 · 像素梦想家";
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.Manual;
-            ClientSize = new Size(452, 660);
+            ClientSize = new Size(480, 720);
             BackColor = Bg;
             ForeColor = TextCol;
             Font = new Font("Microsoft YaHei UI", 9f);
             TopMost = true;
 
-            // 自绘氛围底（Aurora + 点阵 + 噪点）需要双缓冲，否则拖动窗口会闪。
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
-            AssistRegion savedRegion = AssistStore.LoadRegion();
-            if (savedRegion != null && savedRegion.HasRegion) _engine.Region.CopyFrom(savedRegion);
-
-            AssistSettings savedSettings = AssistStore.LoadSettings();
-            if (savedSettings != null) CopyInto(savedSettings, _engine.S);
-
-            BuildUi();
+            LoadRegionAndSettings();
+            BuildTabs();
+            BuildHomePage();
+            BuildAutoPage();
+            BuildAssistPage();
+            BuildRankPage();
+            BuildSettingsPage();
+            SelectTab(0);
 
             _overlay.Engine = _engine;
             _overlay.Show();
-            // Show() 之后必须再按开关状态摆一次：覆盖层默认是收起来的。
             _overlay.Visible = _overlayVisible;
 
             _keys.KeyDown += OnKeyDown;
@@ -98,18 +166,21 @@ namespace PixelAssist
             _mouse.Filter += OnMouseFilter;
             _mouse.Install();
 
-            _timer.Interval = 10;
+            _timer.Interval = 16;
             _timer.Tick += OnTick;
             _watch.Start();
             _timer.Start();
+
+            LoadUserProfile();
+            RefreshSaveFile();
+
+            Location = new Point(
+                Math.Max(8, (Screen.PrimaryScreen.Bounds.Width - Width) / 2),
+                Math.Max(8, Screen.PrimaryScreen.Bounds.Height / 2 - Height / 2));
         }
 
-        // ---------------------------------------------------------------- 界面
+        // ---------------------------------------------------------------- 界面初始化
 
-        /// <summary>
-        /// 窗口底色：深靛蓝 + 缓慢漂移的 Aurora 柔光 + 极淡点阵与噪点（Aceternity 的 Aurora Background）。
-        /// 画在 OnPaintBackground 里，Color.Transparent 的子控件才能透出来。
-        /// </summary>
         protected override void OnPaintBackground(PaintEventArgs e)
         {
             Rectangle r = ClientRectangle;
@@ -124,70 +195,353 @@ namespace PixelAssist
             Fx.Grain(g, r, 0.022f);
         }
 
-        private void BuildUi()
+        private void BuildTabs()
         {
+            _tabBar = new BackdropPanel();
+            _tabBar.Ambience = 0.35f;
+            _tabBar.SetBounds(8, 8, ClientSize.Width - 16, TabBarHeight);
+            Controls.Add(_tabBar);
+
+            _content = new BackdropPanel();
+            _content.Ambience = 0.18f;
+            _content.SetBounds(8, 8 + TabBarHeight + 4, ClientSize.Width - 16, ClientSize.Height - 16 - TabBarHeight - 4);
+            Controls.Add(_content);
+
+            int bw = (_tabBar.Width - 24) / _tabNames.Length;
+            int bx = 12;
+            for (int i = 0; i < _tabNames.Length; i++)
+            {
+                int idx = i;
+                var btn = new NeonButton(_tabNames[i], CardBg, false);
+                btn.SetBounds(bx + i * (bw + 4), 10, bw, 26);
+                btn.Click += delegate { SelectTab(idx); };
+                _tabBar.Controls.Add(btn);
+                _tabButtons.Add(btn);
+            }
+        }
+
+        private void SelectTab(int idx)
+        {
+            _selectedTab = idx;
+            foreach (Control c in _content.Controls)
+            {
+                var page = c as BackdropPanel;
+                if (page != null) page.Visible = false;
+            }
+
+            if (idx == 0) _pageHome.Visible = true;
+            else if (idx == 1) _pageAuto.Visible = true;
+            else if (idx == 2) _pageAssist.Visible = true;
+            else if (idx == 3) _pagePreview.Visible = true;
+            else if (idx == 4) _pageRank.Visible = true;
+            else if (idx == 5) _pageSettings.Visible = true;
+
+            for (int i = 0; i < _tabButtons.Count; i++)
+            {
+                _tabButtons[i].Tint = (i == idx) ? Accent : CardBg;
+                _tabButtons[i].TextColor = (i == idx) ? Color.White : TextCol;
+            }
+        }
+
+        private BackdropPanel CreatePage()
+        {
+            var p = new BackdropPanel();
+            p.Ambience = 0.0f;
+            p.BackColor = Color.Transparent;
+            p.SetBounds(0, 0, _content.Width, _content.Height);
+            p.AutoScroll = true;
+            p.Visible = false;
+            _content.Controls.Add(p);
+            return p;
+        }
+
+        private static void AddCard(Control parent, int x, int y, int w, int h)
+        {
+            var c = new AssistCard();
+            c.SetBounds(x, y, w, h);
+            parent.Controls.Add(c);
+        }
+
+        private static Label Heading(string text)
+        {
+            var l = new Label();
+            l.Text = text;
+            l.ForeColor = TextCol;
+            l.Font = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+            l.BackColor = Color.Transparent;
+            return l;
+        }
+
+        private static Label Sub(string text)
+        {
+            var l = new Label();
+            l.Text = text;
+            l.ForeColor = Muted;
+            l.BackColor = Color.Transparent;
+            return l;
+        }
+
+        private static NeonButton FlatButton(string text, Color back, int x, int y, int w, int h)
+        {
+            bool primary = back == Accent || back == Danger || back == Accent2;
+            var b = new NeonButton(text, back, primary);
+            b.SetBounds(x, y, w, h);
+            return b;
+        }
+
+        private static void Add2(Control parent, Control c, int x, int y, int w, int h)
+        {
+            c.SetBounds(x, y, w, h);
+            parent.Controls.Add(c);
+        }
+
+        private static NumericUpDown Num(Control parent, ref int y, string label, decimal value, decimal min, decimal max, decimal step, string unit)
+        {
+            Add2(parent, Sub(label + unit), 8, y + 4, 168, 20);
+            var n = new NumericUpDown();
+            n.Minimum = min;
+            n.Maximum = max;
+            n.Increment = step;
+            n.Value = Math.Max(min, Math.Min(max, value));
+            n.SetBounds(182, y, 100, 24);
+            n.BackColor = CardBg;
+            n.ForeColor = TextCol;
+            n.BorderStyle = BorderStyle.FixedSingle;
+            parent.Controls.Add(n);
+            y += 32;
+            return n;
+        }
+
+        private static CheckBox Check(Control parent, ref int y, string label, bool value)
+        {
+            var c = new CheckBox();
+            c.Text = label;
+            c.Checked = value;
+            c.SetBounds(8, y, 300, 24);
+            c.ForeColor = TextCol;
+            c.BackColor = Color.Transparent;
+            parent.Controls.Add(c);
+            y += 30;
+            return c;
+        }
+
+        private static int IndexOfKey(int vk)
+        {
+            for (int i = 0; i < SwitchKeyVks.Length; i++)
+                if (SwitchKeyVks[i] == vk) return i;
+            return 0;
+        }
+
+        // ---------------------------------------------------------------- 首页
+
+        private void BuildHomePage()
+        {
+            _pageHome = CreatePage();
             int y = 14;
 
-            Add(Heading("涂色大师：像素梦想家 · 人工辅助"), 16, y, 420, 24); y += 30;
-            Add(Sub("F7 框选画布 → F11 校准格子 → F6 开始，剩下的交给它"), 16, y, 420, 18); y += 26;
+            Add2(_pageHome, Heading("涂色大师：像素梦想家"), 16, y, 420, 24); y += 30;
+            Add2(_pageHome, Sub("IL2CPP 外部助手 · 自动绘图 · 人工辅助 · 双游共享等级"), 16, y, 420, 18); y += 28;
 
-            Add(Card("状态"), 16, y, 420, 104); y += 112;
+            AddCard(_pageHome, 16, y, 420, 108); y += 116;
+
+            _homeDot = new StatusDot();
+            _homeDot.SetBounds(30, y - 100 + 4, 12, 12);
+            _homeDot.Tint = Muted;
+            _pageHome.Controls.Add(_homeDot);
+
+            _homeStatus = new Label();
+            _homeStatus.SetBounds(50, y - 100, 372, 20);
+            _homeStatus.ForeColor = TextCol;
+            _homeStatus.BackColor = Color.Transparent;
+            _pageHome.Controls.Add(_homeStatus);
+
+            Add2(_pageHome, Sub("F7 框选画布  ·  F5 框选调色板  ·  F6 开始自动绘图  ·  F8 急停"), 30, y - 74, 392, 18);
+
+            _homeQuickAuto = FlatButton("打开自动绘图", Accent, 16, y - 42, 204, 36);
+            _homeQuickAuto.Click += delegate { SelectTab(1); };
+            _pageHome.Controls.Add(_homeQuickAuto);
+
+            _homeQuickAssist = FlatButton("打开人工辅助", Accent2, 232, y - 42, 204, 36);
+            _homeQuickAssist.Click += delegate { SelectTab(2); };
+            _pageHome.Controls.Add(_homeQuickAssist);
+
+            y += 10;
+            Add2(_pageHome, Heading("热键"), 16, y, 420, 22); y += 28;
+            Add2(_pageHome, Sub("F5  框选调色板区域"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F6  开始 / 暂停 自动绘图或扫描"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F7  框选画布 / 扫描区域"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F8  急停"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F9  试扫当前行（人工辅助）"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F10 重新扫描（人工辅助）"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F11 框选一个格子做校准"), 24, y, 400, 18); y += 22;
+            Add2(_pageHome, Sub("F12 显示 / 隐藏范围遮罩"), 24, y, 400, 18); y += 22;
+        }
+
+        // ---------------------------------------------------------------- 自动绘图页
+
+        private void BuildAutoPage()
+        {
+            _pageAuto = CreatePage();
+            int y = 14;
+
+            Add2(_pageAuto, Heading("自动绘图"), 16, y, 420, 24); y += 30;
+            Add2(_pageAuto, Sub("读取游戏存档，按目标颜色一键涂完整张图"), 16, y, 420, 18); y += 28;
+
+            AddCard(_pageAuto, 16, y, 420, 110); y += 118;
+
+            _autoDot = new StatusDot();
+            _autoDot.SetBounds(30, y - 102 + 4, 12, 12);
+            _autoDot.Tint = Muted;
+            _pageAuto.Controls.Add(_autoDot);
+
+            _autoStatusLabel = new Label();
+            _autoStatusLabel.SetBounds(50, y - 102, 372, 20);
+            _autoStatusLabel.ForeColor = TextCol;
+            _autoStatusLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_autoStatusLabel);
+
+            _autoDetailLabel = new Label();
+            _autoDetailLabel.SetBounds(30, y - 78, 392, 18);
+            _autoDetailLabel.ForeColor = Muted;
+            _autoDetailLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_autoDetailLabel);
+
+            _autoProgress = new AssistProgress();
+            _autoProgress.SetBounds(30, y - 56, 392, 12);
+            _pageAuto.Controls.Add(_autoProgress);
+
+            _paletteInfoLabel = new Label();
+            _paletteInfoLabel.SetBounds(30, y - 36, 392, 18);
+            _paletteInfoLabel.ForeColor = Accent2;
+            _paletteInfoLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_paletteInfoLabel);
+
+            y += 0;
+            _btnRefreshSave = FlatButton("刷新存档", Accent2, 16, y - 10, 130, 32);
+            _btnRefreshSave.Click += delegate { RefreshSaveFile(); };
+            _pageAuto.Controls.Add(_btnRefreshSave);
+
+            _btnCalibratePalette = FlatButton("框选调色板 (F5)", CardBg, 154, y - 10, 130, 32);
+            _btnCalibratePalette.Click += delegate { BeginSelect(2); };
+            _pageAuto.Controls.Add(_btnCalibratePalette);
+
+            _btnStartAuto = FlatButton("开始 (F6)", Accent, 292, y - 10, 144, 32);
+            _btnStartAuto.Click += delegate { StartAutoPaint(); };
+            _pageAuto.Controls.Add(_btnStartAuto);
+
+            y += 32;
+            _btnPauseAuto = FlatButton("暂停", CardBg, 16, y, 130, 30);
+            _btnPauseAuto.Click += delegate { if (_autoPainter != null) _autoPainter.TogglePause(); };
+            _pageAuto.Controls.Add(_btnPauseAuto);
+
+            _btnStopAuto = FlatButton("停止 / 急停", Danger, 154, y, 130, 30);
+            _btnStopAuto.Click += delegate { StopAutoPaint(); };
+            _pageAuto.Controls.Add(_btnStopAuto);
+
+            _autoColorPreview = new Label();
+            _autoColorPreview.SetBounds(292, y + 2, 144, 26);
+            _autoColorPreview.BackColor = Color.DimGray;
+            _autoColorPreview.ForeColor = Color.White;
+            _autoColorPreview.TextAlign = ContentAlignment.MiddleCenter;
+            _autoColorPreview.Text = "当前颜色";
+            _pageAuto.Controls.Add(_autoColorPreview);
+            y += 40;
+
+            Add2(_pageAuto, Sub("选择关卡："), 16, y, 80, 20);
+            _levelBox = new ComboBox();
+            _levelBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _levelBox.SetBounds(100, y, 336, 24);
+            _levelBox.BackColor = CardBg;
+            _levelBox.ForeColor = TextCol;
+            _levelBox.FlatStyle = FlatStyle.Flat;
+            _levelBox.SelectedIndexChanged += delegate { OnLevelSelected(); };
+            _pageAuto.Controls.Add(_levelBox);
+            y += 32;
+
+            _levelInfoLabel = new Label();
+            _levelInfoLabel.SetBounds(16, y, 420, 40);
+            _levelInfoLabel.ForeColor = Muted;
+            _levelInfoLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_levelInfoLabel);
+            y += 48;
+
+            // 拟人参数
+            Add2(_pageAuto, Heading("拟人参数"), 16, y, 420, 22); y += 28;
+            _autoSpeed = Num(_pageAuto, ref y, "手速", 35, 1, 300, 5, " 格/秒");
+            _autoStroke = Num(_pageAuto, ref y, "笔触长度", 25, 1, 200, 5, " 格后可能停笔");
+            _autoPause = Num(_pageAuto, ref y, "停笔概率", 35, 0, 100, 5, " %");
+            _autoMistake = Num(_pageAuto, ref y, "手滑概率", 1, 0, 20, 1, " %");
+
+            _autoCurrentColor = Check(_pageAuto, ref y, "只涂当前颜色（不自动点调色板）", false);
+            _autoDrag = Check(_pageAuto, ref y, "同一行相邻格子用拖动连涂", false);
+            _autoRefreshDone = Check(_pageAuto, ref y, "绘图时自动同步存档里的已完成格", true);
+        }
+
+        // ---------------------------------------------------------------- 人工辅助页
+
+        private void BuildAssistPage()
+        {
+            _pageAssist = CreatePage();
+            int y = 14;
+
+            Add2(_pageAssist, Heading("人工辅助"), 16, y, 420, 24); y += 30;
+            Add2(_pageAssist, Sub("F7 框选画布 → F11 校准格子 → F6 开始，剩下的交给它"), 16, y, 420, 18); y += 28;
+
+            AddCard(_pageAssist, 16, y, 420, 104); y += 112;
 
             _dot = new StatusDot();
             _dot.SetBounds(30, y - 96 + 4, 12, 12);
             _dot.Tint = Muted;
-            Add(_dot);
+            _pageAssist.Controls.Add(_dot);
 
             _stateLabel = new Label();
             _stateLabel.SetBounds(50, y - 96, 372, 20);
             _stateLabel.ForeColor = TextCol;
             _stateLabel.BackColor = Color.Transparent;
-            Add(_stateLabel);
+            _pageAssist.Controls.Add(_stateLabel);
 
             _detailLabel = new Label();
             _detailLabel.SetBounds(30, y - 74, 392, 18);
             _detailLabel.ForeColor = Muted;
             _detailLabel.BackColor = Color.Transparent;
-            Add(_detailLabel);
+            _pageAssist.Controls.Add(_detailLabel);
 
             _progress = new AssistProgress();
             _progress.SetBounds(30, y - 52, 392, 12);
-            Add(_progress);
+            _pageAssist.Controls.Add(_progress);
 
-            var hint = new Label();
-            hint.Text = "区域：未框选";
-            hint.SetBounds(30, y - 32, 392, 18);
-            hint.ForeColor = Accent2;
-            hint.BackColor = Color.Transparent;
-            Add(hint);
-            _regionLabel = hint;
+            _regionLabel = new Label();
+            _regionLabel.Text = "区域：未框选";
+            _regionLabel.SetBounds(30, y - 32, 392, 18);
+            _regionLabel.ForeColor = Accent2;
+            _regionLabel.BackColor = Color.Transparent;
+            _pageAssist.Controls.Add(_regionLabel);
 
             y += 5;
             _runButton = FlatButton("开始 (F6)", Accent, 16, y, 204, 40);
             _runButton.Click += delegate { ToggleRun(); };
-            Add(_runButton);
+            _pageAssist.Controls.Add(_runButton);
             var stopBtn = FlatButton("停止 / 急停 (F8)", Danger, 232, y, 204, 40);
             stopBtn.Click += delegate { StopRun(); };
-            Add(stopBtn);
+            _pageAssist.Controls.Add(stopBtn);
             y += 48;
 
             var selectBtn = FlatButton("框选区域 (F7)", Accent2, 16, y, 134, 34);
             selectBtn.Click += delegate { BeginSelect(0); };
-            Add(selectBtn);
+            _pageAssist.Controls.Add(selectBtn);
             var calibBtn = FlatButton("格子校准 (F11)", CardBg, 158, y, 134, 34);
             calibBtn.Click += delegate { BeginSelect(1); };
-            Add(calibBtn);
+            _pageAssist.Controls.Add(calibBtn);
             _overlayButton = FlatButton("显示遮罩 (F12)", CardBg, 300, y, 136, 34);
             _overlayButton.Click += delegate { ToggleOverlay(); };
-            Add(_overlayButton);
+            _pageAssist.Controls.Add(_overlayButton);
             y += 42;
 
-            // ---- 参数区（可滚动） ----
             var panel = new BackdropPanel();
             panel.Ambience = 0.4f;
-            panel.SetBounds(12, y, 428, 372);
+            panel.SetBounds(12, y, _pageAssist.Width - 24, _pageAssist.Height - y - 8);
             panel.AutoScroll = true;
-            Controls.Add(panel);
+            _pageAssist.Controls.Add(panel);
 
             int py = 6;
             Add2(panel, Heading("扫描参数"), 4, py, 380, 22); py += 30;
@@ -264,120 +618,549 @@ namespace PixelAssist
             py += 40;
 
             RefreshPresets();
-
-            Location = new Point(
-                Math.Max(8, (Screen.PrimaryScreen.Bounds.Width - Width) / 2),
-                Math.Max(8, Screen.PrimaryScreen.Bounds.Height / 2 - Height / 2));
+            UpdateRegionLabel();
         }
 
-        private static Label Heading(string text)
+        // ---------------------------------------------------------------- 预览页
+
+        private void BuildPreviewPage()
         {
-            var l = new Label();
-            l.Text = text;
-            l.ForeColor = TextCol;
-            l.Font = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
-            l.BackColor = Color.Transparent;
-            return l;
+            _pagePreview = CreatePage();
+            int y = 14;
+
+            Add2(_pagePreview, Heading("图案预览"), 16, y, 420, 24); y += 30;
+            Add2(_pagePreview, Sub("直接读存档里的目标颜色拼出整幅图，不截图、不受窗口位置影响"), 16, y, 420, 18); y += 26;
+
+            _previewInfo = new Label();
+            _previewInfo.SetBounds(16, y, 420, 34);
+            _previewInfo.ForeColor = Muted;
+            _previewInfo.BackColor = Color.Transparent;
+            _pagePreview.Controls.Add(_previewInfo);
+            y += 40;
+
+            _previewBox = new LevelPreviewBox();
+            _previewBox.SetBounds(16, y, 420, 380);
+            _pagePreview.Controls.Add(_previewBox);
+            y += 390;
+
+            var zoomIn = FlatButton("放大 +", CardBg, 16, y, 96, 32);
+            zoomIn.Click += delegate { _previewBox.ZoomBy(1.25f); };
+            _pagePreview.Controls.Add(zoomIn);
+
+            var zoomOut = FlatButton("缩小 -", CardBg, 120, y, 96, 32);
+            zoomOut.Click += delegate { _previewBox.ZoomBy(1f / 1.25f); };
+            _pagePreview.Controls.Add(zoomOut);
+
+            var fit = FlatButton("适应窗口", CardBg, 224, y, 100, 32);
+            fit.Click += delegate { _previewBox.ResetView(); };
+            _pagePreview.Controls.Add(fit);
+
+            var refresh = FlatButton("刷新", Accent2, 332, y, 104, 32);
+            refresh.Click += delegate { RefreshSaveFile(true); _previewBox.RefreshData(); };
+            _pagePreview.Controls.Add(refresh);
+            y += 40;
+
+            _previewGhost = Check(_pagePreview, ref y, "未涂格子显示暗色底稿", true);
+            _previewGhost.CheckedChanged += delegate { _previewBox.ShowGhost = _previewGhost.Checked; };
+            _previewBox.ShowGhost = _previewGhost.Checked;
+
+            _previewFlip = Check(_pagePreview, ref y, "纵向翻转（图案上下颠倒时勾选）", false);
+            _previewFlip.CheckedChanged += delegate { _previewBox.FlipVertical = _previewFlip.Checked; };
+            _previewBox.FlipVertical = _previewFlip.Checked;
+
+            Add2(_pagePreview, Sub("滚轮缩放 · 按住左键拖拽平移 · 鼠标悬停看单格坐标与颜色\n此处的「纵向翻转」同样作用于自动绘图的落点"), 16, y + 4, 420, 34);
         }
 
-        private static Label Sub(string text)
+        // ---------------------------------------------------------------- 等级页
+
+        private void BuildRankPage()
         {
-            var l = new Label();
-            l.Text = text;
-            l.ForeColor = Muted;
-            l.BackColor = Color.Transparent;
-            return l;
+            _pageRank = CreatePage();
+            int y = 14;
+
+            Add2(_pageRank, Heading("等级与称号"), 16, y, 420, 24); y += 30;
+            Add2(_pageRank, Sub("与 Coloring Pixels 插件共用同一套等级存档"), 16, y, 420, 18); y += 28;
+
+            AddCard(_pageRank, 16, y, 420, 128); y += 136;
+            Add2(_pageRank, Heading("人工辅助轨"), 30, y - 120, 160, 22);
+            _rankManualLevel = new Label();
+            _rankManualLevel.SetBounds(360, y - 120, 64, 22);
+            _rankManualLevel.ForeColor = Accent2;
+            _rankManualLevel.Font = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+            _rankManualLevel.BackColor = Color.Transparent;
+            _rankManualLevel.TextAlign = ContentAlignment.TopRight;
+            _pageRank.Controls.Add(_rankManualLevel);
+
+            _rankManualTitle = new Label();
+            _rankManualTitle.SetBounds(30, y - 96, 394, 20);
+            _rankManualTitle.ForeColor = TextCol;
+            _rankManualTitle.BackColor = Color.Transparent;
+            _pageRank.Controls.Add(_rankManualTitle);
+
+            _rankProgressManual = new AssistProgress();
+            _rankProgressManual.SetBounds(30, y - 70, 394, 12);
+            _pageRank.Controls.Add(_rankProgressManual);
+
+            _rankManualNext = new Label();
+            _rankManualNext.SetBounds(30, y - 52, 394, 18);
+            _rankManualNext.ForeColor = Muted;
+            _rankManualNext.BackColor = Color.Transparent;
+            _pageRank.Controls.Add(_rankManualNext);
+
+            y += 20;
+            AddCard(_pageRank, 16, y, 420, 128); y += 136;
+            Add2(_pageRank, Heading("自动绘图轨"), 30, y - 120, 160, 22);
+            _rankAutoLevel = new Label();
+            _rankAutoLevel.SetBounds(360, y - 120, 64, 22);
+            _rankAutoLevel.ForeColor = Accent;
+            _rankAutoLevel.Font = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+            _rankAutoLevel.BackColor = Color.Transparent;
+            _rankAutoLevel.TextAlign = ContentAlignment.TopRight;
+            _pageRank.Controls.Add(_rankAutoLevel);
+
+            _rankAutoTitle = new Label();
+            _rankAutoTitle.SetBounds(30, y - 96, 394, 20);
+            _rankAutoTitle.ForeColor = TextCol;
+            _rankAutoTitle.BackColor = Color.Transparent;
+            _pageRank.Controls.Add(_rankAutoTitle);
+
+            _rankProgressAuto = new AssistProgress();
+            _rankProgressAuto.SetBounds(30, y - 70, 394, 12);
+            _pageRank.Controls.Add(_rankProgressAuto);
+
+            _rankAutoNext = new Label();
+            _rankAutoNext.SetBounds(30, y - 52, 394, 18);
+            _rankAutoNext.ForeColor = Muted;
+            _rankAutoNext.BackColor = Color.Transparent;
+            _pageRank.Controls.Add(_rankAutoNext);
+
+            y += 24;
+            _rankStats = new Label();
+            _rankStats.SetBounds(20, y, 420, 160);
+            _rankStats.ForeColor = Muted;
+            _rankStats.BackColor = Color.Transparent;
+            _rankStats.Font = new Font("Microsoft YaHei UI", 8.5f);
+            _pageRank.Controls.Add(_rankStats);
         }
 
-        private static AssistCard Card(string title)
+        // ---------------------------------------------------------------- 设置页
+
+        private void BuildSettingsPage()
         {
-            var p = new AssistCard();
-            return p;
+            _pageSettings = CreatePage();
+            int y = 14;
+
+            Add2(_pageSettings, Heading("设置"), 16, y, 420, 24); y += 30;
+
+            Add2(_pageSettings, Sub("助手配置目录："), 16, y, 420, 18); y += 22;
+            var pathBox = new TextBox();
+            pathBox.Text = AssistStore.Dir;
+            pathBox.ReadOnly = true;
+            pathBox.SetBounds(16, y, 420, 24);
+            pathBox.BackColor = CardBg;
+            pathBox.ForeColor = TextCol;
+            pathBox.BorderStyle = BorderStyle.FixedSingle;
+            _pageSettings.Controls.Add(pathBox);
+            y += 34;
+
+            Add2(_pageSettings, Sub("等级存档路径："), 16, y, 420, 18); y += 22;
+            var rankPath = new TextBox();
+            rankPath.Text = UserProfile.FilePath;
+            rankPath.ReadOnly = true;
+            rankPath.SetBounds(16, y, 420, 24);
+            rankPath.BackColor = CardBg;
+            rankPath.ForeColor = TextCol;
+            rankPath.BorderStyle = BorderStyle.FixedSingle;
+            _pageSettings.Controls.Add(rankPath);
+            y += 40;
+
+            var openDir = FlatButton("打开助手配置目录", Accent2, 16, y, 160, 34);
+            openDir.Click += delegate { OpenDir(); };
+            _pageSettings.Controls.Add(openDir);
+
+            var openRankDir = FlatButton("打开等级存档目录", Accent, 184, y, 160, 34);
+            openRankDir.Click += delegate
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(UserProfile.FilePath);
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    Process.Start(dir);
+                }
+                catch (Exception) { }
+            };
+            _pageSettings.Controls.Add(openRankDir);
+            y += 50;
+
+            Add2(_pageSettings, Heading("日志"), 16, y, 420, 22); y += 28;
+            _logBox = new TextBox();
+            _logBox.SetBounds(16, y, 420, 240);
+            _logBox.Multiline = true;
+            _logBox.ReadOnly = true;
+            _logBox.ScrollBars = ScrollBars.Vertical;
+            _logBox.BackColor = CardBg;
+            _logBox.ForeColor = TextCol;
+            _logBox.BorderStyle = BorderStyle.FixedSingle;
+            _logBox.Font = new Font("Consolas", 8.5f);
+            _pageSettings.Controls.Add(_logBox);
         }
 
-        private static NeonButton FlatButton(string text, Color back, int x, int y, int w, int h)
+        // ---------------------------------------------------------------- 自动绘图逻辑
+
+        private void RefreshSaveFile()
         {
-            // 主色按钮（强调色 / 危险色）带常驻掠光，其余按钮只在悬停时发光，省 CPU。
-            bool primary = back == Accent || back == Danger || back == Accent2;
-            var b = new NeonButton(text, back, primary);
-            b.SetBounds(x, y, w, h);
-            return b;
+            RefreshSaveFile(false);
         }
 
-        private void Add(Control c)
+        private void RefreshSaveFile(bool force)
         {
-            Controls.Add(c);
+            try
+            {
+                string path = PcsSave.DefaultPath();
+                DateTime stamp = PcsSave.StampOf(path);
+                bool changed = stamp != _lastSaveStamp;
+
+                // 存档没动就别重新解析：每 2 秒解析一整份存档太浪费，而且会让下拉框不停重建跳动。
+                // （自动绘图引擎内部有自己的 Done 同步，不依赖这里。）
+                if (!changed && !force && _levels.Count > 0) return;
+
+                _lastSaveStamp = stamp;
+                _levels = PcsSave.LoadUnfinished(path);
+
+                if (_levels.Count == 0)
+                {
+                    _autoStatusLabel.Text = "未找到进行中的关卡（游戏存档里 Completed 全为 true）";
+                    _autoDetailLabel.Text = "请先在游戏里打开一张未完成的图，再点刷新";
+                    _updatingLevelBox = true;
+                    try { _levelBox.Items.Clear(); }
+                    finally { _updatingLevelBox = false; }
+                    _currentLevel = null;
+                    UpdatePreview();
+                    return;
+                }
+
+                // 记住当前选的是哪一张（按「册号 / 图号」，不按下标 —— 存档顺序变了也不会串图）
+                int wantPackage = _currentLevel != null ? _currentLevel.PackageNumber : int.MinValue;
+                int wantLevelNo = _currentLevel != null ? _currentLevel.LevelNumber : int.MinValue;
+
+                _updatingLevelBox = true;
+                try
+                {
+                    _levelBox.Items.Clear();
+                    for (int i = 0; i < _levels.Count; i++)
+                        _levelBox.Items.Add(_levels[i].Title);
+
+                    int pick = _levels.Count - 1; // 默认选最后一张（最可能正在玩）
+                    if (wantPackage != int.MinValue)
+                    {
+                        for (int i = 0; i < _levels.Count; i++)
+                        {
+                            if (_levels[i].PackageNumber == wantPackage && _levels[i].LevelNumber == wantLevelNo)
+                            {
+                                pick = i;
+                                break;
+                            }
+                        }
+                    }
+                    _levelBox.SelectedIndex = Math.Max(0, Math.Min(_levels.Count - 1, pick));
+                }
+                finally
+                {
+                    _updatingLevelBox = false;
+                }
+
+                // 正在自动绘图时，把游戏刚写进去的 Done 标记合进引擎的内存副本
+                if (changed && _autoPainter != null && _autoPainter.Running) SyncDoneToPainter();
+
+                OnLevelSelected();
+            }
+            catch (Exception ex)
+            {
+                _autoStatusLabel.Text = "读取存档失败：" + ex.Message;
+            }
         }
 
-        private void Add(Label l, int x, int y, int w, int h)
+        private void OnLevelSelected()
         {
-            l.SetBounds(x, y, w, h);
-            Controls.Add(l);
+            if (_updatingLevelBox) return;
+
+            int idx = _levelBox.SelectedIndex;
+            if (idx < 0 || idx >= _levels.Count)
+            {
+                _currentLevel = null;
+                _levelInfoLabel.Text = "";
+                UpdatePreview();
+                return;
+            }
+            _currentLevel = _levels[idx];
+            _levelInfoLabel.Text = _currentLevel.Detail;
+            UpdatePaletteInfo();
+            UpdatePreview();
         }
 
-        private void Add(Panel p, int x, int y, int w, int h)
+        /// <summary>预览页跟着「当前关卡 / 自动绘图进度」走。</summary>
+        private void UpdatePreview()
         {
-            p.SetBounds(x, y, w, h);
-            Controls.Add(p);
+            if (_previewBox == null) return;
+
+            bool auto = _autoPainter != null && _autoPainter.Running;
+            PcsLevel level = auto ? _autoPainter.CurrentLevel : _currentLevel;
+            _previewBox.SetLevel(level, auto ? _autoPainter.PaintedCells : -1);
+
+            if (_previewInfo != null)
+            {
+                _previewInfo.Text = level == null
+                    ? "没有可预览的关卡。"
+                    : level.Title + "\r\n" + level.Detail;
+            }
         }
 
-        private void Add2(Control parent, Control c, int x, int y, int w, int h)
+        private void StartAutoPaint()
         {
-            c.SetBounds(x, y, w, h);
-            parent.Controls.Add(c);
+            if (_currentLevel == null)
+            {
+                _autoStatusLabel.Text = "请先选择要涂的关卡";
+                return;
+            }
+            if (!_engine.Region.HasRegion)
+            {
+                _autoStatusLabel.Text = "画布区域未校准：请按 F7 框选游戏中的画布";
+                return;
+            }
+            if (!_autoCurrentColor.Checked && !_palette.IsCalibrated)
+            {
+                _autoStatusLabel.Text = "调色板未校准：请按 F5 框选游戏中的调色板，或勾选「只涂当前颜色」";
+                return;
+            }
+
+            StopAutoPaint(false);
+
+            var settings = new AutoSettings
+            {
+                CellsPerSecond = (float)_autoSpeed.Value,
+                StrokeLength = (int)_autoStroke.Value,
+                PauseChance = (float)_autoPause.Value / 100f,
+                MistakeChance = (float)_autoMistake.Value / 100f,
+                CurrentColorOnly = _autoCurrentColor.Checked,
+                UseDrag = _autoDrag.Checked,
+                RefreshDoneFromSave = _autoRefreshDone.Checked,
+                FlipVertical = _previewFlip.Checked
+            };
+
+            _autoPainter = new AutoPainter(_engine.Region, _palette);
+            _autoPainter.Settings = settings;
+            _autoPainter.OnStatus += delegate(string s)
+            {
+                UiPost(delegate { _autoStatusLabel.Text = s; });
+            };
+            _autoPainter.OnProgress += delegate(int done, int total, int remaining)
+            {
+                UiPost(delegate
+                {
+                    _autoProgress.Value = total <= 0 ? 0 : (int)(done * 100.0 / total);
+                    _autoDetailLabel.Text = string.Format("已涂 {0} / {1} 格", done, total);
+                });
+            };
+            _autoPainter.OnColorChanged += delegate(string color)
+            {
+                UiPost(delegate
+                {
+                    _autoColorPreview.Text = color;
+                    int r, g, b;
+                    if (TryParseHex(color, out r, out g, out b)) _autoColorPreview.BackColor = Color.FromArgb(r, g, b);
+                });
+            };
+            _autoPainter.OnCompleted += delegate
+            {
+                UiPost(delegate
+                {
+                    _autoDot.Pulsing = false;
+                    _autoDot.Tint = Accent;
+                    _btnStartAuto.Text = "开始 (F6)";
+                    _overlay.Auto = null;
+                    RefreshSaveFile(true);
+                    UpdateRankPage();
+                });
+            };
+            _autoPainter.OnStopped += delegate
+            {
+                UiPost(delegate
+                {
+                    _autoDot.Pulsing = false;
+                    _autoDot.Tint = Muted;
+                    _btnStartAuto.Text = "开始 (F6)";
+                });
+            };
+
+            _autoPainter.Start(_currentLevel);
+            _btnStartAuto.Text = "暂停 (F6)";
+
+            // 自动绘图时把遮罩打开，能看见画布边框、当前格子与进度
+            _overlayVisible = true;
+            _overlay.Visible = true;
+            _overlay.TopMost = true;
+            _overlay.Auto = _autoPainter;
+            UpdatePreview();
         }
 
-        private NumericUpDown Num(Control parent, ref int y, string label, decimal value, decimal min, decimal max, decimal step, string unit)
+        private void StopAutoPaint(bool wait = true)
         {
-            Add2(parent, Sub(label + unit), 8, y + 4, 168, 20);
-            var n = new NumericUpDown();
-            n.Minimum = min;
-            n.Maximum = max;
-            n.Increment = step;
-            n.Value = Math.Max(min, Math.Min(max, value));
-            n.SetBounds(182, y, 100, 24);
-            n.BackColor = CardBg;
-            n.ForeColor = TextCol;
-            n.BorderStyle = BorderStyle.FixedSingle;
-            n.ValueChanged += delegate { MarkDirty(); };
-            parent.Controls.Add(n);
-            y += 32;
-            return n;
+            if (_autoPainter != null)
+            {
+                _autoPainter.Stop(wait);
+                _autoPainter = null;
+            }
+            _overlay.Auto = null;
+            _btnStartAuto.Text = "开始 (F6)";
+            UpdatePreview();
         }
 
-        private CheckBox Check(Control parent, ref int y, string label, bool value)
+        private void ToggleAutoPause()
         {
-            var c = new CheckBox();
-            c.Text = label;
-            c.Checked = value;
-            c.SetBounds(8, y, 300, 24);
-            c.ForeColor = TextCol;
-            c.BackColor = Color.Transparent;
-            c.CheckedChanged += delegate { MarkDirty(); };
-            parent.Controls.Add(c);
-            y += 30;
-            return c;
+            if (_autoPainter == null) return;
+            _autoPainter.TogglePause();
         }
 
-        private static int IndexOfKey(int vk)
+        /// <summary>
+        /// 把后台线程的回调安全地丢给 UI 线程。
+        ///
+        /// 必须用 BeginInvoke（异步投递）而不是 Invoke（同步等待）：
+        /// 停止自动绘图时 UI 线程正在 `_worker.Join()`，如果后台线程同时在 Invoke，
+        /// 双方互等就会卡住 3 秒直到 Join 超时 —— 那就是「点停止会卡一下」的元凶。
+        /// </summary>
+        private void UiPost(Action action)
         {
-            for (int i = 0; i < SwitchKeyVks.Length; i++)
-                if (SwitchKeyVks[i] == vk) return i;
-            return 0;
+            if (action == null) return;
+            try
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke(action);
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
         }
 
-        // ---------------------------------------------------------------- 热键 / 鼠标
+        private void SyncDoneToPainter()
+        {
+            if (_autoPainter == null || _autoPainter.CurrentLevel == null) return;
+            var levels = PcsSave.LoadUnfinished(PcsSave.DefaultPath());
+            for (int i = 0; i < levels.Count; i++)
+            {
+                var lv = levels[i];
+                if (lv.PackageNumber == _autoPainter.CurrentLevel.PackageNumber
+                    && lv.LevelNumber == _autoPainter.CurrentLevel.LevelNumber)
+                {
+                    for (int k = 0; k < _autoPainter.CurrentLevel.Cells.Length && k < lv.Cells.Length; k++)
+                    {
+                        if (lv.Cells[k].Done)
+                        {
+                            PcsCell c = _autoPainter.CurrentLevel.Cells[k];
+                            c.Done = true;
+                            _autoPainter.CurrentLevel.Cells[k] = c;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        private void UpdatePaletteInfo()
+        {
+            if (_palette.IsCalibrated)
+            {
+                _paletteInfoLabel.Text = string.Format("调色板：{0} 列 × {1} 行 = {2} 个色块",
+                    _palette.Columns, _palette.Rows, _palette.SwatchCount);
+            }
+            else
+            {
+                _paletteInfoLabel.Text = "调色板：未校准（按 F5 框选）";
+            }
+        }
+
+        private static bool TryParseHex(string hex, out int r, out int g, out int b)
+        {
+            r = g = b = 0;
+            if (string.IsNullOrEmpty(hex) || hex.Length < 7) return false;
+            try
+            {
+                r = int.Parse(hex.Substring(1, 2), System.Globalization.NumberStyles.HexNumber);
+                g = int.Parse(hex.Substring(3, 2), System.Globalization.NumberStyles.HexNumber);
+                b = int.Parse(hex.Substring(5, 2), System.Globalization.NumberStyles.HexNumber);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        // ---------------------------------------------------------------- 等级逻辑
+
+        private void LoadUserProfile()
+        {
+            try
+            {
+                UserProfile.Load();
+            }
+            catch (Exception ex)
+            {
+                LogLine("等级存档加载失败：" + ex.Message);
+            }
+        }
+
+        private void UpdateRankPage()
+        {
+            if (!UserProfile.Loaded) return;
+
+            _rankManualLevel.Text = "Lv." + UserProfile.LevelOf(XpTrack.Manual);
+            _rankManualTitle.Text = UserProfile.CurrentTitleOf(XpTrack.Manual);
+            _rankManualNext.Text = UserProfile.NextTitleHintOf(XpTrack.Manual);
+            _rankProgressManual.Value = (int)(UserProfile.ProgressOf(XpTrack.Manual) * 100f);
+
+            _rankAutoLevel.Text = "Lv." + UserProfile.LevelOf(XpTrack.Auto);
+            _rankAutoTitle.Text = UserProfile.CurrentTitleOf(XpTrack.Auto);
+            _rankAutoNext.Text = UserProfile.NextTitleHintOf(XpTrack.Auto);
+            _rankProgressAuto.Value = (int)(UserProfile.ProgressOf(XpTrack.Auto) * 100f);
+
+            _rankStats.Text = string.Format(
+                "总在线 {0:0.0} 分钟\n" +
+                "已涂总格数 {1:N0}  ·  自动 {2:N0}  ·  辅助 {3:N0}\n" +
+                "完成图片 {4} 张  ·  最大单图 {5} 格\n" +
+                "总图片像素 {6:N0}\n" +
+                "经验值：人工 {7}  /  自动 {8}",
+                UserProfile.TotalSeconds / 60f,
+                UserProfile.PixelsPainted,
+                UserProfile.AutoPixels,
+                UserProfile.AssistPixels,
+                UserProfile.ImagesCompleted,
+                UserProfile.LargestImage,
+                UserProfile.TotalImagePixels,
+                UserProfile.XpManual,
+                UserProfile.XpAuto);
+        }
+
+        // ---------------------------------------------------------------- 人工辅助逻辑（原有）
+
+        private void LoadRegionAndSettings()
+        {
+            AssistRegion savedRegion = AssistStore.LoadRegion();
+            if (savedRegion != null && savedRegion.HasRegion) _engine.Region.CopyFrom(savedRegion);
+
+            AssistSettings savedSettings = AssistStore.LoadSettings();
+            if (savedSettings != null) CopyInto(savedSettings, _engine.S);
+        }
 
         private bool OnKeyDown(int vk)
         {
-            // 热键尽量贴在游戏那一侧，避免影响游戏原生的按键。
-            if (vk == (int)Keys.F6) { ToggleRun(); return true; }              // 开始 / 暂停 / 继续
-            if (vk == (int)Keys.F7) { BeginSelect(0); return true; }           // 框选画布区域
-            if (vk == (int)Keys.F8) { StopRun(); return true; }                // 急停
+            if (vk == (int)Keys.F5) { BeginSelect(2); return true; }
+            if (vk == (int)Keys.F6)
+            {
+                if (_selectedTab == 1) { if (_autoPainter != null && _autoPainter.Running) ToggleAutoPause(); else StartAutoPaint(); return true; }
+                ToggleRun(); return true;
+            }
+            if (vk == (int)Keys.F7) { BeginSelect(0); return true; }
+            if (vk == (int)Keys.F8) { StopRun(); StopAutoPaint(); return true; }
             if (vk == (int)Keys.F9) { _engine.StartSingleRow(Math.Max(0, _engine.CurrentRow)); return true; }
-            if (vk == (int)Keys.F10) { Restart(); return true; }               // 停止并重新整屏扫描
-            if (vk == (int)Keys.F11) { BeginSelect(1); return true; }          // 格子校准
-            if (vk == (int)Keys.F12) { ToggleOverlay(); return true; }         // 显示 / 隐藏范围框
+            if (vk == (int)Keys.F10) { Restart(); return true; }
+            if (vk == (int)Keys.F11) { BeginSelect(1); return true; }
+            if (vk == (int)Keys.F12) { ToggleOverlay(); return true; }
             return false;
         }
 
@@ -394,9 +1177,9 @@ namespace PixelAssist
             _selStart = new Point(x, y);
             _selNow = _selStart;
             UpdateRegionLabel();
+            if (mode == 2) _autoStatusLabel.Text = "请拖拽框选游戏中的调色板区域";
         }
 
-        /// <summary>F10：放弃当前进度，从第一行重新开始整屏扫描。</summary>
         private void Restart()
         {
             _engine.Stop();
@@ -417,6 +1200,10 @@ namespace PixelAssist
                         {
                             CalibrateFromCell(r);
                         }
+                        else if (_selectMode == 2)
+                        {
+                            CalibratePalette(r);
+                        }
                         else
                         {
                             _engine.Region.SetRect(r.X, r.Y, r.Width, r.Height);
@@ -425,6 +1212,7 @@ namespace PixelAssist
                     }
                     _selecting = false;
                     UpdateRegionLabel();
+                    _overlay.Selection = null;
                 }
                 return;
             }
@@ -460,7 +1248,6 @@ namespace PixelAssist
             }
         }
 
-        /// <summary>框选 / 拖角时吞掉鼠标事件，避免顺手在游戏里涂了一笔。</summary>
         private bool OnMouseFilter(int msg, int x, int y)
         {
             if (_selecting) return true;
@@ -475,10 +1262,6 @@ namespace PixelAssist
                 Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
         }
 
-        /// <summary>
-        /// F11 格子校准：画布区域已经框好的前提下，再框一个格子，
-        /// 按 画布高 / 格子高 推出扫描行数，按 格子宽 / 2 推出采样步长。
-        /// </summary>
         private void CalibrateFromCell(Rectangle cell)
         {
             var reg = _engine.Region;
@@ -506,6 +1289,23 @@ namespace PixelAssist
             MessageBox.Show(this,
                 string.Format("已按格子校准：\n\n扫描行数 = {0}\n采样步长 = {1} px", rows, (int)Math.Round(stepF)),
                 "人工辅助", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void CalibratePalette(Rectangle bounds)
+        {
+            _sampler.Capture(bounds);
+            _palette.AutoDetect(_sampler, bounds);
+            UpdatePaletteInfo();
+
+            if (_palette.IsCalibrated)
+            {
+                _autoStatusLabel.Text = string.Format("调色板已校准：{0} 列 × {1} 行 = {2} 个色块",
+                    _palette.Columns, _palette.Rows, _palette.SwatchCount);
+            }
+            else
+            {
+                _autoStatusLabel.Text = "调色板校准失败：请确认框选的是调色板区域";
+            }
         }
 
         private void ToggleOverlay()
@@ -538,7 +1338,7 @@ namespace PixelAssist
             Save(false);
         }
 
-        // ---------------------------------------------------------------- 循环
+        // ---------------------------------------------------------------- 主循环
 
         private void OnTick(object sender, EventArgs e)
         {
@@ -546,7 +1346,29 @@ namespace PixelAssist
             _watch.Restart();
 
             _engine.Tick(dt);
+            UserProfile.Tick((float)dt);
+            UserProfile.TickSave((float)dt);
 
+            // 每 2 秒刷新一次存档（自动跟随当前关卡 + 同步 Done）
+            _saveTimer += (float)dt;
+            if (_saveTimer >= 2f)
+            {
+                _saveTimer = 0;
+                RefreshSaveFile();
+            }
+
+            // 预览页：自动绘图时 Done 标记在内存里变，按 0.4 秒节流重建位图
+            if (_selectedTab == 3 && _previewBox != null)
+            {
+                _previewTimer += (float)dt;
+                if (_previewTimer >= 0.4f)
+                {
+                    _previewTimer = 0;
+                    UpdatePreview();
+                }
+            }
+
+            // 人工辅助页状态
             bool running = _engine.Running;
             bool canResume = _engine.State == AssistState.Paused
                           || _engine.State == AssistState.WaitingColour
@@ -559,27 +1381,39 @@ namespace PixelAssist
                 _engine.CurrentRow + 1, Math.Max(1, _engine.TotalRows), _engine.ElapsedSeconds, _engine.Progress * 100f);
             _progress.Value = (int)Math.Max(0, Math.Min(100, _engine.Progress * 100f));
 
-            // 遮罩层默认关着，按钮文案得跟着当前状态走，别一直写着「隐藏」。
             string overlayText = _overlayVisible ? "隐藏遮罩 (F12)" : "显示遮罩 (F12)";
             if (_overlayButton.Text != overlayText) _overlayButton.Text = overlayText;
 
-            // 状态点：运行中呼吸、完成变强调色、其余熄灭
             _dot.Pulsing = running;
             _dot.Tint = running ? Accent2
                       : (_engine.State == AssistState.Done ? Accent
                       : (_engine.State == AssistState.Paused ? Danger : Muted));
 
-            // 框选/校准时把预览虚线框交给覆盖层一起画。
             if (_selecting) _overlay.Selection = RectFrom(_selStart, _selNow);
             else _overlay.Selection = null;
-
             if (_overlayVisible) _overlay.Invalidate();
 
-            if (_saveTimer > 0)
+            // 首页状态
+            _homeStatus.Text = _engine.StateText
+                + (string.IsNullOrEmpty(_engine.Message) ? "" : " · " + _engine.Message);
+            _homeDot.Tint = running ? Accent2 : (_engine.State == AssistState.Done ? Accent : Muted);
+            _homeDot.Pulsing = running;
+
+            // 自动绘图页状态
+            if (_autoPainter != null && _autoPainter.Running)
             {
-                _saveTimer -= (float)dt;
-                if (_saveTimer <= 0) Save(false);
+                _btnStartAuto.Text = _autoPainter.Paused ? "继续 (F6)" : "暂停 (F6)";
+                _autoDot.Pulsing = !_autoPainter.Paused;
+                _autoDot.Tint = Accent2;
             }
+            else
+            {
+                _btnStartAuto.Text = "开始 (F6)";
+                _autoDot.Pulsing = false;
+                _autoDot.Tint = Muted;
+            }
+
+            UpdateRankPage();
         }
 
         // ---------------------------------------------------------------- 持久化
@@ -630,7 +1464,7 @@ namespace PixelAssist
         private void ApplyToUi()
         {
             var s = _engine.S;
-            _rows.Value = Clamp(s.Rows, _rows); _speed.Value = Clamp((decimal)s.Speed, _speed);
+            _rows.Value = Clamp((decimal)s.Rows, _rows); _speed.Value = Clamp((decimal)s.Speed, _speed);
             _step.Value = Clamp((decimal)s.Step, _step); _rowPause.Value = Clamp(s.RowPauseMs, _rowPause);
             _margin.Value = Clamp((decimal)s.EdgeMargin, _margin); _delay.Value = Clamp(s.StartDelayMs, _delay);
             _failRadius.Value = Clamp((decimal)s.FailRadius, _failRadius);
@@ -695,9 +1529,6 @@ namespace PixelAssist
             RefreshPresets();
         }
 
-        /// <summary>
-        /// 配置放在 %APPDATA%\PixelAssist，这样安装包升级、换目录都不会丢参数和区域。
-        /// </summary>
         private static string ResolveConfigDir()
         {
             try
@@ -722,14 +1553,34 @@ namespace PixelAssist
             catch (Exception) { }
         }
 
+        private void LogLine(string message)
+        {
+            if (_logBox == null) return;
+            if (_logBox.InvokeRequired)
+            {
+                _logBox.Invoke(new Action<string>(LogLine), message);
+                return;
+            }
+            string line = DateTime.Now.ToString("HH:mm:ss") + "  " + message;
+            _logBox.AppendText(line + Environment.NewLine);
+            if (_logBox.Lines.Length > 200)
+            {
+                var lines = _logBox.Lines;
+                _logBox.Text = string.Join(Environment.NewLine, lines.Skip(lines.Length - 150));
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             try { _engine.Stop(); } catch (Exception) { }
+            try { StopAutoPaint(); } catch (Exception) { }
             Save(true);
+            UserProfile.Save();
             _timer.Stop();
             _keys.Dispose();
             _mouse.Dispose();
             try { _overlay.Close(); } catch (Exception) { }
+            try { _sampler.Dispose(); } catch (Exception) { }
             base.OnFormClosing(e);
         }
     }
