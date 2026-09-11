@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 using ColoringPixelsTool;
 using ColoringPixelsTool.Assist;
@@ -75,6 +76,13 @@ namespace PixelAssist
         private Label _homeStatus;
         private StatusDot _homeDot;
         private NeonButton _homeQuickAuto, _homeQuickAssist;
+        private Label _homeLevelTitle;
+        private Label _homeLevelInfo;
+        private AssistProgress _homeLevelProgress;
+        private NeonButton _homeTimerButton;
+        private Label _homeTimerLabel;
+        private readonly Stopwatch _homeWatch = new Stopwatch();
+        private bool _homeTimerRunning;
 
         // ---------------------------------------------------------------- 人工辅助控件
         private Label _stateLabel;
@@ -103,6 +111,14 @@ namespace PixelAssist
         private CheckBox _autoCurrentColor, _autoDrag, _autoRefreshDone;
         private Label _autoColorPreview;
 
+        // ---------------------------------------------------------------- 速度预设 / 区域微调
+        private NeonButton[] _speedPresetButtons;
+        private int _speedPreset = 1;          // 0 慢 / 1 中 / 2 快 / 3 自定义
+        private bool _applyingSpeedPreset;
+        private Label _cornerLabel;
+        private NumericUpDown[] _bendNums;
+        private bool _applyingBend;
+
         // ---------------------------------------------------------------- 预览控件
         private LevelPreviewBox _previewBox;
         private Label _previewInfo;
@@ -118,6 +134,7 @@ namespace PixelAssist
         private Label _rankStats;
 
         // ---------------------------------------------------------------- 设置控件
+        private CheckBox _hudOnStart;
         private TextBox _logBox;
 
         private static readonly int[] SwitchKeyVks = { 0, 0x20, 0x09, 0x31, 0x32, 0x33, 0x34, 0x35, 0x51, 0x45, 0x52, 0x46 };
@@ -147,10 +164,12 @@ namespace PixelAssist
                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
             LoadRegionAndSettings();
+            LoadUiPrefs();
             BuildTabs();
             BuildHomePage();
             BuildAutoPage();
             BuildAssistPage();
+            BuildPreviewPage();
             BuildRankPage();
             BuildSettingsPage();
             SelectTab(0);
@@ -241,6 +260,9 @@ namespace PixelAssist
                 _tabButtons[i].Tint = (i == idx) ? Accent : CardBg;
                 _tabButtons[i].TextColor = (i == idx) ? Color.White : TextCol;
             }
+
+            if (idx == 0) UpdateHomeLevel();
+            if (idx == 2) UpdateRegionUi();
         }
 
         private BackdropPanel CreatePage()
@@ -365,7 +387,47 @@ namespace PixelAssist
             _homeQuickAssist.Click += delegate { SelectTab(2); };
             _pageHome.Controls.Add(_homeQuickAssist);
 
-            y += 10;
+            y += 22;
+            Add2(_pageHome, Heading("当前关卡"), 16, y, 200, 22);
+            _homeTimerLabel = Sub("未计时");
+            _homeTimerLabel.SetBounds(236, y + 3, 200, 18);
+            _homeTimerLabel.TextAlign = ContentAlignment.TopRight;
+            _pageHome.Controls.Add(_homeTimerLabel);
+            y += 28;
+
+            AddCard(_pageHome, 16, y, 420, 112); y += 120;
+
+            _homeLevelTitle = new Label();
+            _homeLevelTitle.SetBounds(30, y - 102, 392, 20);
+            _homeLevelTitle.ForeColor = TextCol;
+            _homeLevelTitle.BackColor = Color.Transparent;
+            _pageHome.Controls.Add(_homeLevelTitle);
+
+            _homeLevelInfo = Sub("");
+            _homeLevelInfo.SetBounds(30, y - 78, 392, 18);
+            _pageHome.Controls.Add(_homeLevelInfo);
+
+            _homeLevelProgress = new AssistProgress();
+            _homeLevelProgress.SetBounds(30, y - 56, 392, 12);
+            _pageHome.Controls.Add(_homeLevelProgress);
+
+            _homeTimerButton = FlatButton("开始计时", Accent2, 30, y - 38, 112, 30);
+            _homeTimerButton.Click += delegate { ToggleHomeTimer(); };
+            _pageHome.Controls.Add(_homeTimerButton);
+
+            var homeTimerReset = FlatButton("重置", CardBg, 150, y - 38, 70, 30);
+            homeTimerReset.Click += delegate { ResetHomeTimer(); };
+            _pageHome.Controls.Add(homeTimerReset);
+
+            var homeToPreview = FlatButton("查看预览", CardBg, 228, y - 38, 92, 30);
+            homeToPreview.Click += delegate { SelectTab(3); };
+            _pageHome.Controls.Add(homeToPreview);
+
+            var homeToAuto = FlatButton("自动绘图", Accent, 328, y - 38, 98, 30);
+            homeToAuto.Click += delegate { SelectTab(1); };
+            _pageHome.Controls.Add(homeToAuto);
+
+            y += 12;
             Add2(_pageHome, Heading("热键"), 16, y, 420, 22); y += 28;
             Add2(_pageHome, Sub("F5  框选调色板区域"), 24, y, 400, 18); y += 22;
             Add2(_pageHome, Sub("F6  开始 / 暂停 自动绘图或扫描"), 24, y, 400, 18); y += 22;
@@ -465,6 +527,22 @@ namespace PixelAssist
             _pageAuto.Controls.Add(_levelInfoLabel);
             y += 48;
 
+            // 速度预设：一键把「拟人参数」推到慢 / 中 / 快三档
+            Add2(_pageAuto, Heading("涂色速度"), 16, y, 420, 22); y += 28;
+            Add2(_pageAuto, Sub("一键设定下方的「拟人参数」；手动改动任意一项即回到「自定义」"), 16, y, 420, 18); y += 24;
+
+            _speedPresetButtons = new NeonButton[4];
+            string[] speedNames = { "慢", "中", "快", "自定义" };
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;
+                var sb = FlatButton(speedNames[i], CardBg, 16 + i * 104, y, 96, 30);
+                sb.Click += delegate { ApplySpeedPreset(idx); };
+                _pageAuto.Controls.Add(sb);
+                _speedPresetButtons[i] = sb;
+            }
+            y += 40;
+
             // 拟人参数
             Add2(_pageAuto, Heading("拟人参数"), 16, y, 420, 22); y += 28;
             _autoSpeed = Num(_pageAuto, ref y, "手速", 35, 1, 300, 5, " 格/秒");
@@ -472,9 +550,15 @@ namespace PixelAssist
             _autoPause = Num(_pageAuto, ref y, "停笔概率", 35, 0, 100, 5, " %");
             _autoMistake = Num(_pageAuto, ref y, "手滑概率", 1, 0, 20, 1, " %");
 
+            _autoSpeed.ValueChanged += delegate { MarkSpeedCustom(); };
+            _autoStroke.ValueChanged += delegate { MarkSpeedCustom(); };
+            _autoPause.ValueChanged += delegate { MarkSpeedCustom(); };
+
             _autoCurrentColor = Check(_pageAuto, ref y, "只涂当前颜色（不自动点调色板）", false);
             _autoDrag = Check(_pageAuto, ref y, "同一行相邻格子用拖动连涂", false);
             _autoRefreshDone = Check(_pageAuto, ref y, "绘图时自动同步存档里的已完成格", true);
+
+            UpdateSpeedPresetButtons();
         }
 
         // ---------------------------------------------------------------- 人工辅助页
@@ -617,8 +701,46 @@ namespace PixelAssist
             panel.Controls.Add(clearBtn);
             py += 40;
 
+            // 区域微调：四角坐标 + 弯边（把直边掰成弧线，逼近弯曲 / 梯形画布）
+            Add2(panel, Heading("区域微调"), 4, py, 380, 22); py += 30;
+
+            _cornerLabel = Sub("");
+            _cornerLabel.SetBounds(8, py, 380, 44);
+            panel.Controls.Add(_cornerLabel);
+            py += 50;
+
+            _bendNums = new NumericUpDown[4];
+            string[] bendNames = { "弯边 · 上", "弯边 · 下", "弯边 · 左", "弯边 · 右" };
+            for (int i = 0; i < 4; i++)
+            {
+                int idx = i;
+                _bendNums[i] = Num(panel, ref py, bendNames[i], 0, -50, 50, 5, " %");
+                _bendNums[i].ValueChanged += delegate { OnBendChanged(idx); };
+            }
+
+            Add2(panel, Sub("拖动游戏画面里的把手会同步到这里；数值为正往外鼓、为负往里凹"), 8, py, 380, 20);
+            py += 26;
+
+            var autoFit = FlatButton("按存档推算格子（F7 之后点这里）", Accent, 4, py, 392, 34);
+            autoFit.Click += delegate { AutoFitGridFromSave(); };
+            panel.Controls.Add(autoFit);
+            py += 42;
+
+            Add2(panel, Heading("快速模板"), 4, py, 380, 22); py += 30;
+            var tplGeneral = FlatButton("通用", Accent2, 8, py, 116, 30);
+            tplGeneral.Click += delegate { ApplyTemplate(0); };
+            panel.Controls.Add(tplGeneral);
+            var tplFine = FlatButton("精细小图", CardBg, 132, py, 116, 30);
+            tplFine.Click += delegate { ApplyTemplate(1); };
+            panel.Controls.Add(tplFine);
+            var tplFast = FlatButton("大图极速", CardBg, 256, py, 148, 30);
+            tplFast.Click += delegate { ApplyTemplate(2); };
+            panel.Controls.Add(tplFast);
+            py += 40;
+
             RefreshPresets();
             UpdateRegionLabel();
+            UpdateRegionUi();
         }
 
         // ---------------------------------------------------------------- 预览页
@@ -792,9 +914,40 @@ namespace PixelAssist
             _pageSettings.Controls.Add(openRankDir);
             y += 50;
 
+            Add2(_pageSettings, Heading("界面"), 16, y, 420, 22); y += 28;
+            _hudOnStart = Check(_pageSettings, ref y, "启动时自动显示遮罩层（画布边框与 HUD）", _overlayVisible);
+            _hudOnStart.CheckedChanged += delegate
+            {
+                AssistStore.SaveValue("overlayOnStart", _hudOnStart.Checked ? "1" : "0");
+            };
+
+            Add2(_pageSettings, Heading("快捷键"), 16, y, 420, 22); y += 28;
+            Add2(_pageSettings, Sub(
+                "F5  框选调色板      F6  开始 / 暂停      F7  框选画布\n"
+                + "F8  急停            F9  试扫当前行      F10 重新整扫\n"
+                + "F11 框选一个格子做校准                  F12 显示 / 隐藏遮罩"), 16, y, 420, 54);
+            y += 62;
+
+            Add2(_pageSettings, Heading("公告与帮助"), 16, y, 420, 22); y += 28;
+            var btnChangelog = FlatButton("更新公告", Accent2, 16, y, 130, 34);
+            btnChangelog.Click += delegate { ShowAnnounce("更新公告 · v" + AssistAnnounce.Version, AssistAnnounce.Changelog); };
+            _pageSettings.Controls.Add(btnChangelog);
+            var btnFeatures = FlatButton("功能总览", Accent2, 154, y, 130, 34);
+            btnFeatures.Click += delegate { ShowAnnounce("功能总览", AssistAnnounce.Features); };
+            _pageSettings.Controls.Add(btnFeatures);
+            var btnFeedback = FlatButton("Bug 反馈", CardBg, 292, y, 144, 34);
+            btnFeedback.Click += delegate { OpenFeedback(); };
+            _pageSettings.Controls.Add(btnFeedback);
+            y += 44;
+
+            Add2(_pageSettings, Sub(
+                "版本 v" + AssistAnnounce.Version + "  ·  等级存档与《Coloring Pixels》插件共用\n"
+                + "反馈只带版本号与系统版本，不含路径 / 用户名，可直接提交到 GitHub"), 16, y, 420, 40);
+            y += 48;
+
             Add2(_pageSettings, Heading("日志"), 16, y, 420, 22); y += 28;
             _logBox = new TextBox();
-            _logBox.SetBounds(16, y, 420, 240);
+            _logBox.SetBounds(16, y, 420, 150);
             _logBox.Multiline = true;
             _logBox.ReadOnly = true;
             _logBox.ScrollBars = ScrollBars.Vertical;
@@ -944,7 +1097,7 @@ namespace PixelAssist
                 CurrentColorOnly = _autoCurrentColor.Checked,
                 UseDrag = _autoDrag.Checked,
                 RefreshDoneFromSave = _autoRefreshDone.Checked,
-                FlipVertical = _previewFlip.Checked
+                FlipVertical = _previewFlip != null && _previewFlip.Checked
             };
 
             _autoPainter = new AutoPainter(_engine.Region, _palette);
@@ -1212,6 +1365,7 @@ namespace PixelAssist
                     }
                     _selecting = false;
                     UpdateRegionLabel();
+                    UpdateRegionUi();
                     _overlay.Selection = null;
                 }
                 return;
@@ -1244,6 +1398,7 @@ namespace PixelAssist
                     _dragCorner = -1;
                     Save(true);
                     UpdateRegionLabel();
+                    UpdateRegionUi();
                 }
             }
         }
@@ -1348,6 +1503,9 @@ namespace PixelAssist
             _engine.Tick(dt);
             UserProfile.Tick((float)dt);
             UserProfile.TickSave((float)dt);
+
+            UpdateHomeTimerUi();
+            if (_selectedTab == 0) UpdateHomeLevel();
 
             // 每 2 秒刷新一次存档（自动跟随当前关卡 + 同步 Done）
             _saveTimer += (float)dt;
@@ -1495,6 +1653,288 @@ namespace PixelAssist
                 : "区域：未框选（按 F7 拖拽框选）";
         }
 
+        // ---------------------------------------------------------------- 首页：进度卡与计时器
+
+        private void UpdateHomeLevel()
+        {
+            if (_homeLevelTitle == null) return;
+
+            PcsLevel level = (_autoPainter != null && _autoPainter.Running) ? _autoPainter.CurrentLevel : _currentLevel;
+            if (level == null)
+            {
+                _homeLevelTitle.Text = "未读取到进行中的关卡";
+                _homeLevelInfo.Text = "先在游戏里打开一张未完成的图，再到「自动绘图」页点「刷新存档」";
+                _homeLevelProgress.Value = 0;
+                return;
+            }
+
+            int total = level.Cells != null ? level.Cells.Length : 0;
+            int done = total - level.RemainingCells;
+            _homeLevelTitle.Text = level.Title;
+            _homeLevelInfo.Text = string.Format("{0} × {1} 格 · 已涂 {2:N0} / {3:N0} · 剩 {4:N0}",
+                level.Width, level.Height, done, total, level.RemainingCells);
+            _homeLevelProgress.Value = total <= 0 ? 0 : (int)Math.Round(done * 100.0 / total);
+        }
+
+        private void ToggleHomeTimer()
+        {
+            if (_homeTimerRunning)
+            {
+                _homeWatch.Stop();
+                _homeTimerRunning = false;
+            }
+            else
+            {
+                _homeWatch.Start();
+                _homeTimerRunning = true;
+            }
+        }
+
+        private void ResetHomeTimer()
+        {
+            _homeWatch.Reset();
+            _homeTimerRunning = false;
+        }
+
+        private void UpdateHomeTimerUi()
+        {
+            if (_homeTimerLabel == null) return;
+
+            TimeSpan span = _homeWatch.Elapsed;
+            _homeTimerLabel.Text = span.TotalHours >= 1
+                ? string.Format("计时 {0:00}:{1:00}:{2:00}", (int)span.TotalHours, span.Minutes, span.Seconds)
+                : string.Format("计时 {0:00}:{1:00}", span.Minutes, span.Seconds);
+
+            if (_homeTimerButton != null)
+            {
+                _homeTimerButton.Text = _homeTimerRunning ? "暂停计时" : (_homeWatch.ElapsedTicks > 0 ? "继续计时" : "开始计时");
+                _homeTimerButton.Tint = _homeTimerRunning ? Danger : Accent2;
+            }
+        }
+
+        // ---------------------------------------------------------------- 自动绘图：速度预设
+
+        private static readonly float[] SpeedPresetCells = { 8f, 35f, 120f };
+        private static readonly int[] SpeedPresetStroke = { 12, 25, 60 };
+        private static readonly int[] SpeedPresetPause = { 45, 35, 15 };
+
+        private void ApplySpeedPreset(int idx)
+        {
+            _speedPreset = idx;
+            if (idx >= 0 && idx < 3)
+            {
+                _applyingSpeedPreset = true;
+                try
+                {
+                    _autoSpeed.Value = Clamp((decimal)SpeedPresetCells[idx], _autoSpeed);
+                    _autoStroke.Value = Clamp(SpeedPresetStroke[idx], _autoStroke);
+                    _autoPause.Value = Clamp(SpeedPresetPause[idx], _autoPause);
+                }
+                finally
+                {
+                    _applyingSpeedPreset = false;
+                }
+            }
+            UpdateSpeedPresetButtons();
+        }
+
+        private void UpdateSpeedPresetButtons()
+        {
+            if (_speedPresetButtons == null) return;
+            for (int i = 0; i < _speedPresetButtons.Length; i++)
+            {
+                bool on = i == _speedPreset;
+                _speedPresetButtons[i].Tint = on ? Accent : CardBg;
+                _speedPresetButtons[i].TextColor = on ? Color.White : TextCol;
+            }
+        }
+
+        private void MarkSpeedCustom()
+        {
+            if (_applyingSpeedPreset || _speedPreset == 3) return;
+            _speedPreset = 3;
+            UpdateSpeedPresetButtons();
+        }
+
+        // ---------------------------------------------------------------- 人工辅助：区域微调与模板
+
+        private static readonly string[] CornerNames = { "左上", "右上", "右下", "左下" };
+
+        private void AutoFitGridFromSave()
+        {
+            if (_currentLevel == null || _currentLevel.Cells == null)
+            {
+                MessageBox.Show(this,
+                    "还没读到进行中的关卡。\n先在游戏里打开一张未完成的图，到「自动绘图」页点「刷新存档」。",
+                    "按存档推算格子");
+                return;
+            }
+
+            AssistRegion r = _engine.Region;
+            if (!r.HasRegion)
+            {
+                MessageBox.Show(this,
+                    "还没框选画布。\n先按 F7 在游戏画面上拖拽框出整张画布，再点这里。",
+                    "按存档推算格子");
+                return;
+            }
+
+            int w = Math.Max(1, _currentLevel.Width);
+            int h = Math.Max(1, _currentLevel.Height);
+            double cellW = r.ApproxWidth() / w;
+            double cellH = r.ApproxHeight() / h;
+            if (cellW < 1 || cellH < 1)
+            {
+                MessageBox.Show(this, "推算出的单格小于 1 像素，请重新框选画布。", "按存档推算格子");
+                return;
+            }
+
+            _rows.Value = Clamp(h, _rows);
+            _step.Value = Clamp((decimal)Math.Max(1, Math.Round(cellW / 2.0)), _step);
+            _engine.S.CellWidth = cellW;
+            _engine.S.CellHeight = cellH;
+            Save(true);
+            UpdateRegionLabel();
+
+            LogLine(string.Format("按存档推算格子：{0} × {1} 格，单格约 {2:0.0} × {3:0.0} px", w, h, cellW, cellH));
+            MessageBox.Show(this, string.Format(
+                "已按存档推算：\n\n扫描行数 = {0}（= 图高）\n采样步长 = {1} px（≈ 半格宽）\n单格尺寸 = {2:0.0} × {3:0.0} px\n\n可直接按 F6 开始。",
+                (int)_rows.Value, (int)_step.Value, cellW, cellH), "按存档推算格子");
+        }
+
+        private void UpdateRegionUi()
+        {
+            if (_cornerLabel == null) return;
+
+            AssistRegion r = _engine.Region;
+            if (!r.HasRegion)
+            {
+                _cornerLabel.Text = "未框选区域（按 F7 拖拽框选画布）";
+            }
+            else
+            {
+                var sb = new StringBuilder();
+                for (int i = 0; i < 4; i++)
+                    sb.AppendFormat("{0} ({1:0}, {2:0})    ", CornerNames[i], r.X[i], r.Y[i]);
+                _cornerLabel.Text = sb.ToString().TrimEnd();
+            }
+
+            if (_bendNums == null) return;
+            _applyingBend = true;
+            try
+            {
+                for (int i = 0; i < _bendNums.Length; i++)
+                {
+                    decimal v = (decimal)Math.Round(r.Bend[i] * 100.0);
+                    _bendNums[i].Value = Math.Max(_bendNums[i].Minimum, Math.Min(_bendNums[i].Maximum, v));
+                }
+            }
+            finally
+            {
+                _applyingBend = false;
+            }
+        }
+
+        private void OnBendChanged(int edge)
+        {
+            if (_applyingBend || _bendNums == null) return;
+            _engine.Region.Bend[edge] = (double)_bendNums[edge].Value / 100.0;
+            Save(true);
+        }
+
+        private void ApplyTemplate(int idx)
+        {
+            var s = _engine.S;
+            if (idx == 0)
+            {
+                s.Rows = 20; s.Speed = 1400; s.Step = 4; s.RowPauseMs = 100;
+                s.EdgeMargin = 2; s.StartDelayMs = 1200; s.FailRadius = 90;
+            }
+            else if (idx == 1)
+            {
+                s.Rows = 40; s.Speed = 800; s.Step = 2; s.RowPauseMs = 150;
+                s.EdgeMargin = 2; s.StartDelayMs = 1500; s.FailRadius = 60;
+            }
+            else
+            {
+                s.Rows = 12; s.Speed = 2600; s.Step = 10; s.RowPauseMs = 40;
+                s.EdgeMargin = 1; s.StartDelayMs = 1000; s.FailRadius = 120;
+            }
+            s.Snake = true;
+            s.Clamp();
+            ApplyToUi();
+            Save(false);
+            LogLine("已套用快速模板：" + (idx == 0 ? "通用" : idx == 1 ? "精细小图" : "大图极速"));
+        }
+
+        // ---------------------------------------------------------------- 公告 / 反馈
+
+        private void ShowAnnounce(string title, string text)
+        {
+            var dlg = new Form();
+            dlg.Text = title;
+            dlg.ClientSize = new Size(580, 540);
+            dlg.StartPosition = FormStartPosition.CenterParent;
+            dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dlg.MinimizeBox = false;
+            dlg.MaximizeBox = false;
+            dlg.ShowInTaskbar = false;
+            dlg.BackColor = Bg;
+            dlg.ForeColor = TextCol;
+            dlg.Font = new Font("Microsoft YaHei UI", 9f);
+
+            var box = new TextBox();
+            box.Multiline = true;
+            box.ReadOnly = true;
+            box.WordWrap = true;
+            box.ScrollBars = ScrollBars.Vertical;
+            box.SetBounds(16, 16, 548, 458);
+            box.BackColor = CardBg;
+            box.ForeColor = TextCol;
+            box.BorderStyle = BorderStyle.FixedSingle;
+            box.Font = new Font("Microsoft YaHei UI", 9f);
+            box.Text = text ?? "";
+            box.Select(0, 0);
+            dlg.Controls.Add(box);
+
+            var ok = new NeonButton("知道了", Accent, true);
+            ok.SetBounds(444, 486, 120, 36);
+            ok.Click += delegate { dlg.Close(); };
+            dlg.Controls.Add(ok);
+            dlg.AcceptButton = ok;
+            dlg.CancelButton = ok;
+
+            dlg.ShowDialog(this);
+            dlg.Dispose();
+        }
+
+        private void OpenFeedback()
+        {
+            try
+            {
+                string body = "**版本**：v" + AssistAnnounce.Version + "\r\n"
+                            + "**系统**：" + Environment.OSVersion.VersionString + "\r\n\r\n"
+                            + "**问题描述**：\r\n\r\n"
+                            + "**复现步骤**：\r\n1. \r\n2. \r\n\r\n"
+                            + "**期望结果**：\r\n";
+                string url = "https://github.com/zlwzk/ColoringPixels-Tool/issues/new?title="
+                           + Uri.EscapeDataString("[助手] ")
+                           + "&body=" + Uri.EscapeDataString(body);
+                Process.Start(url);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "无法打开浏览器：" + ex.Message, "Bug 反馈");
+            }
+        }
+
+        // ---------------------------------------------------------------- UI 偏好
+
+        private void LoadUiPrefs()
+        {
+            _overlayVisible = AssistStore.LoadValue("overlayOnStart", "0") == "1";
+        }
+
         private void RefreshPresets()
         {
             _presetBox.Items.Clear();
@@ -1585,3 +2025,4 @@ namespace PixelAssist
         }
     }
 }
+            

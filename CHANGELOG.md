@@ -3,6 +3,73 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.3.0] - 2026-09-11
+
+### 修复
+
+- **助手「预览」页从未被创建出来**：`AssistForm` 的构造函数漏调用 `BuildPreviewPage()`，
+  点开「预览」页签会因 `_pagePreview` 为 null 触发空引用；同时 `_previewFlip` 恒为 null，
+  点「开始」自动绘图时读 `_previewFlip.Checked` 也会崩。现已补上页面构建并对翻转开关判空。
+
+### 新增
+
+- **助手首页 · 关卡卡片与计时器**：显示当前关卡的册号 / 图号、尺寸、已涂 / 总数与进度条；
+  新增独立的会话计时器（开始 / 暂停 / 继续 / 重置）。
+- **助手自动绘图 · 涂色速度预设**：慢 / 中 / 快三档一键写入 `AutoSettings` 的手速、笔触长度、
+  停笔概率；手动改动任意一项自动切回「自定义」（`_applyingSpeedPreset` 防回环）。
+- **助手人工辅助 · 按存档推算格子**（`AutoFitGridFromSave`）：用当前关卡的宽高与框选区域尺寸
+  反推扫描行数与采样步长，并写入 `AssistSettings.CellWidth / CellHeight`，替代手动框选单格。
+- **助手人工辅助 · 区域微调**：四角坐标实时显示；四条边新增弯边滑条（±50% → `AssistRegion.Bend`），
+  拖动画面把手会同步回滑条（`UpdateRegionUi` / `OnBendChanged`）。
+- **助手人工辅助 · 快速模板**：通用 / 精细小图 / 大图极速三套参数（`ApplyTemplate`）。
+- **助手设置页 · 公告与帮助**：启动时自动显示遮罩的开关（持久化到 `Assist.ui`）、快捷键一览、
+  「更新公告」与「功能总览」弹窗、一键打开 GitHub 反馈（只带版本号与系统版本，不含路径 / 用户名）。
+- `AssistStore` 新增 `LoadValue` / `SaveValue`：轻量 `key=value` 界面偏好存取。
+
+### 变更
+
+- `scripts\build-changelog.ps1` 新增第五处生成：`src\PixelAssist\AssistAnnounce.cs`
+  （`Version` / `Changelog` / `Features`），助手的公告与功能总览和插件、安装器共用同一份 Markdown；
+  `New-SourceFile` 支持自定义 body 成员名与附加 body（`-BodyMemberName` / `-ExtraBodyName`）。
+  校验提示由「四处」改为「五处」。
+- `scripts\build-assist.ps1` 的源文件收集依赖 `src\PixelAssist\*.cs` 通配，自动包含新文件。
+
+### 文档
+
+- `FEATURES.md` 补充《涂色大师：像素梦想家》助手的完整功能清单与快捷键。
+- 本文件补回 2.2.12 的条目（该版只改了 `RELEASE_NOTES.md` / `VERSION`，漏了这里）。
+
+## [2.2.12] - 2026-09-11
+
+### 新增
+
+- **《涂色大师：像素梦想家》独立助手补全**（`artifacts\PixelAssist.exe`），与 Coloring Pixels 插件功能对齐：
+  - 多页签面板（`AssistForm.cs`）：首页、自动绘图、人工辅助、预览、等级、设置；
+  - **自动绘图**（`AutoPainter.cs`）：读取 `PcsSave` 解码出的每格目标色，按颜色分组自动点击 / 拖拽填涂；
+    调色板自动识别（`PaletteMap`）、只涂当前颜色、拟人参数（手速 / 笔触长度 / 停笔概率 / 手滑概率）；
+  - **图案预览**（`LevelPreviewBox.cs`）：直接读存档目标色拼图，不截图；已涂真彩、未涂暗底稿，
+    滚轮锚点缩放、拖拽平移、适应窗口；
+  - **遮罩 HUD**（`OverlayForm.cs`）：自动绘图时高亮当前格、显示当前颜色与已涂 / 剩余进度。
+- 新增 `PcsSave.cs`（存档解码：整文件每字节 `+0x11` 得明文 JSON；读未完成关卡与每格目标色）、
+  `ScreenSampler.cs`（屏幕采样）、`MiniJson.cs`（最小 JSON 解析）、`LevelPreview.cs`（预览控件）。
+- **两个游戏共用同一套等级系统**：`UserProfile.cs` 抽成可编入两宿主的共享核心
+  （`ProfileLog` / `MathUtil` 解耦 `UnityEngine` 依赖），插件与助手读写同一份
+  `%APPDATA%\ColoringPixelsTool\ColoringPixelsTool.Profile.json`；
+  读写双向合并取最大（`MergeWithDisk` / `MergeFromJson` / `RefreshExternal`），
+  写入用带进程号的临时文件 + 原子替换。
+- **「纵向翻转」**：应对存档行序与屏幕方向相反的情况，同时作用于预览与自动绘图落点。
+
+### 修复
+
+- 自动绘图线程回 UI 由阻塞 `Invoke` 改为异步 `BeginInvoke`（`AssistForm.UiPost`），
+  消除点「停止」时与 `_worker.Join` 互相等待导致的数秒卡顿。
+- `ScreenSampler` 去掉 `unsafe`，改用受管数组拷贝，兼容未开启 `/unsafe` 的 csc 编译。
+
+### 变更
+
+- 助手工程 `PixelAssist.csproj` 通过 `<Compile Include="..\ColoringPixelsTool\UserProfile.cs">`
+  链接共享等级核心；`scripts\build-assist.ps1` 的共享源列表同步加入 `UserProfile.cs`。
+
 ## [2.2.11] - 2026-09-11
 
 ### 修复
@@ -461,6 +528,8 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.3.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.3.0
+[2.2.12]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.12
 [2.2.5]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.5
 [2.2.4]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.4
 [2.2.3]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.3
