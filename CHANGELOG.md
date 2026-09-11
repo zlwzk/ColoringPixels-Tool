@@ -7,6 +7,10 @@
 
 ### 新增
 
+- **自动绘图解锁风险确认**：第一次解锁「涂色 / 拟人 / 自动化」这三个会写存档的页面时，会先弹出风险说明
+  - 确认键带 3 秒冷静期，确认之后才真正解锁；解锁状态长期有效，之后启动游戏不再询问
+  - 从「设置 → 自动化与安全」开启同样会走这道确认；关掉开关即可重新上锁
+- **新增 [开发心路历程](docs/CHRONICLE.md)**：按时间线记录每个版本的设计动机与取舍，README 底部提供入口
 - **全端 UI 美化与动效升级**：把 magicui / Aceternity 的设计语言移植到 GDI+ / IMGUI，零第三方依赖
   - 插件端（Coloring Pixels 游戏内 F1 面板）：
     - 新增 `UiFx.cs` 动效库，含 Shimmer、Glare、ShineBorder、Spotlight、Aurora Background、Dot Grid、Grain、Border Beam、Pulse、CountText、Confetti 彩纸、缓动等
@@ -182,6 +186,7 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.2.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.0
 [2.1.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.1.0
 [2.0.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.0.0
 [1.3.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v1.3.0

@@ -204,10 +204,12 @@ CheatTools/
 ├─ vendor/bepinex-x86/          随仓库分发的 BepInEx 5 x86 运行时
 ├─ artifacts/                   已编译的插件 DLL（随仓库提交，供 CI / 无游戏环境使用）
 ├─ assets/icon.ico              安装器图标
-├─ docs/                        使用与构建文档
+├─ docs/                        使用 / 构建文档，以及开发心路历程
 ├─ VERSION                      版本号（唯一来源）
 └─ Directory.Build.props        全局 MSBuild 属性
 ```
+
+> 想知道这个工具是怎么一步步长出来的：**[开发心路历程](docs/CHRONICLE.md)**。
 
 ## 免责声明
 

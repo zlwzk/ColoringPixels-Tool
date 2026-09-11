@@ -21,6 +21,15 @@ namespace ColoringPixelsTool
         /// <summary>新手指引当前页码。</summary>
         private int _guidePage;
 
+        /// <summary>是否正在显示「解锁自动绘图」的风险确认弹窗。</summary>
+        private bool _showUnlockWarning;
+
+        /// <summary>解锁确认键的冷静期结束时间（Time.unscaledTime），防止顺手连点。</summary>
+        private float _unlockArmAt;
+
+        /// <summary>弹窗里显示的触发入口，仅用于提示文案。</summary>
+        private string _unlockFrom = "解锁页";
+
         /// <summary>上一帧本图是否已完成，用于「完成瞬间撒彩纸」的边缘检测。</summary>
         private bool _wasComplete;
 
@@ -96,16 +105,109 @@ namespace ColoringPixelsTool
             ty += 66f;
 
             if (Ui.Button(new Rect(Pad + 20f, ty, w - Pad * 2f - 40f, 40f), "解锁自动绘图", Ui.Accent, true))
-            {
-                Plugin.AutoUnlocked.Value = true;
-                Toast("自动绘图已解锁（下次启动会保持解锁）");
-            }
+                AskUnlockAutoDraw("解锁页");
             ty += 48f;
 
             Ui.Text(new Rect(card.x + Pad, ty, w - Pad * 2f, 18f),
-                "解锁状态会被记住，也可以在「设置 → 自动化与安全」里随时重新上锁。", Ui.MutedSmall);
+                "点解锁会先弹一次风险提示，确认后才生效；之后启动不再询问，也可在「设置 → 自动化与安全」重新上锁。",
+                Ui.MutedSmall);
 
             y += h + 12f;
+        }
+
+        // ============================================================ 解锁风险确认
+
+        /// <summary>请求解锁自动绘图：先弹风险确认，用户确认后才真正写配置。</summary>
+        private void AskUnlockAutoDraw(string from)
+        {
+            _unlockFrom = string.IsNullOrEmpty(from) ? "解锁页" : from;
+            // 3 秒冷静期：避免「解锁 → 确认」连点两下就过了提示。
+            _unlockArmAt = Time.unscaledTime + 3f;
+            _showUnlockWarning = true;
+        }
+
+        private void ConfirmUnlockAutoDraw()
+        {
+            _showUnlockWarning = false;
+            Plugin.AutoUnlocked.Value = true;
+            UserProfile.Save();
+            Toast("自动绘图已解锁，之后启动不再询问");
+        }
+
+        private void DrawUnlockWarning()
+        {
+            Event e = Event.current;
+
+            Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.74f));
+            Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), Ui.Alpha(Ui.Warn, 0.045f));
+
+            float k = Mathf.Clamp(UiScale, 0.8f, 1.4f);
+            float mw = Mathf.Min(510f * k, Screen.width - 60f);
+            float mh = Mathf.Min(348f * k, Screen.height - 60f);
+            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+
+            float open = Ui.Tween("unlock-open", true, 9f);
+            var body = new Rect(win.x, win.y + (1f - open) * 18f, win.width, win.height);
+
+            Ui.Round(body, 16f, new Color(0.10f, 0.085f, 0.065f, 0.99f));
+            Ui.RoundOutline(body, 16f, Ui.Alpha(Ui.Warn, 0.68f * open), new Color(0f, 0f, 0f, 0f), 1.5f);
+
+            float cx = body.center.x;
+
+            // 警示图标
+            Ui.Round(new Rect(cx - 17f, body.y + 22f, 34f, 34f), 17f, Ui.Alpha(Ui.Warn, 0.92f));
+            Ui.Text(new Rect(cx - 17f, body.y + 22f, 34f, 34f), "!", Ui.Center, new Color(0.13f, 0.09f, 0.02f, 1f));
+
+            Ui.Text(new Rect(body.x, body.y + 64f, body.width, 26f),
+                "解锁「自动绘图」前请先确认", Ui.Center, Ui.TextCol);
+
+            Ui.Text(new Rect(body.x + 26f, body.y + 90f, body.width - 52f, 18f),
+                "入口：" + _unlockFrom, Ui.Center, Ui.Muted);
+
+            Ui.Text(new Rect(body.x + 26f, body.y + 116f, body.width - 52f, 150f),
+                "· 「涂色 / 拟人 / 自动化」会把结果直接写进当前关卡的存档，操作不可撤销；\n" +
+                "· 修改存档可能让成就、统计数据出现异常，也可能与其它 Mod 冲突；\n" +
+                "· 建议先用游戏自身的正常方式保存一份存档备份，再决定是否解锁。\n\n" +
+                "解锁后长期有效，启动游戏不会再询问；随时可以在\n" +
+                "「设置 → 自动化与安全」里重新上锁。", Ui.MutedStyle);
+
+            float by = body.yMax - 56f;
+            float half = (body.width - 52f - 12f) * 0.5f;
+
+            if (Ui.Button(new Rect(body.x + 26f, by, half, 40f), "暂不解锁", Ui.Accent2, true))
+            {
+                _showUnlockWarning = false;
+                Toast("已取消，自动绘图保持上锁");
+            }
+
+            float left = _unlockArmAt - Time.unscaledTime;
+            bool armed = left <= 0f;
+            var okR = new Rect(body.x + 38f + half, by, half, 40f);
+
+            if (armed)
+            {
+                if (Ui.Button(okR, "我已知晓，解锁", Ui.Warn, false))
+                    ConfirmUnlockAutoDraw();
+            }
+            else
+            {
+                Ui.Round(okR, 9f, new Color(0.20f, 0.17f, 0.10f, 1f));
+                Ui.Text(okR, "我已知晓（" + Mathf.CeilToInt(left) + "）", Ui.Center, new Color(0.74f, 0.68f, 0.52f, 1f));
+                // 冷静期进度条
+                float t = 1f - Mathf.Clamp01(left / 3f);
+                Ui.Round(new Rect(okR.x + 8f, okR.yMax - 5f, (okR.width - 16f) * t, 2f), 1f, Ui.Alpha(Ui.Warn, 0.9f));
+            }
+
+            // 右上角关闭 = 取消
+            var close = new Rect(body.xMax - 40f, body.y + 14f, 26f, 26f);
+            bool ch = Ui.Hit(close);
+            Ui.Round(close, 8f, ch ? Ui.CardHover : new Color(0f, 0f, 0f, 0f));
+            Ui.Text(close, "✕", Ui.Center, ch ? Ui.TextCol : Ui.Muted);
+            if (ch && e.type == EventType.MouseDown && e.button == 0)
+            {
+                _showUnlockWarning = false;
+                Toast("已取消，自动绘图保持上锁");
+            }
         }
 
         // ============================================================ 新手指引
@@ -128,7 +230,8 @@ namespace ColoringPixelsTool
             "建议花一分钟把后面几页看完。",
 
             "「涂色 / 拟人 / 自动化」三页会写入存档，默认上锁。\n\n" +
-            "想用的时候，切到这两个分区里的「解锁」页，点一下「解锁自动绘图」即可。\n" +
+            "想用的时候，切到这两个分区里的「解锁」页，点一下「解锁自动绘图」；\n" +
+            "第一次解锁会弹一次风险提示，确认之后才生效。\n" +
             "解锁状态会被记住，下次启动不必再点。\n\n" +
             "这么做只是为了防手滑，随时可以在设置里重新上锁。",
 

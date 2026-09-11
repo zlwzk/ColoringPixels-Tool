@@ -347,6 +347,13 @@ namespace ColoringPixelsTool
                 return;
             }
 
+            // 解锁自动绘图的风险确认：同样独占，确认之前绝不会写入配置
+            if (_showUnlockWarning)
+            {
+                DrawUnlockWarning();
+                return;
+            }
+
             if (!_visible) return;
 
             DrawWindow();
@@ -1657,8 +1664,22 @@ namespace ColoringPixelsTool
             y += 6f;
             Section(w, ref y, "自动化与安全");
 
-            Plugin.AutoUnlocked.Value = Toggle(w, ref y, Plugin.AutoUnlocked.Value,
-                "自动绘图已解锁", "关掉后「涂色 / 拟人 / 自动化」三页会重新上锁，相关快捷键也会被拦截");
+            bool autoUnlockedNow = Toggle(w, ref y, Plugin.AutoUnlocked.Value,
+                "自动绘图已解锁", "开启前会弹一次风险提示；关掉后「涂色 / 拟人 / 自动化」三页会重新上锁，快捷键也会被拦截");
+            if (autoUnlockedNow != Plugin.AutoUnlocked.Value)
+            {
+                if (autoUnlockedNow)
+                {
+                    // 从设置页开启同样要走风险确认：先保持上锁，交给弹窗处理。
+                    Plugin.AutoUnlocked.Value = false;
+                    AskUnlockAutoDraw("设置 → 自动化与安全");
+                }
+                else
+                {
+                    Plugin.AutoUnlocked.Value = false;
+                    Toast("已重新上锁，自动绘图相关页面与快捷键已拦截");
+                }
+            }
 
             string heartNote = "游戏里点爱心 = 清空全部进度并回到第 1 关，开启后插件会再确认一次";
             if (HeartGuard.Blocked > 0) heartNote += "　（本次已拦下 " + HeartGuard.Blocked + " 次）";
