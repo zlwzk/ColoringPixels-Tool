@@ -10,15 +10,21 @@ namespace ColoringPixelsTool
     /// 用户等级与资料系统。
     ///
     /// 等级不会影响任何功能，只是根据使用痕迹慢慢成长。V2.1 起刻意放慢了节奏，
-    /// 并且把「人工涂色」的权重提上来（手动点击、每击涂色率都会参与判定）：
+    /// 并且把「人工涂色」的权重提上来（手动点击、每击涂色率都会参与判定）。
     ///
-    ///   · 在线时长：每 6 秒 +1 XP（挂机收益很低）
-    ///   · 自动涂色：每 30 格 +1 XP
-    ///   · 手动点击：每次 +1 XP
-    ///   · 手动涂色：每 12 格 +1 XP
-    ///   · 涂色率：每击平均涂到的格数，≥1.5 格/击时按 (格数-1) 追加奖励
-    ///   · 完成图片：40 + 像素数 / 40 XP
-    ///   · 挑战大图：刷新「最大完成图」记录时，按差值 / 40 追加 XP
+    /// V2.2.8 又整体踩了一脚刹车（括号里是上一版的倍率）：
+    ///
+    ///   · 在线时长：每 30 秒 +1 XP（挂机收益极低，旧版每 6 秒就 +1）
+    ///   · 自动涂色：每 150 格 +1 XP，余数累计不丢（旧版每次调用都保底 1 XP，
+    ///     而自动涂色是**一格一格**调进来的，等于 1 格 = 1 XP —— 正是等级飞涨的主因）
+    ///   · 手动点击：每次 +1 XP（不变）
+    ///   · 手动涂色：每 25 格 +1 XP（旧：每 12 格）
+    ///   · 涂色率：每击 ≥3 格时按 格数/20 追加，上限 12（旧：格数/4，上限 25）
+    ///   · 手速：≥30 格/秒额外 +1 XP（旧：+2）
+    ///   · 完成图片：25 + 像素数 / 150 XP（旧：40 + 像素数 / 40）
+    ///   · 挑战大图：刷新「最大完成图」记录时，按差值 / 150 追加 XP（旧：/40）
+    ///
+    /// 升级曲线也一起调陡了，见 XpForLevel。
     /// </summary>
     internal static class UserProfile
     {
@@ -54,6 +60,12 @@ namespace ColoringPixelsTool
         private static float _saveCooldown;
         private static bool _dirty;
         private static string _filePath;
+
+        /// <summary>
+        /// 自动涂色攒 XP 时不够一档的余数。自动涂色是「一格一格」记进来的，
+        /// 必须留着余数累计，否则每格都会被算成 1 XP（V2.2.7 及以前就是这么飞涨的）。
+        /// </summary>
+        private static long _autoPixelCarry;
 
         /// <summary>
         /// 用户数据目录：%APPDATA%\ColoringPixelsTool。
@@ -318,6 +330,7 @@ namespace ColoringPixelsTool
             LastVersion = "";
             PendingLevelUp = 0;
             _timeAccumulator = 0f;
+            _autoPixelCarry = 0;
         }
 
         public static void Save()
@@ -394,12 +407,19 @@ namespace ColoringPixelsTool
 
         // ---------------------------------------------------------------- 经验
 
-        /// <summary>升到指定等级所需的累计 XP。</summary>
+        /// <summary>
+        /// 升到指定等级所需的累计 XP。
+        ///
+        /// V2.2.8 在原来的二次曲线上加了一个三次项：前期（Lv.2~Lv.10）几乎和以前一样快，
+        /// 越往后越陡 —— Lv.10 ≈ 8.5k、Lv.20 ≈ 35k、Lv.30 ≈ 86k、Lv.50 ≈ 283k、Lv.100 ≈ 1.57M。
+        /// （旧曲线分别是 8.0k / 28k / 60k / 160k / 608k，可见后期慢了 1.5~2.6 倍。）
+        /// </summary>
         public static int XpForLevel(int level)
         {
             if (level <= 1) return 0;
-            int n = level - 1;
-            return 200 * n + 60 * n * n;
+            long n = level - 1;
+            long xp = 150 * n + 60 * n * n + n * n * n;
+            return xp > int.MaxValue ? int.MaxValue : (int)xp;
         }
 
         /// <summary>
@@ -427,8 +447,14 @@ namespace ColoringPixelsTool
         }
 
         public static int XpToNext { get { return XpForLevel(Level + 1); } }
-        public static int XpIntoLevel { get { return Xp - XpForLevel(Level); } }
-        public static int XpNeededForLevel { get { return XpForLevel(Level + 1) - XpForLevel(Level); } }
+
+        /// <summary>
+        /// 本级别内已攒的 XP。曲线调陡之后，老存档的累计 XP 可能比新曲线下本级的门槛还低
+        /// （等级只升不降，所以会停在原级），这时夹到 0，别让面板显示负数。
+        /// </summary>
+        public static int XpIntoLevel { get { return Mathf.Max(0, Xp - XpForLevel(Level)); } }
+
+        public static int XpNeededForLevel { get { return Mathf.Max(1, XpForLevel(Level + 1) - XpForLevel(Level)); } }
         public static float LevelProgress
         {
             get { return Mathf.Clamp01((float)XpIntoLevel / Mathf.Max(1, XpNeededForLevel)); }
@@ -453,26 +479,43 @@ namespace ColoringPixelsTool
 
         // ---------------------------------------------------------------- 行为记录
 
-        /// <summary>每帧调用，累计在线时长。</summary>
+        /// <summary>每帧调用，累计在线时长：每 30 秒 +1 XP（挂机收益极低）。</summary>
         public static void Tick(float delta)
         {
             TotalSeconds += delta;
             _timeAccumulator += delta;
-            if (_timeAccumulator >= 6f)
+            if (_timeAccumulator >= 30f)
             {
-                int steps = Mathf.FloorToInt(_timeAccumulator / 6f);
-                _timeAccumulator -= steps * 6f;
+                int steps = Mathf.FloorToInt(_timeAccumulator / 30f);
+                _timeAccumulator -= steps * 30f;
                 AddXp(steps, "在线时长");
             }
         }
 
-        /// <summary>自动涂色（脚本一键填涂）。</summary>
+        /// <summary>
+        /// 自动涂色（脚本一键填涂 / 自动挂机）：每 150 格 +1 XP，不够一档的余数留到下次。
+        /// </summary>
         public static void RecordAutoPaint(int count)
         {
             if (count <= 0) return;
             PixelsPainted += count;
             AutoPixels += count;
-            AddXp(Mathf.Max(1, count / 30), "自动涂色 " + count + " 格");
+
+            const int pixelsPerXp = 150;
+            _autoPixelCarry += count;
+            if (_autoPixelCarry < pixelsPerXp)
+            {
+                _dirty = true;
+                _saveCooldown = 15f;
+                return;
+            }
+
+            long xp = _autoPixelCarry / pixelsPerXp;
+            _autoPixelCarry -= xp * pixelsPerXp;
+
+            // 单次最多 200 XP：一键涂完巨图时别把经验一次灌爆
+            int gain = xp > 200 ? 200 : (int)xp;
+            AddXp(gain, "自动涂色累计 " + count + " 格");
         }
 
         /// <summary>
@@ -488,14 +531,14 @@ namespace ColoringPixelsTool
                 ManualPixels += cellsPainted;
                 PixelsPainted += cellsPainted;
 
-                int xp = Mathf.Max(1, cellsPainted / 12);
+                int xp = Mathf.Max(1, cellsPainted / 25);
                 // 涂色率（每击平均格数）越高，额外奖励越多
                 if (cellsPainted >= 3)
-                    xp += Mathf.Min(25, cellsPainted / 4);
+                    xp += Mathf.Min(12, cellsPainted / 20);
                 AddXp(xp, "手动涂色 " + cellsPainted + " 格");
 
                 if (seconds > 0f && cellsPainted / Mathf.Max(0.05f, seconds) > 30f)
-                    AddXp(2, "涂色手速惊人");
+                    AddXp(1, "涂色手速惊人");
             }
         }
 
@@ -518,14 +561,14 @@ namespace ColoringPixelsTool
             ImagesCompleted++;
             TotalImagePixels += pixelCount;
 
-            int baseXp = 40 + Mathf.Max(0, pixelCount / 40);
+            int baseXp = 25 + Mathf.Max(0, pixelCount / 150);
             AddXp(baseXp, "完成 " + pixelCount + " 像素图片");
 
             if (pixelCount > LargestImage)
             {
                 int diff = pixelCount - LargestImage;
                 LargestImage = pixelCount;
-                AddXp(Mathf.Max(0, diff / 40), "刷新最大完成图记录");
+                AddXp(Mathf.Max(0, diff / 150), "刷新最大完成图记录");
             }
             else
             {
