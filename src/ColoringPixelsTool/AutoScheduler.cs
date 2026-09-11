@@ -185,7 +185,7 @@ namespace ColoringPixelsTool
                         {
                             ImagesCompleted++;
                             int pixels = GameApi.InLevel(ct) ? GameApi.TotalPixels(ct) : 0;
-                            UserProfile.RecordImageCompleted(pixels);
+                            UserProfile.RecordImageCompleted(pixels, XpTrack.Auto);
                             GameApi.SaveNow();
                             SetStatus(string.Format("已完成 {0} 张图", ImagesCompleted));
                         }

@@ -34,11 +34,13 @@ namespace ColoringPixelsTool
 
         private static readonly string[] TabsManual =
         {
-            "扫描", "区域", "参数", "预设", "助手", "设置", "调试"
+            "扫描", "区域", "参数", "预设", "预览", "助手", "设置", "调试"
         };
 
         private const float Pad = 14f;
-        private const float HeaderH = 72f;
+
+        // 顶部资料区要塞下「名字 + 两条经验条（称号 / 进度 / 数值）」，所以比单条时高一点
+        private const float HeaderH = 76f;
         private const float ModuleH = 34f;
         private const float TabH = 40f;
         private const float FooterH = 66f;
@@ -199,12 +201,20 @@ namespace ColoringPixelsTool
             VoiceColor.Sync(Plugin.VoiceEnabled.Value, Plugin.VoiceMode.Value);
             VoiceColor.Tick();
 
-            // 升级提示
-            int lvUp = UserProfile.PendingLevelUp;
-            if (lvUp > 0)
+            // 升级提示：两条经验线各自弹，同帧都升级了就合成一条
+            int lvManual = UserProfile.PendingLevelUpManual;
+            int lvAuto = UserProfile.PendingLevelUpAuto;
+            if (lvManual > 0 || lvAuto > 0)
             {
-                UserProfile.PendingLevelUp = 0;
-                Toast("升到 Lv." + lvUp + " · " + UserProfile.TitleForLevel(lvUp));
+                UserProfile.PendingLevelUpManual = 0;
+                UserProfile.PendingLevelUpAuto = 0;
+
+                if (lvManual > 0 && lvAuto > 0)
+                    Toast("人工辅助 Lv." + lvManual + " · 自动绘图 Lv." + lvAuto + "  双线升级！");
+                else if (lvManual > 0)
+                    Toast("人工辅助升到 Lv." + lvManual + " · " + UserProfile.TitleForManual(lvManual));
+                else
+                    Toast("自动绘图升到 Lv." + lvAuto + " · " + UserProfile.TitleForAuto(lvAuto));
             }
 
             // 每帧把配置同步给自动涂色引擎
@@ -265,7 +275,7 @@ namespace ColoringPixelsTool
                 if (Plugin.AutoSaveAfterRun.Value) GameApi.SaveNow();
                 var ct = GameApi.Ct;
                 if (GameApi.InLevel(ct) && GameApi.RemainingPixels(ct) <= 0)
-                    UserProfile.RecordImageCompleted(GameApi.TotalPixels(ct));
+                    UserProfile.RecordImageCompleted(GameApi.TotalPixels(ct), XpTrack.Auto);
                 Toast($"一键涂完：填涂 {n} 格");
             }
             else
@@ -560,8 +570,8 @@ namespace ColoringPixelsTool
             return "";
         }
 
-        /// <summary>「设置」页在当前分区里的下标。</summary>
-        private int SettingsTabIndex => _module == ModuleManual ? 4 : 6;
+        /// <summary>「设置」页的下标（两个分区的页签表里都是第 7 个）。</summary>
+        private int SettingsTabIndex => 6;
 
         private void DrawProfileHeader(float areaX, float areaY, float areaW, float areaH)
         {
@@ -588,21 +598,13 @@ namespace ColoringPixelsTool
             float nw = areaX + areaW - nx - 8f;
             if (nw < 60f) nw = 60f;
 
-            // 用户名 + 等级徽章
+            // 用户名（两条线的等级写在各自那一行里）
             string name = string.IsNullOrEmpty(UserProfile.Username) ? "未命名画师" : UserProfile.Username;
-            const float badgeW = 46f;
-            Ui.Text(new Rect(nx, areaY + 5f, nw - badgeW - 4f, 18f),
-                Ellipsize(name, Ui.Label, nw - badgeW - 4f), Ui.Label);
-            Ui.Badge(new Rect(nx + nw - badgeW, areaY + 5f, badgeW, 16f), "Lv." + UserProfile.Level, Ui.Accent2);
+            Ui.Text(new Rect(nx, areaY + 3f, nw, 18f), Ellipsize(name, Ui.Label, nw), Ui.Label);
 
-            // 等级称号
-            Ui.Text(new Rect(nx, areaY + 24f, nw, 14f),
-                Ellipsize(UserProfile.CurrentTitle, Ui.MutedSmall, nw), Ui.MutedSmall, Ui.Accent2);
-
-            // 经验条 + 数值
-            Ui.ProgressBar(new Rect(nx, areaY + 41f, nw, 6f), UserProfile.LevelProgress, Ui.Accent);
-            Ui.Text(new Rect(nx, areaY + 49f, nw, 12f),
-                UserProfile.XpIntoLevel + "/" + UserProfile.XpNeededForLevel + " XP", Ui.MutedSmall);
+            // 两条经验线：上面「人工辅助」，下面「自动绘图」（配色与顶部分区一致）
+            DrawTrackRow(new Rect(nx, areaY + 21f, nw, 19f), XpTrack.Manual, Ui.Accent2);
+            DrawTrackRow(new Rect(nx, areaY + 44f, nw, 19f), XpTrack.Auto, Ui.Accent);
 
             if (hover && Event.current.type == EventType.MouseDown && Event.current.button == 0)
             {
@@ -611,6 +613,36 @@ namespace ColoringPixelsTool
                 _profileInit = false;
                 Event.current.Use();
             }
+        }
+
+        /// <summary>
+        /// 一条经验线占用的一行：「Lv.段位 称号」+ 右侧完成度，下面跟一条细进度条。
+        /// 两条线共用这个画法，靠 <paramref name="color"/> 区分（人工辅助 = Accent2，自动绘图 = Accent）。
+        /// </summary>
+        private void DrawTrackRow(Rect row, XpTrack track, Color color)
+        {
+            const float pctW = 34f;
+            float labelW = Mathf.Max(40f, row.width - pctW - 4f);
+
+            Ui.Text(new Rect(row.x, row.y, labelW, 14f),
+                Ellipsize("Lv." + UserProfile.LevelOf(track) + "  " + UserProfile.CurrentTitleOf(track), Ui.MutedSmall, labelW),
+                Ui.MutedSmall, color);
+
+            Ui.Text(new Rect(row.xMax - pctW, row.y, pctW, 14f),
+                Mathf.RoundToInt(UserProfile.ProgressOf(track) * 100f) + "%", Ui.Value, Ui.Muted);
+
+            Ui.ProgressBar(new Rect(row.x, row.y + 15f, row.width, 5f), UserProfile.ProgressOf(track), color);
+        }
+
+        /// <summary>资料卡里一条经验线的整块：名称 + 称号 / 数值 + 下一档称号 / 进度条。</summary>
+        private void TrackBlock(Rect r, XpTrack track, string name, Color color)
+        {
+            Ui.Text(new Rect(r.x, r.y, r.width, 18f),
+                $"{name}  Lv.{UserProfile.LevelOf(track)}  ·  {UserProfile.CurrentTitleOf(track)}", Ui.Label, color);
+            Ui.Text(new Rect(r.x, r.y + 19f, r.width, 16f),
+                $"{UserProfile.XpIntoLevelOf(track)}/{UserProfile.XpNeededForLevelOf(track)} XP  ·  {UserProfile.NextTitleHintOf(track)}",
+                Ui.MutedSmall);
+            Ui.ProgressBar(new Rect(r.x, r.y + 36f, r.width, 7f), UserProfile.ProgressOf(track), color);
         }
 
         /// <summary>顶部分区切换：自动完成 / 人工辅助。</summary>
@@ -714,9 +746,17 @@ namespace ColoringPixelsTool
                 _window.width - Pad * 2f, _window.height - HeaderH - ModuleH - TabH - FooterH);
 
             Event e = Event.current;
+            _contentView = view;
+
+            // 预览页的缩放视口（上一帧记下的）：滚轮要留给它放大缩小，不能拿去滚页面。
+            Rect previewZone = _previewViewport;
+            _previewViewport = new Rect(0f, 0f, 0f, 0f);
+
+            // 离开「预览」页就把那张贴图放掉，别一直占着显存；回到预览页会按需重建。
+            if (_preview != null && !(_module == ModuleManual && _tab == 4)) _preview.Release();
 
             // 滚轮——只在鼠标位于视图内时消费，避免影响游戏其它界面
-            if (e.type == EventType.ScrollWheel && view.Contains(Ui.Mouse))
+            if (e.type == EventType.ScrollWheel && view.Contains(Ui.Mouse) && !previewZone.Contains(Ui.Mouse))
             {
                 _scroll.y += e.delta.y * 34f;
                 e.Use();
@@ -757,8 +797,9 @@ namespace ColoringPixelsTool
                     case 1: TabAssistRegion(w, ref y); break;
                     case 2: TabAssistParams(w, ref y); break;
                     case 3: TabAssistPresets(w, ref y); break;
-                    case 4: TabManualAssist(w, ref y); break;
-                    case 5: TabSettings(w, ref y); break;
+                    case 4: TabPreview(w, ref y); break;
+                    case 5: TabManualAssist(w, ref y); break;
+                    case 6: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -1523,18 +1564,22 @@ namespace ColoringPixelsTool
             }
             y += 48f;
 
-            Card(w, ref y, 94f, top =>
+            Card(w, ref y, 160f, top =>
             {
-                Ui.Text(new Rect(Pad, top + 8f, w - Pad * 2f, 18f),
-                    $"当前等级  Lv.{UserProfile.Level}  ·  {UserProfile.CurrentTitle}", Ui.Label);
-                Ui.Text(new Rect(Pad, top + 27f, w - Pad * 2f, 16f),
-                    $"{UserProfile.XpIntoLevel}/{UserProfile.XpNeededForLevel} XP  ·  {UserProfile.NextTitleHint()}", Ui.MutedSmall);
-                Ui.Text(new Rect(Pad, top + 45f, w - Pad * 2f, 16f),
-                    $"在线 {FormatDuration(UserProfile.TotalSeconds)}  ·  涂色 {UserProfile.PixelsPainted} 格  ·  完成 {UserProfile.ImagesCompleted} 张图", Ui.MutedSmall);
-                Ui.Text(new Rect(Pad, top + 61f, w - Pad * 2f, 16f),
-                    $"手动点击 {UserProfile.ManualClicks} 次  ·  手动 {UserProfile.ManualPixels} 格  ·  涂色率 {UserProfile.PaintingRate:0.00} 格/击", Ui.MutedSmall, Ui.Accent2);
+                // 两条经验线各占一段：名称+称号 / 数值+下一档称号 / 进度条
+                TrackBlock(new Rect(Pad, top + 8f, w - Pad * 2f, 46f), XpTrack.Manual, "人工辅助", Ui.Accent2);
+                TrackBlock(new Rect(Pad, top + 56f, w - Pad * 2f, 46f), XpTrack.Auto, "自动绘图", Ui.Accent);
+
+                Ui.Text(new Rect(Pad, top + 108f, w - Pad * 2f, 16f),
+                    $"在线 {FormatDuration(UserProfile.TotalSeconds)}  ·  涂色 {UserProfile.PixelsPainted} 格  ·  完成 {UserProfile.ImagesCompleted} 张图"
+                    + (UserProfile.ImagesCompletedManual + UserProfile.ImagesCompletedAuto > 0
+                        ? $"（人工 {UserProfile.ImagesCompletedManual} / 自动 {UserProfile.ImagesCompletedAuto}）" : ""),
+                    Ui.MutedSmall);
+                Ui.Text(new Rect(Pad, top + 124f, w - Pad * 2f, 16f),
+                    $"手动点击 {UserProfile.ManualClicks} 次  ·  手动 {UserProfile.ManualPixels} 格  ·  扫描引擎 {UserProfile.AssistPixels} 格  ·  涂色率 {UserProfile.PaintingRate:0.00} 格/击",
+                    Ui.MutedSmall, Ui.Accent2);
                 // 说明存档位置：等级存在漫游目录，更新 / 重装插件都不会丢
-                Ui.Text(new Rect(Pad, top + 78f, w - Pad * 2f, 14f),
+                Ui.Text(new Rect(Pad, top + 141f, w - Pad * 2f, 14f),
                     Ellipsize("等级存档 " + UserProfile.UserDataDirectoryDisplay() + "（更新版本不会丢）",
                         Ui.MutedSmall, w - Pad * 2f), Ui.MutedSmall);
             });

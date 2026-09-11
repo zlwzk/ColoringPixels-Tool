@@ -7,24 +7,44 @@ using UnityEngine;
 namespace ColoringPixelsTool
 {
     /// <summary>
+    /// 经验轨道：两条互不相干的成长线，各升各的级。
+    /// </summary>
+    internal enum XpTrack
+    {
+        /// <summary>自动绘图：一键涂完、自动挂机、自动切图之类「机器干的活」。</summary>
+        Auto = 0,
+
+        /// <summary>人工辅助：手动点击涂色、扫描引擎替你涂的部分、在线时长。</summary>
+        Manual = 1
+    }
+
+    /// <summary>
     /// 用户等级与资料系统。
     ///
-    /// 等级不会影响任何功能，只是根据使用痕迹慢慢成长。V2.1 起刻意放慢了节奏，
-    /// 并且把「人工涂色」的权重提上来（手动点击、每击涂色率都会参与判定）。
+    /// 等级不会影响任何功能，只是根据使用痕迹慢慢成长。
     ///
-    /// V2.2.8 又整体踩了一脚刹车（括号里是上一版的倍率）：
+    /// **两条互不相干的经验线**（V2.2.9 起）：
     ///
-    ///   · 在线时长：每 30 秒 +1 XP（挂机收益极低，旧版每 6 秒就 +1）
-    ///   · 自动涂色：每 150 格 +1 XP，余数累计不丢（旧版每次调用都保底 1 XP，
-    ///     而自动涂色是**一格一格**调进来的，等于 1 格 = 1 XP —— 正是等级飞涨的主因）
-    ///   · 手动点击：每次 +1 XP（不变）
-    ///   · 手动涂色：每 25 格 +1 XP（旧：每 12 格）
-    ///   · 涂色率：每击 ≥3 格时按 格数/20 追加，上限 12（旧：格数/4，上限 25）
-    ///   · 手速：≥30 格/秒额外 +1 XP（旧：+2）
-    ///   · 完成图片：25 + 像素数 / 150 XP（旧：40 + 像素数 / 40）
-    ///   · 挑战大图：刷新「最大完成图」记录时，按差值 / 150 追加 XP（旧：/40）
+    ///   · 自动绘图（<see cref="XpTrack.Auto"/>）：一键涂完、自动挂机、自动切图完成一张图。
+    ///     只有「自动完成」分区里产生的成果才喂它，称号走一套机械感、不着调的画风。
+    ///   · 人工辅助（<see cref="XpTrack.Manual"/>）：手动点击与拖涂、扫描引擎替你涂掉的部分、
+    ///     在线时长、手工涂完一张图。只有「人工辅助」分区里的成果才喂它，称号沿用原来那套。
     ///
-    /// 升级曲线也一起调陡了，见 XpForLevel。
+    ///   两条线各自升级、各自弹提示，称号表完全不重叠。
+    ///
+    /// 经验速率（V2.2.8 起刻意放慢，V2.2.9 拆轨后速率不变）：
+    ///
+    ///   · 在线时长：每 30 秒 +1 XP（挂机收益极低）        → 人工辅助轨
+    ///   · 自动涂色：每 150 格 +1 XP，余数累计不丢          → 自动绘图轨
+    ///   · 扫描引擎：每 150 格 +1 XP，余数累计              → 人工辅助轨
+    ///   · 手动点击：每次 +1 XP（人工操作永远最划算）
+    ///   · 手动涂色：每 25 格 +1 XP
+    ///   · 涂色率：每击 ≥3 格时按 格数/20 追加，上限 12
+    ///   · 手速：≥30 格/秒额外 +1 XP
+    ///   · 完成图片：25 + 像素数 / 150 XP
+    ///   · 挑战大图：刷新「最大完成图」记录时，按差值 / 150 追加 XP
+    ///
+    /// 两条线共用同一条升级曲线，见 XpForLevel。
     /// </summary>
     internal static class UserProfile
     {
@@ -37,22 +57,29 @@ namespace ColoringPixelsTool
         public static string AvatarPath = "";
         public static string BackgroundPath = "";
 
-        public static int Level = 1;
-        public static int Xp = 0;
+        // ---- 两条经验线：各升各的级，互不影响 ----
+        public static int LevelManual = 1;         // 人工辅助轨等级
+        public static int XpManual = 0;            // 人工辅助轨累计经验
+        public static int LevelAuto = 1;           // 自动绘图轨等级
+        public static int XpAuto = 0;              // 自动绘图轨累计经验
 
         public static float TotalSeconds = 0f;
-        public static long PixelsPainted = 0;      // 手动 + 自动
+        public static long PixelsPainted = 0;      // 手动 + 自动 + 扫描引擎
         public static long ManualPixels = 0;       // 手动涂色格数
         public static long AutoPixels = 0;         // 自动涂色格数
+        public static long AssistPixels = 0;       // 扫描引擎替你涂掉的格数
         public static long ManualClicks = 0;       // 手动点击次数
         public static int ImagesCompleted = 0;
+        public static int ImagesCompletedManual = 0;   // 手工涂完的张数
+        public static int ImagesCompletedAuto = 0;     // 自动涂完的张数
         public static int LargestImage = 0;
         public static long TotalImagePixels = 0;
 
         public static string LastVersion = "";
 
-        /// <summary>刚升级时由面板读取并弹提示，读完置 0。</summary>
-        public static int PendingLevelUp = 0;
+        /// <summary>刚升级时由面板读取并弹提示，读完置 0（两条线各一个）。</summary>
+        public static int PendingLevelUpManual = 0;
+        public static int PendingLevelUpAuto = 0;
 
         public static bool Loaded { get; private set; }
 
@@ -61,11 +88,17 @@ namespace ColoringPixelsTool
         private static bool _dirty;
         private static string _filePath;
 
+        /// <summary>每涂多少格给 1 XP（自动涂色与扫描引擎同费率）。</summary>
+        private const int PixelsPerXp = 150;
+
         /// <summary>
-        /// 自动涂色攒 XP 时不够一档的余数。自动涂色是「一格一格」记进来的，
+        /// 攒 XP 时不够一档的余数。自动涂色是「一格一格」记进来的，
         /// 必须留着余数累计，否则每格都会被算成 1 XP（V2.2.7 及以前就是这么飞涨的）。
         /// </summary>
         private static long _autoPixelCarry;
+
+        /// <summary>扫描引擎那条线的余数（记在人工辅助轨上）。</summary>
+        private static long _assistPixelCarry;
 
         /// <summary>
         /// 用户数据目录：%APPDATA%\ColoringPixelsTool。
@@ -143,8 +176,8 @@ namespace ColoringPixelsTool
 
         // ---------------------------------------------------------------- 称号
 
-        /// <summary>等级称号：纯装饰，不影响任何功能。</summary>
-        public static string TitleForLevel(int level)
+        /// <summary>人工辅助轨的称号（原来那套「人干的活」画风）：纯装饰，不影响任何功能。</summary>
+        public static string TitleForManual(int level)
         {
             if (level <= 1) return "刚拆封的颜料盒";
             if (level <= 2) return "手抖的描边学徒";
@@ -166,15 +199,52 @@ namespace ColoringPixelsTool
             return "色彩维度的执笔人";
         }
 
-        public static string CurrentTitle { get { return TitleForLevel(Level); } }
-
-        /// <summary>距离下一个称号还有几级（已到本档最后一档时返回 1）。</summary>
-        public static string NextTitleHint()
+        /// <summary>
+        /// 自动绘图轨的称号：机器干活的画风，刻意和人工那套一个词都不重。
+        /// 分档门槛与人工轨完全一致（同一条曲线、同一批等级边界），只是名字两码事。
+        /// </summary>
+        public static string TitleForAuto(int level)
         {
-            for (int lv = Level + 1; lv <= Level + 40; lv++)
+            if (level <= 1) return "插头还没插稳";
+            if (level <= 2) return "手抖的填色脚本";
+            if (level <= 4) return "涂色版打点计时器";
+            if (level <= 6) return "一把刷子复读机";
+            if (level <= 8) return "加班不加钱的脚本";
+            if (level <= 11) return "三班倒的涂色工人";
+            if (level <= 14) return "不知疲倦的喷墨打印机";
+            if (level <= 17) return "摸鱼式自动挂机怪";
+            if (level <= 20) return "一键到底的莽夫";
+            if (level <= 24) return "像素流水线车间主任";
+            if (level <= 28) return "全自动填色八爪鱼";
+            if (level <= 33) return "键盘说自己会画画";
+            if (level <= 38) return "内存里狂奔的刷子";
+            if (level <= 45) return "永动机涂色装置";
+            if (level <= 55) return "自治涂色流水线";
+            if (level <= 70) return "不需要人类的画家";
+            if (level <= 90) return "传说·合法外挂";
+            return "涂色宇宙的自动法则";
+        }
+
+        public static string TitleFor(XpTrack track, int level)
+        {
+            return track == XpTrack.Auto ? TitleForAuto(level) : TitleForManual(level);
+        }
+
+        public static string CurrentTitleOf(XpTrack track)
+        {
+            return TitleFor(track, LevelOf(track));
+        }
+
+        /// <summary>距离下一个称号还有几级（已到顶格时提示到底了）。</summary>
+        public static string NextTitleHintOf(XpTrack track)
+        {
+            int level = LevelOf(track);
+            string cur = TitleFor(track, level);
+            for (int lv = level + 1; lv <= level + 40; lv++)
             {
-                if (TitleForLevel(lv) != CurrentTitle)
-                    return "再升 " + (lv - Level) + " 级 → " + TitleForLevel(lv);
+                string next = TitleFor(track, lv);
+                if (next != cur)
+                    return "再升 " + (lv - level) + " 级 → " + next;
             }
             return "已经是顶格称号了";
         }
@@ -212,7 +282,8 @@ namespace ColoringPixelsTool
                 Parse(best.Json);
                 RecoverLevelFromXp();
                 Loaded = true;
-                Log.Info("用户资料已加载：Lv." + Level + " (" + Xp + " XP) — " + best.Path);
+                Log.Info("用户资料已加载：人工辅助 Lv." + LevelManual + " (" + XpManual + " XP) / 自动绘图 Lv."
+                         + LevelAuto + " (" + XpAuto + " XP) — " + best.Path);
 
                 // 来源不是正式位置（首次迁移 / 从备份恢复）时立刻回写一份
                 if (!SamePath(best.Path, FilePath))
@@ -227,13 +298,16 @@ namespace ColoringPixelsTool
             }
         }
 
-        /// <summary>一个候选存档及其「进度权重」，用于在多个副本之间挑最新的那份。</summary>
+        /// <summary>
+        /// 一个候选存档及其「进度权重」，用于在多个副本之间挑最新的那份。
+        /// 权重取两条经验线的合计与最高等级，避免只保留了一部分进度的副本被选中。
+        /// </summary>
         private struct Candidate
         {
             public string Json;
             public string Path;
             public bool Valid;
-            public int Xp;
+            public long Xp;
             public int Level;
 
             public bool BetterThan(Candidate other)
@@ -282,8 +356,8 @@ namespace ColoringPixelsTool
             c.Json = json;
             c.Path = path;
             c.Valid = true;
-            c.Xp = Xp;
-            c.Level = Level;
+            c.Xp = (long)XpManual + XpAuto;
+            c.Level = Mathf.Max(LevelManual, LevelAuto);
             return c;
         }
 
@@ -294,7 +368,10 @@ namespace ColoringPixelsTool
 
             string t = json.Trim();
             if (t.Length < 2 || t[t.Length - 1] != '}') return false;
-            return t.IndexOf("\"xp\"", StringComparison.Ordinal) >= 0;
+
+            // "xp" 是单条经验线时期的老字段（仍然照写，方便降级回旧版本），"xpManual" 是拆轨之后的。
+            return t.IndexOf("\"xp\"", StringComparison.Ordinal) >= 0
+                || t.IndexOf("\"xpManual\"", StringComparison.Ordinal) >= 0;
         }
 
         /// <summary>把读不动的存档挪到 .corrupt-* 而不是删掉，方便事后人工找回。</summary>
@@ -317,20 +394,27 @@ namespace ColoringPixelsTool
             Username = "";
             AvatarPath = "";
             BackgroundPath = "";
-            Level = 1;
-            Xp = 0;
+            LevelManual = 1;
+            XpManual = 0;
+            LevelAuto = 1;
+            XpAuto = 0;
             TotalSeconds = 0f;
             PixelsPainted = 0;
             ManualPixels = 0;
             AutoPixels = 0;
+            AssistPixels = 0;
             ManualClicks = 0;
             ImagesCompleted = 0;
+            ImagesCompletedManual = 0;
+            ImagesCompletedAuto = 0;
             LargestImage = 0;
             TotalImagePixels = 0;
             LastVersion = "";
-            PendingLevelUp = 0;
+            PendingLevelUpManual = 0;
+            PendingLevelUpAuto = 0;
             _timeAccumulator = 0f;
             _autoPixelCarry = 0;
+            _assistPixelCarry = 0;
         }
 
         public static void Save()
@@ -434,52 +518,88 @@ namespace ColoringPixelsTool
             return lv;
         }
 
-        /// <summary>兜底修正：等级至少是累计 XP 对应的等级（只升不降）。</summary>
+        /// <summary>兜底修正：两条线的等级各自至少是累计 XP 对应的等级（只升不降）。</summary>
         private static void RecoverLevelFromXp()
         {
-            if (Xp < 0) Xp = 0;
-            int implied = LevelFromXp(Xp);
-            if (implied > Level)
+            if (XpManual < 0) XpManual = 0;
+            if (XpAuto < 0) XpAuto = 0;
+
+            int m = LevelFromXp(XpManual);
+            if (m > LevelManual)
             {
-                Log.Info("等级按累计经验修正：Lv." + Level + " → Lv." + implied + "（" + Xp + " XP）");
-                Level = implied;
+                Log.Info("人工辅助等级按累计经验修正：Lv." + LevelManual + " → Lv." + m + "（" + XpManual + " XP）");
+                LevelManual = m;
+            }
+
+            int a = LevelFromXp(XpAuto);
+            if (a > LevelAuto)
+            {
+                Log.Info("自动绘图等级按累计经验修正：Lv." + LevelAuto + " → Lv." + a + "（" + XpAuto + " XP）");
+                LevelAuto = a;
             }
         }
 
-        public static int XpToNext { get { return XpForLevel(Level + 1); } }
+        // ---- 两条线的读数（面板、卡片都从这里取） ----
+
+        public static int LevelOf(XpTrack track) { return track == XpTrack.Auto ? LevelAuto : LevelManual; }
+        public static int XpOf(XpTrack track) { return track == XpTrack.Auto ? XpAuto : XpManual; }
+
+        /// <summary>升到下一级需要的累计 XP（含本级门槛）。</summary>
+        public static int XpToNextOf(XpTrack track) { return XpForLevel(LevelOf(track) + 1); }
 
         /// <summary>
         /// 本级别内已攒的 XP。曲线调陡之后，老存档的累计 XP 可能比新曲线下本级的门槛还低
         /// （等级只升不降，所以会停在原级），这时夹到 0，别让面板显示负数。
         /// </summary>
-        public static int XpIntoLevel { get { return Mathf.Max(0, Xp - XpForLevel(Level)); } }
-
-        public static int XpNeededForLevel { get { return Mathf.Max(1, XpForLevel(Level + 1) - XpForLevel(Level)); } }
-        public static float LevelProgress
+        public static int XpIntoLevelOf(XpTrack track)
         {
-            get { return Mathf.Clamp01((float)XpIntoLevel / Mathf.Max(1, XpNeededForLevel)); }
+            return Mathf.Max(0, XpOf(track) - XpForLevel(LevelOf(track)));
         }
 
-        public static void AddXp(int amount, string reason)
+        public static int XpNeededForLevelOf(XpTrack track)
+        {
+            int lv = LevelOf(track);
+            return Mathf.Max(1, XpForLevel(lv + 1) - XpForLevel(lv));
+        }
+
+        public static float ProgressOf(XpTrack track)
+        {
+            return Mathf.Clamp01((float)XpIntoLevelOf(track) / Mathf.Max(1, XpNeededForLevelOf(track)));
+        }
+
+        /// <summary>往指定那条经验线加经验（两条线各升各的级）。</summary>
+        public static void AddXp(XpTrack track, int amount, string reason)
         {
             if (amount <= 0) return;
-            Xp += amount;
-            int old = Level;
-            while (Xp >= XpToNext) Level++;
-            if (Level != old)
+
+            bool auto = track == XpTrack.Auto;
+            int xp = XpOf(track) + amount;
+            int old = LevelOf(track);
+            int level = old;
+            while (level < 9999 && xp >= XpForLevel(level + 1)) level++;
+
+            if (auto) { XpAuto = xp; LevelAuto = level; }
+            else { XpManual = xp; LevelManual = level; }
+
+            if (level != old)
             {
-                PendingLevelUp = Level;
-                Log.Info("等级提升：Lv." + old + " → Lv." + Level + "（" + CurrentTitle + "，" + reason + " +" + amount + " XP）");
+                if (auto) PendingLevelUpAuto = level; else PendingLevelUpManual = level;
+                Log.Info((auto ? "自动绘图" : "人工辅助") + "等级提升：Lv." + old + " → Lv." + level +
+                         "（" + TitleFor(track, level) + "，" + reason + " +" + amount + " XP）");
                 Save();
                 return;
             }
+
             _dirty = true;
             _saveCooldown = 15f;
         }
 
         // ---------------------------------------------------------------- 行为记录
 
-        /// <summary>每帧调用，累计在线时长：每 30 秒 +1 XP（挂机收益极低）。</summary>
+        /// <summary>
+        /// 每帧调用，累计在线时长：每 30 秒 +1 XP（挂机收益极低）。
+        /// 时间不属于哪个分区的「成果」，但既然记的是「你本人还在场」，就归人工辅助轨。
+        /// </summary>
         public static void Tick(float delta)
         {
             TotalSeconds += delta;
@@ -488,43 +608,61 @@ namespace ColoringPixelsTool
             {
                 int steps = Mathf.FloorToInt(_timeAccumulator / 30f);
                 _timeAccumulator -= steps * 30f;
-                AddXp(steps, "在线时长");
+                AddXp(XpTrack.Manual, steps, "在线时长");
             }
         }
 
         /// <summary>
-        /// 自动涂色（脚本一键填涂 / 自动挂机）：每 150 格 +1 XP，不够一档的余数留到下次。
+        /// 自动绘图轨的涂色（脚本一键填涂 / 自动挂机）：每 150 格 +1 XP，不够一档的余数留到下次。
         /// </summary>
         public static void RecordAutoPaint(int count)
         {
             if (count <= 0) return;
             PixelsPainted += count;
             AutoPixels += count;
+            AddPixelXp(XpTrack.Auto, ref _autoPixelCarry, count, "自动涂色累计 " + count + " 格");
+        }
 
-            const int pixelsPerXp = 150;
-            _autoPixelCarry += count;
-            if (_autoPixelCarry < pixelsPerXp)
+        /// <summary>
+        /// 人工辅助轨的涂色：扫描引擎替你涂掉的那部分。
+        /// 费率与自动涂色一致（都是机器在动手），但记的是另一条经验线 —— 它在「人工辅助」分区里。
+        /// </summary>
+        public static void RecordAssistPaint(int count)
+        {
+            if (count <= 0) return;
+            PixelsPainted += count;
+            AssistPixels += count;
+            AddPixelXp(XpTrack.Manual, ref _assistPixelCarry, count, "扫描引擎涂色累计 " + count + " 格");
+        }
+
+        /// <summary>
+        /// 按「涂了多少格」给经验：每 PixelsPerXp 格 +1 XP，不够一档的余数留在 <paramref name="carry"/> 里下次一起算。
+        /// 自动涂色是**一格一格**记进来的，若不累计余数，每格都会被算成 1 XP（V2.2.7 就是这么飞涨的）。
+        /// </summary>
+        private static void AddPixelXp(XpTrack track, ref long carry, int count, string reason)
+        {
+            carry += count;
+            if (carry < PixelsPerXp)
             {
                 _dirty = true;
                 _saveCooldown = 15f;
                 return;
             }
 
-            long xp = _autoPixelCarry / pixelsPerXp;
-            _autoPixelCarry -= xp * pixelsPerXp;
+            long xp = carry / PixelsPerXp;
+            carry -= xp * PixelsPerXp;
 
             // 单次最多 200 XP：一键涂完巨图时别把经验一次灌爆
-            int gain = xp > 200 ? 200 : (int)xp;
-            AddXp(gain, "自动涂色累计 " + count + " 格");
+            AddXp(track, xp > 200 ? 200 : (int)xp, reason);
         }
 
         /// <summary>
-        /// 一次人工左键操作（可能是一次点击，也可能是一次拖拽涂色）。
+        /// 一次人工左键操作（可能是一次点击，也可能是一次拖拽涂色），记在人工辅助轨。
         /// </summary>
         public static void RecordManualClick(int cellsPainted, float seconds)
         {
             ManualClicks++;
-            AddXp(1, "手动点击");
+            AddXp(XpTrack.Manual, 1, "手动点击");
 
             if (cellsPainted > 0)
             {
@@ -535,10 +673,10 @@ namespace ColoringPixelsTool
                 // 涂色率（每击平均格数）越高，额外奖励越多
                 if (cellsPainted >= 3)
                     xp += Mathf.Min(12, cellsPainted / 20);
-                AddXp(xp, "手动涂色 " + cellsPainted + " 格");
+                AddXp(XpTrack.Manual, xp, "手动涂色 " + cellsPainted + " 格");
 
                 if (seconds > 0f && cellsPainted / Mathf.Max(0.05f, seconds) > 30f)
-                    AddXp(1, "涂色手速惊人");
+                    AddXp(XpTrack.Manual, 1, "涂色手速惊人");
             }
         }
 
@@ -556,19 +694,24 @@ namespace ColoringPixelsTool
             get { return ManualClicks <= 0 ? 0f : (float)ManualPixels / ManualClicks; }
         }
 
-        public static void RecordImageCompleted(int pixelCount)
+        /// <summary>
+        /// 完成一张图。<paramref name="track"/> 决定这份成果记在哪条经验线上：
+        /// 手工涂完 → 人工辅助，一键涂完 / 自动切图 → 自动绘图。
+        /// </summary>
+        public static void RecordImageCompleted(int pixelCount, XpTrack track)
         {
             ImagesCompleted++;
+            if (track == XpTrack.Auto) ImagesCompletedAuto++; else ImagesCompletedManual++;
             TotalImagePixels += pixelCount;
 
             int baseXp = 25 + Mathf.Max(0, pixelCount / 150);
-            AddXp(baseXp, "完成 " + pixelCount + " 像素图片");
+            AddXp(track, baseXp, "完成 " + pixelCount + " 像素图片");
 
             if (pixelCount > LargestImage)
             {
                 int diff = pixelCount - LargestImage;
                 LargestImage = pixelCount;
-                AddXp(Mathf.Max(0, diff / 150), "刷新最大完成图记录");
+                AddXp(track, Mathf.Max(0, diff / 150), "刷新最大完成图记录");
             }
             else
             {
@@ -583,19 +726,27 @@ namespace ColoringPixelsTool
         {
             var sb = new StringBuilder();
             sb.AppendLine("{");
-            sb.AppendLine("  \"schema\": 2,");
+            sb.AppendLine("  \"schema\": 3,");
             sb.AppendLine("  \"savedAt\": " + Escape(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")) + ",");
             sb.AppendLine("  \"username\": " + Escape(Username) + ",");
             sb.AppendLine("  \"avatarPath\": " + Escape(AvatarPath) + ",");
             sb.AppendLine("  \"backgroundPath\": " + Escape(BackgroundPath) + ",");
-            sb.AppendLine("  \"level\": " + Level.ToString(CultureInfo.InvariantCulture) + ",");
-            sb.AppendLine("  \"xp\": " + Xp.ToString(CultureInfo.InvariantCulture) + ",");
+            // 老字段照写：等于人工辅助轨，这样旧版本安装器/插件读这份存档也还有等级
+            sb.AppendLine("  \"level\": " + LevelManual.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"xp\": " + XpManual.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"levelManual\": " + LevelManual.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"xpManual\": " + XpManual.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"levelAuto\": " + LevelAuto.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"xpAuto\": " + XpAuto.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"totalSeconds\": " + TotalSeconds.ToString("F2", CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"pixelsPainted\": " + PixelsPainted.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"manualPixels\": " + ManualPixels.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"autoPixels\": " + AutoPixels.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"assistPixels\": " + AssistPixels.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"manualClicks\": " + ManualClicks.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"imagesCompleted\": " + ImagesCompleted.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"imagesCompletedManual\": " + ImagesCompletedManual.ToString(CultureInfo.InvariantCulture) + ",");
+            sb.AppendLine("  \"imagesCompletedAuto\": " + ImagesCompletedAuto.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"largestImage\": " + LargestImage.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"totalImagePixels\": " + TotalImagePixels.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"lastVersion\": " + Escape(LastVersion));
@@ -608,20 +759,36 @@ namespace ColoringPixelsTool
             Username = ReadString(json, "username");
             AvatarPath = ReadString(json, "avatarPath");
             BackgroundPath = ReadString(json, "backgroundPath");
-            Level = ReadInt(json, "level", 1);
-            Xp = ReadInt(json, "xp", 0);
+
+            // 人工辅助轨：拆轨前的老存档只有 "level"/"xp"，那时所有进度都算「人干的」。
+            // 有 "xpManual" 就用新字段，否则回退到老的 "xp" —— 老玩家不会因为升级掉级。
+            bool split = HasRaw(json, "xpManual");
+            LevelManual = ReadInt(json, split ? "levelManual" : "level", 1);
+            XpManual = ReadInt(json, split ? "xpManual" : "xp", 0);
+
+            // 自动绘图轨：拆轨后才有。老存档这里从 1 级 / 0 XP 起，
+            // 刻意不把过去的人工进展算成机器的功劳（两条线的称号才分得干净）。
+            LevelAuto = ReadInt(json, "levelAuto", 1);
+            XpAuto = ReadInt(json, "xpAuto", 0);
+
             TotalSeconds = ReadFloat(json, "totalSeconds", 0f);
             PixelsPainted = ReadLong(json, "pixelsPainted", 0);
             ManualPixels = ReadLong(json, "manualPixels", 0);
             AutoPixels = ReadLong(json, "autoPixels", 0);
+            AssistPixels = ReadLong(json, "assistPixels", 0);
             ManualClicks = ReadLong(json, "manualClicks", 0);
             ImagesCompleted = ReadInt(json, "imagesCompleted", 0);
+            // 老存档没有拆分成两个计数，那时完成的图都算手工的
+            ImagesCompletedManual = ReadInt(json, "imagesCompletedManual", ImagesCompleted);
+            ImagesCompletedAuto = ReadInt(json, "imagesCompletedAuto", 0);
             LargestImage = ReadInt(json, "largestImage", 0);
             TotalImagePixels = ReadLong(json, "totalImagePixels", 0);
             LastVersion = ReadString(json, "lastVersion");
 
-            if (Level < 1) Level = 1;
-            if (Xp < 0) Xp = 0;
+            if (LevelManual < 1) LevelManual = 1;
+            if (XpManual < 0) XpManual = 0;
+            if (LevelAuto < 1) LevelAuto = 1;
+            if (XpAuto < 0) XpAuto = 0;
             if (PixelsPainted < 0) PixelsPainted = 0;
         }
 
@@ -658,6 +825,12 @@ namespace ColoringPixelsTool
             float n;
             if (float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out n)) return n;
             return def;
+        }
+
+        /// <summary>存档里有没有这个字段（用来分辨「拆轨前的老存档」和「拆轨后的新存档」）。</summary>
+        private static bool HasRaw(string json, string key)
+        {
+            return ReadRaw(json, key).Length > 0;
         }
 
         private static string ReadRaw(string json, string key)
