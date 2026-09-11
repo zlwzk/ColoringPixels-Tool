@@ -3,9 +3,10 @@
     一键构建发布包：
 
         1) build-mod.ps1        编译插件   -> artifacts\ColoringPixelsTool.dll
-        2) build-payload.ps1    组装部署包 -> build\payload.zip
-        3) build-installer.ps1  编译安装器 -> dist\ColoringPixelsTool-Setup-v<版本>.exe
-        4) 生成校验和           -> dist\SHA256SUMS.txt
+        2) build-assist.ps1     编译独立助手 -> artifacts\PixelAssist.exe
+        3) build-payload.ps1    组装部署包 -> build\payload.zip
+        4) build-installer.ps1  编译安装器 -> dist\ColoringPixelsTool-Setup-v<版本>.exe
+        5) 生成校验和           -> dist\SHA256SUMS.txt
 
     版本号唯一来源是仓库根目录的 VERSION 文件。
     用法：
@@ -18,6 +19,7 @@ param(
     [string]$Version,
     [string]$GameDir,
     [switch]$SkipMod,
+    [switch]$SkipAssist,
     [switch]$Clean
 )
 
@@ -60,38 +62,54 @@ if ($Clean) {
 # ---------------------------------------------------------------- 1. 插件
 
 if (-not $SkipMod) {
-    Step '1/4  编译插件'
+    Step '1/5  编译插件'
     $modArgs = @{ Configuration = 'Release' }
     if (-not [string]::IsNullOrWhiteSpace($GameDir)) { $modArgs['GameDir'] = $GameDir }
     & (Join-Path $PSScriptRoot 'build-mod.ps1') @modArgs
     Ok '插件编译完成'
 }
 else {
-    Step '1/4  跳过插件编译（-SkipMod）'
+    Step '1/5  跳过插件编译（-SkipMod）'
     $artifact = Join-Path $repoRoot 'artifacts\ColoringPixelsTool.dll'
     if (-not (Test-Path -LiteralPath $artifact)) { Fail "缺少已编译插件：$artifact（去掉 -SkipMod 重新编译）" }
     Ok ('使用现有插件：' + $artifact)
 }
 
-# ---------------------------------------------------------------- 2. 部署包
+# ---------------------------------------------------------------- 2. 独立助手
 
-Step '2/4  组装部署包（BepInEx + 插件）'
+$assistExe = Join-Path $repoRoot 'artifacts\PixelAssist.exe'
+
+if (-not $SkipAssist) {
+    Step '2/5  编译独立助手（PixelAssist）'
+    & (Join-Path $PSScriptRoot 'build-assist.ps1') -Configuration Release
+    Ok '独立助手编译完成'
+}
+else {
+    Step '2/5  跳过独立助手编译（-SkipAssist）'
+    if (-not (Test-Path -LiteralPath $assistExe)) { Warn "缺少 $assistExe，将只能安装 Coloring Pixels" }
+    else { Ok ('使用现有独立助手：' + $assistExe) }
+}
+
+# ---------------------------------------------------------------- 3. 部署包
+
+Step '3/5  组装部署包（BepInEx 插件 + 独立助手）'
 $payloadArgs = @{ Output = $build }
 if (-not [string]::IsNullOrWhiteSpace($GameDir)) { $payloadArgs['GameDir'] = $GameDir }
+if (Test-Path -LiteralPath $assistExe) { $payloadArgs['AssistExe'] = $assistExe }
 & (Join-Path $PSScriptRoot 'build-payload.ps1') @payloadArgs
 Ok '部署包就绪'
 
-# ---------------------------------------------------------------- 3. 安装器
+# ---------------------------------------------------------------- 4. 安装器
 
-Step '3/4  编译单文件安装器'
+Step '4/5  编译单文件安装器'
 if (-not (Test-Path -LiteralPath $dist)) { New-Item -ItemType Directory -Path $dist -Force | Out-Null }
 & (Join-Path $PSScriptRoot 'build-installer.ps1') -Version $version -Output $dist `
     -PayloadZip (Join-Path $build 'payload.zip')
 Ok '安装器就绪'
 
-# ---------------------------------------------------------------- 4. 校验和
+# ---------------------------------------------------------------- 5. 校验和
 
-Step '4/4  生成校验和'
+Step '5/5  生成校验和'
 $exe = Join-Path $dist ("ColoringPixelsTool-Setup-v{0}.exe" -f $version)
 if (-not (Test-Path -LiteralPath $exe)) { Fail "找不到安装器：$exe" }
 

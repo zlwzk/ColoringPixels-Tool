@@ -56,17 +56,27 @@ namespace ColoringPixelsTool.Installer
         public static DeployReport Install(string gameDir, bool overwriteExisting, bool backup,
             ProgressHandler progress)
         {
+            return Install(gameDir, AppInfo.ColoringPixels, overwriteExisting, backup, progress);
+        }
+
+        public static DeployReport Install(string gameDir, GameDescriptor game, bool overwriteExisting,
+            bool backup, ProgressHandler progress)
+        {
+            if (game == null) game = AppInfo.Games[0];
             DeployReport report = new DeployReport();
 
-            GameInfo info = GameLocator.Inspect(gameDir);
+            GameInfo info = GameLocator.Inspect(gameDir, game);
             if (!info.Usable) throw new InvalidOperationException("游戏目录不可用：" + info.Error);
             if (info.Warning != null) report.Warnings.Add(info.Warning);
 
             string root = EnsureTrailingSeparator(info.Directory);
-            string backupRoot = Path.Combine(Path.Combine(root, AppInfo.BepInExFolderName), AppInfo.BackupFolderName);
+            string backupRoot = Path.Combine(root, game.BackupRelativePath);
 
-            Report(progress, 1, "校验完成：" + info.Directory + "（" + info.ArchitectureText + "）");
+            Report(progress, 1, "校验完成：" + game.DisplayName + " · " + info.Directory
+                + "（" + info.ArchitectureText + "）");
 
+            int written = 0;
+            int upToDate = 0;
             using (Stream s = OpenPayload())
             {
                 if (s == null)
@@ -76,12 +86,16 @@ namespace ColoringPixelsTool.Installer
                 {
                     int total = 0;
                     foreach (ZipArchiveEntry e in zip.Entries)
-                        if (!IsDirectoryEntry(e)) total++;
+                        if (!IsDirectoryEntry(e) && BelongsTo(game, e.FullName)) total++;
+
+                    if (total == 0)
+                        throw new InvalidOperationException("安装包中没有属于「" + game.DisplayName + "」的文件，安装器版本可能过旧");
 
                     int index = 0;
                     foreach (ZipArchiveEntry entry in zip.Entries)
                     {
                         if (IsDirectoryEntry(entry)) continue;
+                        if (!BelongsTo(game, entry.FullName)) continue;
                         index++;
 
                         string relative = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
@@ -96,10 +110,12 @@ namespace ColoringPixelsTool.Installer
                         bool exists = File.Exists(target);
                         if (exists)
                         {
-                            long existingLength = new FileInfo(target).Length;
-                            if (existingLength == entry.Length)
+                            // 只比长度是不安全的：重新构建的负载长度可能恰好和旧文件一样，
+                            // 那样新插件就永远更不上。这里逐字节比对，真正一致才跳过。
+                            if (IsUpToDate(target, entry))
                             {
                                 report.Skipped++;
+                                upToDate++;
                                 Report(progress, Percent(index, total), "已是最新：" + entry.FullName);
                                 continue;
                             }
@@ -132,17 +148,44 @@ namespace ColoringPixelsTool.Installer
 
                         Extract(entry, target);
                         report.Written++;
+                        written++;
                         Report(progress, Percent(index, total), (exists ? "覆盖 " : "写入 ") + entry.FullName);
                     }
                 }
             }
 
-            RemoveLegacyPluginFiles(info.Directory, report);
-            WriteMarker(info.Directory, report);
-            Report(progress, 100, "部署完成：写入 " + report.Written + " 个，跳过 " + report.Skipped + " 个");
+            if (written == 0 && upToDate == 0)
+                throw new InvalidOperationException("没有写入任何文件，请检查游戏目录权限");
 
-            Verify(info.Directory);
+            if (game.Injectable) RemoveLegacyPluginFiles(info.Directory, report);
+            WriteMarker(info.Directory, game, report);
+            if (written == 0)
+                Report(progress, 100, "已是最新，无需修改");
+            else
+                Report(progress, 100, "部署完成：写入 " + report.Written + " 个，跳过 " + report.Skipped + " 个");
+
+            Verify(info.Directory, game);
             return report;
+        }
+
+        /// <summary>
+        /// 判断 payload.zip 里的某个条目是否属于这款游戏。
+        /// 根负载（Coloring Pixels）之外，其它游戏各自占一个顶层子目录。
+        /// </summary>
+        private static bool BelongsTo(GameDescriptor game, string entryName)
+        {
+            string name = (entryName ?? "").Replace('\\', '/');
+
+            if (!string.IsNullOrEmpty(game.PayloadPrefix))
+                return name.StartsWith(game.PayloadPrefix, StringComparison.OrdinalIgnoreCase);
+
+            foreach (GameDescriptor other in AppInfo.Games)
+            {
+                if (other == game) continue;
+                if (string.IsNullOrEmpty(other.PayloadPrefix)) continue;
+                if (name.StartsWith(other.PayloadPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            return true;
         }
 
         /// <summary>清理旧版本遗留的插件 DLL（ColoringPixelsCheat 时期的文件名）。
@@ -187,12 +230,66 @@ namespace ColoringPixelsTool.Installer
             File.Move(tmp, target);
         }
 
+        /// <summary>
+        /// 目标文件是否与负载中的条目完全一致（长度 + 逐字节内容）。
+        /// 只比长度会让「负载重新构建但长度恰好相同」的新文件被误判为最新，导致插件永远更新不上。
+        /// </summary>
+        private static bool IsUpToDate(string target, ZipArchiveEntry entry)
+        {
+            FileInfo fi = new FileInfo(target);
+            if (!fi.Exists || fi.Length != entry.Length) return false;
+
+            using (Stream input = entry.Open())
+            using (FileStream file = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                byte[] left = new byte[81920];
+                byte[] right = new byte[81920];
+                while (true)
+                {
+                    int nl = ReadFull(input, left);
+                    int nr = ReadFull(file, right);
+                    if (nl != nr) return false;
+                    if (nl == 0) return true;
+                    for (int i = 0; i < nl; i++)
+                        if (left[i] != right[i]) return false;
+                }
+            }
+        }
+
+        private static int ReadFull(Stream stream, byte[] buffer)
+        {
+            int total = 0;
+            while (total < buffer.Length)
+            {
+                int read = stream.Read(buffer, total, buffer.Length - total);
+                if (read <= 0) break;
+                total += read;
+            }
+            return total;
+        }
+
         /// <summary>安装完整性校验。</summary>
         public static void Verify(string gameDir)
         {
-            string root = Path.GetDirectoryName(Path.Combine(gameDir, AppInfo.GameExeName));
-            string plugin = Path.Combine(Path.Combine(Path.Combine(root, AppInfo.BepInExFolderName), "plugins"),
-                AppInfo.PluginDllName);
+            Verify(gameDir, AppInfo.ColoringPixels);
+        }
+
+        public static void Verify(string gameDir, GameDescriptor game)
+        {
+            if (game == null) game = AppInfo.Games[0];
+            string root = Path.GetDirectoryName(Path.Combine(gameDir, game.ExeName));
+
+            // 独立助手：只需要确认 exe 就位
+            if (!string.IsNullOrEmpty(game.AssistExeRelativePath))
+            {
+                string assist = Path.Combine(root, game.AssistExeRelativePath);
+                if (!File.Exists(assist))
+                    throw new InvalidOperationException("校验失败：独立助手 " + AppInfo.AssistExeName + " 未就位");
+                Log.Ok("校验通过：独立助手 " + AppInfo.AssistExeName + " 已就位");
+                return;
+            }
+
+            string plugin = Path.Combine(root, game.PluginRelativePath);
             string preloader = Path.Combine(Path.Combine(Path.Combine(root, AppInfo.BepInExFolderName), "core"),
                 "BepInEx.Preloader.dll");
             string proxy = Path.Combine(root, "winhttp.dll");
@@ -209,14 +306,20 @@ namespace ColoringPixelsTool.Installer
         public static DeployReport Uninstall(string gameDir, bool removeBepInEx, bool restoreBackup,
             ProgressHandler progress)
         {
+            return Uninstall(gameDir, AppInfo.ColoringPixels, removeBepInEx, restoreBackup, progress);
+        }
+
+        public static DeployReport Uninstall(string gameDir, GameDescriptor game, bool removeBepInEx,
+            bool restoreBackup, ProgressHandler progress)
+        {
+            if (game == null) game = AppInfo.Games[0];
             DeployReport report = new DeployReport();
 
-            GameInfo info = GameLocator.Inspect(gameDir);
+            GameInfo info = GameLocator.Inspect(gameDir, game);
             if (!info.Usable) throw new InvalidOperationException("游戏目录不可用：" + info.Error);
 
             string root = EnsureTrailingSeparator(info.Directory);
-            string bepinex = Path.Combine(root, AppInfo.BepInExFolderName);
-            string backupRoot = Path.Combine(bepinex, AppInfo.BackupFolderName);
+            string backupRoot = Path.Combine(root, game.BackupRelativePath);
 
             if (restoreBackup && Directory.Exists(backupRoot))
             {
@@ -224,6 +327,24 @@ namespace ColoringPixelsTool.Installer
                 RestoreDirectory(backupRoot, root, report);
                 TryDeleteDirectory(backupRoot);
             }
+
+            // ---- 独立助手：整个目录都是我们放的，直接删掉 ----
+            if (!game.Injectable)
+            {
+                Report(progress, 40, "移除独立助手……");
+                string marker = Path.Combine(root, game.MarkerRelativePath);
+                string assistDir = Path.GetDirectoryName(marker);
+                if (!string.IsNullOrEmpty(assistDir) && Directory.Exists(assistDir))
+                {
+                    TryDeleteDirectory(assistDir);
+                    report.Removed++;
+                }
+                DeleteFile(marker, report);
+                Report(progress, 100, "卸载完成：移除 " + report.Removed + " 项");
+                return report;
+            }
+
+            string bepinex = Path.Combine(root, AppInfo.BepInExFolderName);
 
             Report(progress, 40, "移除插件文件……");
             DeleteFile(Path.Combine(Path.Combine(bepinex, "plugins"), AppInfo.PluginDllName), report);
@@ -260,15 +381,21 @@ namespace ColoringPixelsTool.Installer
 
         public static bool IsInstalled(string gameDir)
         {
+            return IsInstalled(gameDir, AppInfo.ColoringPixels);
+        }
+
+        public static bool IsInstalled(string gameDir, GameDescriptor game)
+        {
+            if (game == null) game = AppInfo.Games[0];
             try
             {
-                string plugin = Path.Combine(
-                    Path.Combine(Path.Combine(gameDir, AppInfo.BepInExFolderName), "plugins"),
-                    AppInfo.PluginDllName);
-                if (File.Exists(plugin)) return true;
+                if (!string.IsNullOrEmpty(game.PluginRelativePath) &&
+                    File.Exists(Path.Combine(gameDir, game.PluginRelativePath))) return true;
 
-                string marker = Path.Combine(Path.Combine(gameDir, AppInfo.BepInExFolderName), AppInfo.MarkerFileName);
-                return File.Exists(marker);
+                if (!string.IsNullOrEmpty(game.AssistExeRelativePath) &&
+                    File.Exists(Path.Combine(gameDir, game.AssistExeRelativePath))) return true;
+
+                return File.Exists(Path.Combine(gameDir, game.MarkerRelativePath));
             }
             catch (Exception)
             {
@@ -278,9 +405,15 @@ namespace ColoringPixelsTool.Installer
 
         public static string InstalledVersion(string gameDir)
         {
+            return InstalledVersion(gameDir, AppInfo.ColoringPixels);
+        }
+
+        public static string InstalledVersion(string gameDir, GameDescriptor game)
+        {
+            if (game == null) game = AppInfo.Games[0];
             try
             {
-                string marker = Path.Combine(Path.Combine(gameDir, AppInfo.BepInExFolderName), AppInfo.MarkerFileName);
+                string marker = Path.Combine(gameDir, game.MarkerRelativePath);
                 if (!File.Exists(marker)) return null;
 
                 foreach (string line in File.ReadAllLines(marker))
@@ -299,13 +432,19 @@ namespace ColoringPixelsTool.Installer
 
         public static Process LaunchGame(string gameDir, out string error)
         {
+            return LaunchGame(gameDir, AppInfo.ColoringPixels, out error);
+        }
+
+        public static Process LaunchGame(string gameDir, GameDescriptor game, out string error)
+        {
             error = null;
+            if (game == null) game = AppInfo.Games[0];
             try
             {
-                string exe = Path.Combine(gameDir, AppInfo.GameExeName);
+                string exe = Path.Combine(gameDir, game.ExeName);
                 if (!File.Exists(exe))
                 {
-                    error = "找不到 " + AppInfo.GameExeName;
+                    error = "找不到 " + game.ExeName;
                     return null;
                 }
 
@@ -322,23 +461,61 @@ namespace ColoringPixelsTool.Installer
             }
         }
 
+        /// <summary>启动独立助手（只有非注入式游戏才有）。</summary>
+        public static Process LaunchAssist(string gameDir, GameDescriptor game, out string error)
+        {
+            error = null;
+            if (game == null || string.IsNullOrEmpty(game.AssistExeRelativePath))
+            {
+                error = "该游戏没有配套的独立助手";
+                return null;
+            }
+
+            try
+            {
+                string exe = Path.Combine(gameDir, game.AssistExeRelativePath);
+                if (!File.Exists(exe))
+                {
+                    error = "找不到 " + AppInfo.AssistExeName;
+                    return null;
+                }
+
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = exe;
+                psi.WorkingDirectory = Path.GetDirectoryName(exe);
+                psi.UseShellExecute = true;
+                return Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return null;
+            }
+        }
+
         // ============================================================ 内部工具
 
-        private static void WriteMarker(string gameDir, DeployReport report)
+        private static void WriteMarker(string gameDir, GameDescriptor game, DeployReport report)
         {
             try
             {
                 StringBuilder sb = new StringBuilder();
-                sb.AppendLine("# Coloring Pixels Tool 安装记录（删除本文件不影响使用）");
+                sb.AppendLine("# " + AppInfo.ProductName + " 安装记录（删除本文件不影响使用）");
+                sb.AppendLine("game=" + game.Key);
+                sb.AppendLine("game_name=" + game.DisplayName);
                 sb.AppendLine("version=" + AppInfo.AppVersion);
-                sb.AppendLine("plugin=" + AppInfo.PluginGuid);
+                sb.AppendLine("plugin=" + (string.IsNullOrEmpty(game.PluginRelativePath)
+                    ? AppInfo.AssistExeName : AppInfo.PluginGuid));
                 sb.AppendLine("installed_at=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 sb.AppendLine("installed_by=" + AppInfo.ProductName + " Installer");
                 sb.AppendLine("written=" + report.Written);
                 sb.AppendLine("skipped=" + report.Skipped);
                 sb.AppendLine("backed_up=" + report.BackedUp);
 
-                string marker = Path.Combine(Path.Combine(gameDir, AppInfo.BepInExFolderName), AppInfo.MarkerFileName);
+                string marker = Path.Combine(gameDir, game.MarkerRelativePath);
+                string dir = Path.GetDirectoryName(marker);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
                 File.WriteAllText(marker, sb.ToString(), Encoding.UTF8);
             }
             catch (Exception ex)

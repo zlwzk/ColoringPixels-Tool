@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.0.0";
+        public const string Version = "2.1.0";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -76,6 +76,7 @@ namespace ColoringPixelsTool
 
         // ---- 面板 ----
         internal static ConfigEntry<float> PanelOpacity;
+        internal static ConfigEntry<float> PanelScale;
 
         // ---- 游戏界面汉化 ----
         internal static ConfigEntry<bool> LocalizeGame;
@@ -107,6 +108,17 @@ namespace ColoringPixelsTool
                 CheatPanel.PendingAnnouncement = true;
                 UserProfile.LastVersion = Version;
                 UserProfile.Save();
+            }
+
+            // 人工辅助（屏幕扫描）覆盖层 + 人工涂色统计
+            try
+            {
+                AssistOverlay.Init(Config);
+                ManualTracker.Ensure(transform);
+            }
+            catch (System.Exception e)
+            {
+                Log.Error("初始化人工辅助模块失败：" + e.Message);
             }
 
             Unlocker.ForceDlcOwned = UnlockAllDlc.Value;
@@ -189,6 +201,9 @@ namespace ColoringPixelsTool
             var p = "6-面板";
             PanelOpacity = Config.Bind(p, "不透明度", 0.96f,
                 new ConfigDescription("作弊面板背景的不透明度", new AcceptableValueRange<float>(0.5f, 1f)));
+            PanelScale = Config.Bind(p, "面板缩放", 0f,
+                new ConfigDescription("0 = 跟随分辨率自适应；> 0 时手动指定缩放倍数（推荐 0.8 ~ 1.6）",
+                    new AcceptableValueRange<float>(0f, 2.2f)));
 
             var zh = "7-游戏汉化";
             LocalizeGame = Config.Bind(zh, "游戏界面汉化", true,

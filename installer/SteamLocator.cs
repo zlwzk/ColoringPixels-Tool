@@ -136,10 +136,17 @@ namespace ColoringPixelsTool.Installer
         /// <summary>读取 appmanifest 里的 installdir（清单目录名，通常等于游戏文件夹名）。</summary>
         public static string GetInstallDirName(string libraryRoot)
         {
+            return GetInstallDirName(libraryRoot, AppInfo.SteamAppId);
+        }
+
+        /// <summary>读取指定 AppId 的 appmanifest 里的 installdir。</summary>
+        public static string GetInstallDirName(string libraryRoot, string appId)
+        {
+            if (string.IsNullOrEmpty(appId)) return null;
             try
             {
                 string acf = Path.Combine(Path.Combine(libraryRoot, "steamapps"),
-                    "appmanifest_" + AppInfo.SteamAppId + ".acf");
+                    "appmanifest_" + appId + ".acf");
                 if (!File.Exists(acf)) return null;
 
                 Match m = InstallDirRegex.Match(File.ReadAllText(acf));
@@ -155,10 +162,16 @@ namespace ColoringPixelsTool.Installer
         /// <summary>该 Steam 库是否确实安装了本游戏。</summary>
         public static bool HasAppManifest(string libraryRoot)
         {
+            return HasAppManifest(libraryRoot, AppInfo.SteamAppId);
+        }
+
+        public static bool HasAppManifest(string libraryRoot, string appId)
+        {
+            if (string.IsNullOrEmpty(appId)) return false;
             try
             {
                 string acf = Path.Combine(Path.Combine(libraryRoot, "steamapps"),
-                    "appmanifest_" + AppInfo.SteamAppId + ".acf");
+                    "appmanifest_" + appId + ".acf");
                 return File.Exists(acf);
             }
             catch (Exception)

@@ -10,11 +10,13 @@ namespace ColoringPixelsTool.Installer
     {
         public string Path;
         public string Source;
+        public GameDescriptor Game;
 
-        public GameCandidate(string path, string source)
+        public GameCandidate(string path, string source, GameDescriptor game)
         {
             Path = path;
             Source = source;
+            Game = game;
         }
     }
 
@@ -25,6 +27,7 @@ namespace ColoringPixelsTool.Installer
         public const int ArchX86 = 1;
         public const int ArchX64 = 2;
 
+        public GameDescriptor Game;
         public string Directory;
         public bool HasExe;
         public bool HasAssembly;
@@ -48,16 +51,31 @@ namespace ColoringPixelsTool.Installer
         }
     }
 
-    /// <summary>游戏安装目录的探测与校验。</summary>
+    /// <summary>游戏安装目录的探测与校验（支持多款游戏）。</summary>
     internal static class GameLocator
     {
-        private const string ProcessName = "ColoringPixels";
-
         // ------------------------------------------------------------ 校验
 
+        /// <summary>自动判断该目录属于哪一款受支持的游戏，都不匹配时返回 Coloring Pixels 的错误信息。</summary>
         public static GameInfo Inspect(string dir)
         {
+            GameInfo first = null;
+            foreach (GameDescriptor game in AppInfo.Games)
+            {
+                GameInfo info = Inspect(dir, game);
+                if (first == null) first = info;
+                if (info.Usable) return info;
+            }
+            return first;
+        }
+
+        public static GameInfo Inspect(string dir, GameDescriptor game)
+        {
+            if (game == null) game = AppInfo.Games[0];
+
             GameInfo info = new GameInfo();
+            info.Game = game;
+
             if (string.IsNullOrEmpty(dir))
             {
                 info.Error = "未指定游戏目录";
@@ -79,29 +97,54 @@ namespace ColoringPixelsTool.Installer
                 return info;
             }
 
-            string exe = Path.Combine(info.Directory, AppInfo.GameExeName);
+            string exe = Path.Combine(info.Directory, game.ExeName);
             info.HasExe = File.Exists(exe);
             if (!info.HasExe)
             {
-                info.Error = "目录中没有 " + AppInfo.GameExeName;
+                info.Error = "目录中没有 " + game.ExeName;
                 return info;
             }
 
-            string asm = Path.Combine(
-                Path.Combine(info.Directory, AppInfo.GameDataFolderName),
-                Path.Combine("Managed", AppInfo.GameAssemblyName));
-            info.HasAssembly = File.Exists(asm);
-            if (!info.HasAssembly)
+            string dataFolder = Path.Combine(info.Directory, game.DataFolderName);
+            if (!Directory.Exists(dataFolder))
             {
-                info.Error = "缺少 " + AppInfo.GameDataFolderName + "\\Managed\\" + AppInfo.GameAssemblyName;
+                info.Error = "缺少 " + game.DataFolderName + " 目录";
                 return info;
+            }
+
+            if (!string.IsNullOrEmpty(game.ManagedAssembly))
+            {
+                string asm = Path.Combine(Path.Combine(dataFolder, "Managed"), game.ManagedAssembly);
+                info.HasAssembly = File.Exists(asm);
+                if (!info.HasAssembly)
+                {
+                    info.Error = "缺少 " + game.DataFolderName + "\\Managed\\" + game.ManagedAssembly;
+                    return info;
+                }
+            }
+            else if (!string.IsNullOrEmpty(game.ProbeFileName))
+            {
+                string probe = Path.Combine(info.Directory, game.ProbeFileName);
+                info.HasAssembly = File.Exists(probe);
+                if (!info.HasAssembly)
+                {
+                    info.Error = "缺少 " + game.ProbeFileName;
+                    return info;
+                }
             }
 
             info.Architecture = DetectArchitecture(exe);
-            if (info.Architecture == GameInfo.ArchX64)
-                info.Error = "检测到 64 位主程序，本注入包仅支持 32 位版本";
+            if (game.Expect32Bit)
+            {
+                if (info.Architecture == GameInfo.ArchX64)
+                    info.Error = "检测到 64 位主程序，本注入包仅支持 32 位版本";
+                else if (info.Architecture == GameInfo.ArchUnknown)
+                    info.Warning = "无法识别主程序位数，仍会尝试安装";
+            }
             else if (info.Architecture == GameInfo.ArchUnknown)
-                info.Warning = "无法识别主程序位数，仍会尝试安装";
+            {
+                info.Warning = "无法识别主程序位数，独立助手仍可使用";
+            }
 
             return info;
         }
@@ -145,59 +188,55 @@ namespace ColoringPixelsTool.Installer
 
         // ------------------------------------------------------------ 探测
 
-        /// <summary>按「运行中进程 → Steam → 常见路径 → 深度扫描」的顺序查找游戏。</summary>
-        public static List<GameCandidate> Detect(bool deep, out List<string> trail)
+        /// <summary>
+        /// 检测所有受支持游戏的安装目录。
+        /// 顺序：运行中进程 → Steam 库 → 常见路径 → （需要时）深度扫描。
+        /// 两款游戏各自独立判断，找不到其中一款不影响另一款。
+        /// </summary>
+        public static List<GameCandidate> DetectAll(bool deep, out List<string> trail)
         {
             trail = new List<string>();
             List<GameCandidate> found = new List<GameCandidate>();
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // 1) 正在运行的游戏进程
-            string running = GetRunningGameDir();
-            if (!string.IsNullOrEmpty(running))
-            {
-                trail.Add("发现正在运行的游戏进程：" + running);
-                Consider(found, seen, running, "运行中的游戏进程", trail);
-            }
-            else
-            {
-                trail.Add("未发现正在运行的游戏进程");
-            }
-
-            // 2) Steam 库
             List<string> steamTrail;
             List<string> libraries = SteamLocator.GetLibraryRoots(out steamTrail);
             foreach (string t in steamTrail) trail.Add(t);
-
             if (libraries.Count == 0) trail.Add("未找到 Steam 安装目录");
 
-            foreach (string lib in libraries)
-            {
-                string common = Path.Combine(Path.Combine(lib, "steamapps"), "common");
-                Consider(found, seen, Path.Combine(common, AppInfo.SteamInstallDirName),
-                    "Steam 库 " + lib, trail);
+            foreach (GameDescriptor game in AppInfo.Games)
+                Scan(game, false, found, seen, libraries, trail);
 
-                string installDir = SteamLocator.GetInstallDirName(lib);
-                if (!string.IsNullOrEmpty(installDir) &&
-                    !string.Equals(installDir, AppInfo.SteamInstallDirName, StringComparison.OrdinalIgnoreCase))
-                {
-                    Consider(found, seen, Path.Combine(common, installDir),
-                        "Steam 清单 " + lib, trail);
-                }
-            }
-
-            // 3) 常见位置
-            foreach (string path in CommonPaths())
-                Consider(found, seen, path, "常见安装位置", trail);
-
-            // 4) 深度扫描
+            // 只有一款都没找到时才做昂贵的深度扫描，避免把磁盘扫两遍。
             if (deep && found.Count == 0)
             {
                 trail.Add("开始深度扫描磁盘……");
-                foreach (string path in DeepScan())
-                    Consider(found, seen, path, "磁盘扫描", trail);
+                foreach (GameDescriptor game in AppInfo.Games)
+                    Scan(game, true, found, seen, libraries, trail);
             }
 
+            return found;
+        }
+
+        public static List<GameCandidate> DetectAll(bool deep)
+        {
+            List<string> trail;
+            return DetectAll(deep, out trail);
+        }
+
+        /// <summary>只探测《Coloring Pixels》（保留旧行为）。</summary>
+        public static List<GameCandidate> Detect(bool deep, out List<string> trail)
+        {
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<GameCandidate> found = new List<GameCandidate>();
+            List<string> steamTrail;
+            List<string> libraries = SteamLocator.GetLibraryRoots(out steamTrail);
+
+            trail = new List<string>();
+            foreach (string t in steamTrail) trail.Add(t);
+            if (libraries.Count == 0) trail.Add("未找到 Steam 安装目录");
+
+            Scan(AppInfo.ColoringPixels, deep, found, seen, libraries, trail);
             return found;
         }
 
@@ -209,13 +248,70 @@ namespace ColoringPixelsTool.Installer
 
         public static GameCandidate DetectBest(bool deep, out List<string> trail)
         {
-            List<GameCandidate> all = Detect(deep, out trail);
+            List<GameCandidate> all = DetectAll(deep, out trail);
             if (all.Count == 0) return null;
             return all[0];
         }
 
+        /// <summary>找出某一款游戏的候选目录（界面里点击游戏标签切换时用）。</summary>
+        public static GameCandidate BestFor(GameDescriptor game, bool deep, out List<string> trail)
+        {
+            trail = new List<string>();
+            List<GameCandidate> found = new List<GameCandidate>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            List<string> steamTrail;
+            List<string> libraries = SteamLocator.GetLibraryRoots(out steamTrail);
+            foreach (string t in steamTrail) trail.Add(t);
+
+            Scan(game, deep, found, seen, libraries, trail);
+            return found.Count > 0 ? found[0] : null;
+        }
+
+        /// <summary>单款游戏的完整探测流程。</summary>
+        private static void Scan(GameDescriptor game, bool deep, List<GameCandidate> found,
+            HashSet<string> seen, List<string> libraries, List<string> trail)
+        {
+            trail.Add("—— " + game.DisplayName + " ——");
+
+            string running = GetRunningGameDir(game);
+            if (!string.IsNullOrEmpty(running))
+            {
+                trail.Add("发现正在运行的游戏进程：" + running);
+                Consider(found, seen, running, "运行中的游戏进程", trail, game);
+            }
+            else
+            {
+                trail.Add("未发现正在运行的游戏进程");
+            }
+
+            foreach (string lib in libraries)
+            {
+                string common = Path.Combine(Path.Combine(lib, "steamapps"), "common");
+                Consider(found, seen, Path.Combine(common, game.SteamInstallDirName),
+                    "Steam 库 " + lib, trail, game);
+
+                string installDir = SteamLocator.GetInstallDirName(lib, game.SteamAppId);
+                if (!string.IsNullOrEmpty(installDir) &&
+                    !string.Equals(installDir, game.SteamInstallDirName, StringComparison.OrdinalIgnoreCase))
+                {
+                    Consider(found, seen, Path.Combine(common, installDir),
+                        "Steam 清单 " + lib, trail, game);
+                }
+            }
+
+            foreach (string path in CommonPaths(game))
+                Consider(found, seen, path, "常见安装位置", trail, game);
+
+            if (deep)
+            {
+                foreach (string path in DeepScan(game))
+                    Consider(found, seen, path, "磁盘扫描", trail, game);
+            }
+        }
+
         private static void Consider(List<GameCandidate> found, HashSet<string> seen,
-            string path, string source, List<string> trail)
+            string path, string source, List<string> trail, GameDescriptor game)
         {
             if (string.IsNullOrEmpty(path)) return;
 
@@ -237,10 +333,10 @@ namespace ColoringPixelsTool.Installer
                 return;
             }
 
-            GameInfo info = Inspect(full);
+            GameInfo info = Inspect(full, game);
             if (info.Usable)
             {
-                found.Add(new GameCandidate(full, source));
+                found.Add(new GameCandidate(full, source, game));
                 trail.Add("√ " + full + "（" + source + "，" + info.ArchitectureText + "）");
             }
             else
@@ -249,12 +345,13 @@ namespace ColoringPixelsTool.Installer
             }
         }
 
-        private static IEnumerable<string> CommonPaths()
+        private static IEnumerable<string> CommonPaths(GameDescriptor game)
         {
+            string name = game.SteamInstallDirName;
             foreach (DriveInfo drive in SteamLocator.FixedDrives())
             {
                 string root = drive.RootDirectory.FullName;
-                string suffix = Path.Combine("steamapps", "common", AppInfo.SteamInstallDirName);
+                string suffix = Path.Combine("steamapps", "common", name);
 
                 yield return Path.Combine(root, "Steam", suffix);
                 yield return Path.Combine(root, "SteamLibrary", suffix);
@@ -263,13 +360,19 @@ namespace ColoringPixelsTool.Installer
                 yield return Path.Combine(root, "Games", "SteamLibrary", suffix);
                 yield return Path.Combine(root, "Program Files (x86)", "Steam", suffix);
                 yield return Path.Combine(root, "Program Files", "Steam", suffix);
-                yield return Path.Combine(root, AppInfo.SteamInstallDirName);
+                yield return Path.Combine(root, name);
+                // 用户自定义目录里常见的中文/英文名
+                if (game.Key == "pcs")
+                    yield return Path.Combine(root, "Pixel Cross Stitch");
             }
         }
 
         /// <summary>受限深度的磁盘扫描，跳过系统目录。</summary>
-        private static IEnumerable<string> DeepScan()
+        private static IEnumerable<string> DeepScan(GameDescriptor game)
         {
+            string name = game.SteamInstallDirName;
+            string lower = name.ToLowerInvariant();
+
             string[] skip = new string[]
             {
                 "windows", "$recycle.bin", "system volume information", "programdata",
@@ -301,37 +404,37 @@ namespace ColoringPixelsTool.Installer
 
                     foreach (string child in children)
                     {
-                        string name;
+                        string childName;
                         try
                         {
-                            name = Path.GetFileName(child);
+                            childName = Path.GetFileName(child);
                         }
                         catch (Exception)
                         {
                             continue;
                         }
 
-                        if (string.IsNullOrEmpty(name)) continue;
-                        if (Array.IndexOf(skip, name.ToLowerInvariant()) >= 0) continue;
+                        if (string.IsNullOrEmpty(childName)) continue;
+                        if (Array.IndexOf(skip, childName.ToLowerInvariant()) >= 0) continue;
 
                         // steamapps\common\<游戏>
-                        if (string.Equals(name, "steamapps", StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(childName, "steamapps", StringComparison.OrdinalIgnoreCase))
                         {
                             string common = Path.Combine(child, "common");
                             if (Directory.Exists(common))
-                                yield return Path.Combine(common, AppInfo.SteamInstallDirName);
+                                yield return Path.Combine(common, name);
                             continue;
                         }
 
                         // common\<游戏>
-                        if (string.Equals(name, "common", StringComparison.OrdinalIgnoreCase) &&
+                        if (string.Equals(childName, "common", StringComparison.OrdinalIgnoreCase) &&
                             string.Equals(Path.GetFileName(dir), "steamapps", StringComparison.OrdinalIgnoreCase))
                         {
-                            yield return Path.Combine(child, AppInfo.SteamInstallDirName);
+                            yield return Path.Combine(child, name);
                             continue;
                         }
 
-                        if (string.Equals(name, AppInfo.SteamInstallDirName, StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(childName, lower, StringComparison.OrdinalIgnoreCase))
                         {
                             yield return child;
                             continue;
@@ -348,9 +451,15 @@ namespace ColoringPixelsTool.Installer
 
         public static Process GetRunningGame()
         {
+            return GetRunningGame(AppInfo.ColoringPixels);
+        }
+
+        public static Process GetRunningGame(GameDescriptor game)
+        {
+            if (game == null) game = AppInfo.Games[0];
             try
             {
-                Process[] list = Process.GetProcessesByName(ProcessName);
+                Process[] list = Process.GetProcessesByName(game.ProcessName);
                 if (list != null && list.Length > 0) return list[0];
             }
             catch (Exception)
@@ -361,7 +470,12 @@ namespace ColoringPixelsTool.Installer
 
         public static string GetRunningGameDir()
         {
-            Process p = GetRunningGame();
+            return GetRunningGameDir(AppInfo.ColoringPixels);
+        }
+
+        public static string GetRunningGameDir(GameDescriptor game)
+        {
+            Process p = GetRunningGame(game);
             if (p == null) return null;
             try
             {
@@ -378,7 +492,12 @@ namespace ColoringPixelsTool.Installer
         /// <summary>游戏的主窗口是否已经出现过（用于判断「已启动完成」）。</summary>
         public static bool IsGameWindowReady()
         {
-            Process p = GetRunningGame();
+            return IsGameWindowReady(AppInfo.ColoringPixels);
+        }
+
+        public static bool IsGameWindowReady(GameDescriptor game)
+        {
+            Process p = GetRunningGame(game);
             if (p == null) return false;
             try
             {
@@ -412,8 +531,13 @@ namespace ColoringPixelsTool.Installer
         /// </summary>
         public static bool IsTargetGameRunning(string targetDir)
         {
-            if (GetRunningGame() == null) return false;
-            string runningDir = GetRunningGameDir();
+            return IsTargetGameRunning(targetDir, AppInfo.ColoringPixels);
+        }
+
+        public static bool IsTargetGameRunning(string targetDir, GameDescriptor game)
+        {
+            if (GetRunningGame(game) == null) return false;
+            string runningDir = GetRunningGameDir(game);
             if (string.IsNullOrEmpty(runningDir)) return true;
             return IsSameDirectory(runningDir, targetDir);
         }

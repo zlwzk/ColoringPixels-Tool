@@ -8,6 +8,11 @@
         .doorstop_version                        doorstop 版本标记
         BepInEx\core\*.dll                       BepInEx 运行时
         BepInEx\plugins\ColoringPixelsTool.dll  作弊插件
+        PixelAssist\PixelAssist.exe             独立助手（《涂色大师：像素梦想家》）
+
+    安装器按顶层目录区分归属：
+        * 根目录下的文件       -> Colors Pixels（注入式）
+        * PixelAssist\ 下的文件 -> 涂色大师：像素梦想家（独立助手）
 
     installer\payload\ 下的同名文件会覆盖 vendor 中的文件（用于放我们的定制配置）。
 #>
@@ -15,6 +20,7 @@
 param(
     [string]$Output,
     [string]$ModDll,
+    [string]$AssistExe,
     [string]$GameDir,
     [switch]$SkipZip
 )
@@ -142,6 +148,42 @@ $overlay = Join-Path $repoRoot 'installer\payload'
 if (Test-Path -LiteralPath $overlay) {
     Step "应用 installer\payload 覆盖层……"
     Copy-Tree -Source $overlay -Destination $staging
+}
+
+# ---------------------------------------------------------------- 3.5 独立助手
+
+function Resolve-AssistExe {
+    param([string]$Explicit)
+
+    $candidates = New-Object System.Collections.ArrayList
+    if (-not [string]::IsNullOrWhiteSpace($Explicit)) {
+        [void]$candidates.Add((Resolve-Path -LiteralPath $Explicit).Path)
+    }
+    [void]$candidates.Add((Join-Path $repoRoot 'src\PixelAssist\bin\Release\PixelAssist.exe'))
+    [void]$candidates.Add((Join-Path $repoRoot 'artifacts\PixelAssist.exe'))
+
+    $best = $null
+    foreach ($c in $candidates) {
+        if (Test-Path -LiteralPath $c) {
+            if ($null -eq $best -or (Get-Item -LiteralPath $c).LastWriteTimeUtc -gt (Get-Item -LiteralPath $best).LastWriteTimeUtc) {
+                $best = $c
+            }
+        }
+    }
+    return $best
+}
+
+$assist = Resolve-AssistExe -Explicit $AssistExe
+if ($null -eq $assist) {
+    Warn '找不到 PixelAssist.exe——《涂色大师：像素梦想家》将无法安装（Coloring Pixels 不受影响）。'
+    Warn '请先运行 scripts\build-assist.ps1，或把已编译的 EXE 放到 artifacts\ 下。'
+}
+else {
+    $assistDir = Join-Path $staging 'PixelAssist'
+    if (-not (Test-Path -LiteralPath $assistDir)) { New-Item -ItemType Directory -Path $assistDir -Force | Out-Null }
+    Step "放置独立助手 $([System.IO.Path]::GetFileName($assist))……"
+    Copy-Item -LiteralPath $assist -Destination (Join-Path $assistDir 'PixelAssist.exe') -Force
+    Ok "独立助手：$assist"
 }
 
 # 清理 vendor 里不需要随包分发的东西

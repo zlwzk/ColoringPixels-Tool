@@ -13,18 +13,34 @@ namespace ColoringPixelsTool
         public static CheatPanel Instance;
 
         private static bool _visible = true;
-        private static Rect _window = new Rect(28f, 28f, 520f, 720f);
 
-        private static readonly string[] Tabs =
+        /// <summary>面板在「设计坐标」下的矩形；实际屏幕尺寸 = 设计尺寸 × UiScale。</summary>
+        private static Rect _window = new Rect(28f, 28f, 560f, 760f);
+
+        /// <summary>设计坐标 → 屏幕像素的缩放系数。由屏幕分辨率自适应，也可在设置里手动指定。</summary>
+        private static float UiScale = 1f;
+
+        // ---- 两大分区 ----
+        private const int ModuleAuto = 0;
+        private const int ModuleManual = 1;
+
+        private static readonly string[] TabsAuto =
         {
             "首页", "涂色", "拟人", "自动化", "辅助", "解锁", "设置", "调试"
         };
 
+        private static readonly string[] TabsManual =
+        {
+            "扫描", "区域", "参数", "预设", "设置", "调试"
+        };
+
         private const float Pad = 14f;
-        private const float HeaderH = 58f;
-        private const float TabH = 44f;
+        private const float HeaderH = 72f;
+        private const float ModuleH = 34f;
+        private const float TabH = 40f;
         private const float FooterH = 50f;
 
+        private int _module = ModuleAuto;
         private int _tab;
         private Vector2 _scroll;
         private float _contentHeight;
@@ -66,12 +82,42 @@ namespace ColoringPixelsTool
             Instance = this;
             _showAnnouncement = PendingAnnouncement;
             PendingAnnouncement = false;
+            UiScale = ComputeScale();
         }
 
         public static bool Visible
         {
             get => _visible;
             set => _visible = value;
+        }
+
+        private string[] CurrentTabs => _module == ModuleManual ? TabsManual : TabsAuto;
+
+        /// <summary>面板实际的屏幕矩形（按当前缩放换算）。</summary>
+        public static Rect ScreenRect =>
+            new Rect(_window.x, _window.y, _window.width * UiScale, _window.height * UiScale);
+
+        /// <summary>鼠标是否正压在面板上（供人工涂色统计等使用）。</summary>
+        public static bool IsMouseOverPanel => _visible && ScreenRect.Contains(GuiMouse);
+
+        /// <summary>
+        /// 依屏幕分辨率计算面板缩放：既保证面板不会超出屏幕，又让高分辨率下的
+        /// 字号、行高同比放大，避免文字挤在一起。
+        /// </summary>
+        private static float ComputeScale()
+        {
+            float user = Plugin.PanelScale != null ? Plugin.PanelScale.Value : 0f;
+            if (user > 0.05f) return Mathf.Clamp(user, 0.6f, 2.2f);
+
+            float byHeight = Screen.height / 1000f;
+            float byWidth = Screen.width / 1700f;
+            float k = Mathf.Min(byHeight, byWidth);
+
+            // 不允许面板超出屏幕
+            k = Mathf.Min(k, (Screen.height - 60f) / _window.height);
+            k = Mathf.Min(k, (Screen.width - 60f) / _window.width);
+
+            return Mathf.Clamp(k, 0.72f, 1.9f);
         }
 
         /// <summary>鼠标按键按在面板上时，屏蔽游戏自身的点击（防止穿透涂色）。</summary>
@@ -81,7 +127,7 @@ namespace ColoringPixelsTool
             {
                 if (!_visible) return false;
                 if (!Input.GetMouseButton(0) && !Input.GetMouseButton(1) && !Input.GetMouseButton(2)) return false;
-                return _window.Contains(GuiMouse);
+                return ScreenRect.Contains(GuiMouse);
             }
         }
 
@@ -97,7 +143,7 @@ namespace ColoringPixelsTool
             get
             {
                 if (!_visible) return false;
-                if (!_window.Contains(GuiMouse)) return false;
+                if (!ScreenRect.Contains(GuiMouse)) return false;
 
                 // 只在真正有滚动输入时拦截，其余时间对游戏零影响。
                 if (Mathf.Abs(Input.mouseScrollDelta.y) > 0.0001f) return true;
@@ -107,7 +153,7 @@ namespace ColoringPixelsTool
 
         private static Vector2 GuiMouse => new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
 
-        private void Toast(string msg)
+        internal void Toast(string msg)
         {
             _toast = msg;
             _toastUntil = Time.unscaledTime + 2.6f;
@@ -137,6 +183,15 @@ namespace ColoringPixelsTool
 
             // 累计在线时长（等级系统）
             UserProfile.Tick(Time.unscaledDeltaTime);
+            UserProfile.TickSave(Time.unscaledDeltaTime);
+
+            // 升级提示
+            int lvUp = UserProfile.PendingLevelUp;
+            if (lvUp > 0)
+            {
+                UserProfile.PendingLevelUp = 0;
+                Toast("升到 Lv." + lvUp + " · " + UserProfile.TitleForLevel(lvUp));
+            }
 
             // 每帧把配置同步给自动涂色引擎
             var painter = AutoPainter.Instance;
@@ -264,6 +319,20 @@ namespace ColoringPixelsTool
             Event e = Event.current;
             float opacity = Plugin.PanelOpacity.Value;
 
+            // ---------------- 自适应缩放 ----------------
+            // 整个面板以「设计坐标」绘制，再统一用一个矩阵缩放到屏幕像素。
+            // 缩放锚点在面板左上角，因此 _window.x/_window.y 同时就是屏幕坐标。
+            UiScale = ComputeScale();
+            float k = UiScale;
+            Vector2 prevMouse = Ui.Mouse;
+            Matrix4x4 prevMatrix = GUI.matrix;
+
+            float ox = _window.x * (1f - k);
+            float oy = _window.y * (1f - k);
+            GUI.matrix = Matrix4x4.TRS(new Vector3(ox, oy, 0f), Quaternion.identity, new Vector3(k, k, 1f));
+            Ui.Mouse = (GuiMouse - new Vector2(ox, oy)) / k;
+            Ui.MouseInside = true;
+
             // 背景（全屏透明遮罩，点击外部可关闭——这里只用于捕获事件）
             Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0f));
 
@@ -280,10 +349,16 @@ namespace ColoringPixelsTool
                 new Color(0.082f, 0.09f, 0.13f, opacity));
 
             DrawHeader(e);
+            DrawModuleSwitch();
             DrawTabs();
             DrawContent();
             DrawFooter();
 
+            // ---------------- 还原 ----------------
+            GUI.matrix = prevMatrix;
+            Ui.Mouse = prevMouse;
+
+            // 公告是全屏遮罩，放在缩放矩阵之外绘制
             if (_showAnnouncement) DrawAnnouncement();
         }
 
@@ -319,37 +394,52 @@ namespace ColoringPixelsTool
             }
             if (_dragging && e.type == EventType.MouseDrag)
             {
-                _window.x = Mathf.Clamp(Ui.Mouse.x - _dragOffset.x, -_window.width + 90f, Screen.width - 90f);
-                _window.y = Mathf.Clamp(Ui.Mouse.y - _dragOffset.y, 0f, Screen.height - 40f);
+                // Ui.Mouse 是设计坐标，屏幕边界要换算回设计坐标
+                float sw = Screen.width / Mathf.Max(0.01f, UiScale);
+                float sh = Screen.height / Mathf.Max(0.01f, UiScale);
+                _window.x = Mathf.Clamp(Ui.Mouse.x - _dragOffset.x, -_window.width + 90f, sw - 90f);
+                _window.y = Mathf.Clamp(Ui.Mouse.y - _dragOffset.y, 0f, sh - 40f);
                 e.Use();
             }
             if (e.type == EventType.MouseUp) _dragging = false;
 
+            // 关闭按钮（先算位置，资料区紧贴其左侧）
+            var close = new Rect(_window.xMax - 38f, _window.y + 22f, 26f, 26f);
+            bool hov = Ui.Hit(close);
+
+            // 用户资料区：固定在右上角，宽度固定，剩下的才是标题区
+            float profileW = 246f;
+            float profileH = HeaderH - 10f;
+            float profileX = close.x - profileW - 12f;
+            float profileY = _window.y + 5f;
+
             // 品牌图标
-            var icon = new Rect(_window.x + Pad, _window.y + 13f, 32f, 32f);
+            var icon = new Rect(_window.x + Pad, _window.y + 20f, 32f, 32f);
             Ui.Round(icon, 10f, Ui.Accent);
             Ui.Fill(new Rect(icon.x + 5f, icon.y + 1.5f, icon.width - 10f, 1.2f), new Color(1f, 1f, 1f, 0.30f));
             Ui.Round(new Rect(icon.x + 3f, icon.y + 3f, 26f, 26f), 8f, new Color(1f, 1f, 1f, 0.10f));
             Ui.Text(new Rect(icon.x, icon.y, icon.width, icon.height), "涂", Ui.Center);
 
+            // 标题区宽度按实际剩余空间计算，避免与资料区/版本徽章互相覆盖
+            float textX = icon.xMax + 12f;
+            float textW = Mathf.Max(96f, profileX - textX - 12f);
+
             const string appTitle = "Coloring Pixels Tool";
-            Ui.Text(new Rect(icon.xMax + 12f, _window.y + 10f, 320f, 22f), appTitle, Ui.Title);
+            Ui.Text(new Rect(textX, _window.y + 13f, textW, 22f), Ellipsize(appTitle, Ui.Title, textW), Ui.Title);
 
-            // 版本徽章：与安装包共用同一个版本号来源
+            // 版本徽章：与安装包共用同一个版本号来源；空间不足时自动让位
             string ver = "v" + Plugin.Version;
-            float vx = icon.xMax + 12f + Ui.Title.CalcSize(new GUIContent(appTitle)).x + 8f;
+            float titleW = Ui.Title.CalcSize(new GUIContent(appTitle)).x;
             float vw = Ui.MutedSmall.CalcSize(new GUIContent(ver)).x + 16f;
-            Ui.Badge(new Rect(vx, _window.y + 14f, vw, 16f), ver, Ui.Accent2);
+            if (titleW + vw + 18f <= textW)
+                Ui.Badge(new Rect(textX + titleW + 8f, _window.y + 17f, vw, 16f), ver, Ui.Accent2);
 
-            Ui.Text(new Rect(icon.xMax + 12f, _window.y + 32f, 320f, 16f),
-                "按 " + KeyName(Plugin.KeyToggle.Value) + " 开关面板", Ui.MutedSmall);
+            Ui.Text(new Rect(textX, _window.y + 42f, textW, 16f),
+                Ellipsize("按 " + KeyName(Plugin.KeyToggle.Value) + " 开关面板", Ui.MutedSmall, textW), Ui.MutedSmall);
 
             // 用户资料（位于标题栏右侧，软件最上方）
-            DrawProfileHeader();
+            DrawProfileHeader(profileX, profileY, profileW, profileH);
 
-            // 关闭按钮
-            var close = new Rect(_window.xMax - 38f, _window.y + 12f, 26f, 26f);
-            bool hov = Ui.Hit(close);
             float ch = Ui.Tween("hdr-close", hov, 20f);
             Ui.Round(close, 8f, Color.Lerp(new Color(0.145f, 0.165f, 0.230f, 1f), Ui.Bad, ch));
             Ui.Text(close, "✕", Ui.Center, Color.Lerp(Ui.Muted, Color.white, ch));
@@ -363,60 +453,126 @@ namespace ColoringPixelsTool
             Ui.Fill(new Rect(_window.x + Pad, _window.y + HeaderH - 1f, _window.width - Pad * 2f, 1f), Ui.Line);
         }
 
-        private void DrawProfileHeader()
+        /// <summary>把文本按可用宽度截断，超出部分用「…」代替。</summary>
+        private static string Ellipsize(string text, GUIStyle style, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(text) || style == null || maxWidth <= 4f) return text;
+            if (style.CalcSize(new GUIContent(text)).x <= maxWidth) return text;
+
+            for (int len = text.Length - 1; len > 0; len--)
+            {
+                string candidate = text.Substring(0, len) + "…";
+                if (style.CalcSize(new GUIContent(candidate)).x <= maxWidth) return candidate;
+            }
+            return "";
+        }
+
+        /// <summary>「设置」页在当前分区里的下标。</summary>
+        private int SettingsTabIndex => _module == ModuleManual ? 4 : 6;
+
+        private void DrawProfileHeader(float areaX, float areaY, float areaW, float areaH)
         {
             EnsureAvatarTexture();
 
-            float areaW = 230f;
-            float areaX = _window.xMax - areaW - 44f;
-            float areaY = _window.y + 8f;
-
-            var area = new Rect(areaX, areaY, areaW, HeaderH - 16f);
+            var area = new Rect(areaX, areaY, areaW, areaH);
             bool hover = Ui.Hit(area);
-            if (hover) Ui.Round(area, 10f, new Color(1f, 1f, 1f, 0.04f));
+            if (hover) Ui.Round(area, 10f, new Color(1f, 1f, 1f, 0.05f));
 
-            // 头像（圆角方形 + 圆形描边）
-            var avatar = new Rect(areaX + 6f, areaY + 2f, 36f, 36f);
+            // 头像
+            var avatar = new Rect(areaX + 6f, areaY + 9f, 44f, 44f);
             if (_avatarTex != null)
             {
                 GUI.DrawTexture(avatar, _avatarTex, ScaleMode.ScaleAndCrop, true);
             }
             else
             {
-                Ui.Round(avatar, 10f, Ui.Alpha(Ui.Accent, 0.35f));
+                Ui.Round(avatar, 12f, Ui.Alpha(Ui.Accent, 0.35f));
                 Ui.Text(avatar, "我", Ui.Center, Ui.TextCol);
             }
-            Ui.RoundOutline(avatar, 10f, Ui.Alpha(Ui.TextCol, 0.18f), new Color(0f, 0f, 0f, 0f), 1.5f);
+            Ui.RoundOutline(avatar, 12f, Ui.Alpha(Ui.TextCol, 0.18f), new Color(0f, 0f, 0f, 0f), 1.5f);
 
-            // 用户名与等级徽章
-            string name = string.IsNullOrEmpty(UserProfile.Username) ? "未命名画师" : UserProfile.Username;
             float nx = avatar.xMax + 10f;
-            float nw = areaW - (avatar.xMax - areaX) - 14f;
+            float nw = areaX + areaW - nx - 8f;
+            if (nw < 60f) nw = 60f;
 
-            Ui.Text(new Rect(nx, areaY + 3f, nw - 46f, 18f), name, Ui.Label);
-            var badge = new Rect(nx + nw - 44f, areaY + 3f, 44f, 16f);
-            Ui.Badge(badge, "Lv." + UserProfile.Level, Ui.Accent2);
+            // 用户名 + 等级徽章
+            string name = string.IsNullOrEmpty(UserProfile.Username) ? "未命名画师" : UserProfile.Username;
+            const float badgeW = 46f;
+            Ui.Text(new Rect(nx, areaY + 5f, nw - badgeW - 4f, 18f),
+                Ellipsize(name, Ui.Label, nw - badgeW - 4f), Ui.Label);
+            Ui.Badge(new Rect(nx + nw - badgeW, areaY + 5f, badgeW, 16f), "Lv." + UserProfile.Level, Ui.Accent2);
 
-            // 经验条
-            var xpTrack = new Rect(nx, areaY + 26f, nw, 6f);
-            Ui.ProgressBar(xpTrack, UserProfile.LevelProgress, Ui.Accent);
+            // 等级称号
+            Ui.Text(new Rect(nx, areaY + 24f, nw, 14f),
+                Ellipsize(UserProfile.CurrentTitle, Ui.MutedSmall, nw), Ui.MutedSmall, Ui.Accent2);
 
-            Ui.Text(new Rect(nx, areaY + 34f, nw, 14f),
-                $"{UserProfile.XpIntoLevel}/{UserProfile.XpNeededForLevel} XP", Ui.MutedSmall);
+            // 经验条 + 数值
+            Ui.ProgressBar(new Rect(nx, areaY + 41f, nw, 6f), UserProfile.LevelProgress, Ui.Accent);
+            Ui.Text(new Rect(nx, areaY + 49f, nw, 12f),
+                UserProfile.XpIntoLevel + "/" + UserProfile.XpNeededForLevel + " XP", Ui.MutedSmall);
 
             if (hover && Event.current.type == EventType.MouseDown && Event.current.button == 0)
             {
-                _tab = 6;
+                _tab = SettingsTabIndex;
                 _scroll = Vector2.zero;
                 _profileInit = false;
                 Event.current.Use();
             }
         }
 
+        /// <summary>顶部分区切换：自动完成 / 人工辅助。</summary>
+        private void DrawModuleSwitch()
+        {
+            var box = new Rect(_window.x + Pad, _window.y + HeaderH + 1f, _window.width - Pad * 2f, ModuleH);
+            Event e = Event.current;
+
+            Ui.Round(new Rect(box.x, box.y + 3f, box.width, box.height - 6f), 9f,
+                new Color(0.031f, 0.039f, 0.059f, 0.85f));
+
+            string[] names = { "自动完成", "人工辅助" };
+            float bw = box.width * 0.5f;
+
+            for (int i = 0; i < 2; i++)
+            {
+                var r = new Rect(box.x + bw * i, box.y + 3f, bw, box.height - 6f);
+                bool active = _module == i;
+                bool hov = Ui.Hit(r);
+                float av = Ui.Tween("mod-a:" + i, active, 16f);
+
+                Color c = active
+                    ? Ui.Alpha(i == 0 ? Ui.Accent : Ui.Accent2, 0.26f)
+                    : new Color(1f, 1f, 1f, hov ? 0.05f : 0f);
+                Ui.Round(r, 8f, c);
+                if (active)
+                    Ui.RoundOutline(r, 8f, Ui.Alpha(i == 0 ? Ui.Accent : Ui.Accent2, 0.7f),
+                        new Color(0f, 0f, 0f, 0f), 1.4f);
+
+                Ui.Text(r, (i == 0 ? "⚡ " : "🖐 ") + names[i], Ui.Tab,
+                    Color.Lerp(Ui.Muted, Ui.TextCol, Mathf.Clamp01(Mathf.Max(av, hov ? 0.7f : 0f))));
+            }
+
+            // 点击切换
+            for (int i = 0; i < 2; i++)
+            {
+                var r = new Rect(box.x + bw * i, box.y + 3f, bw, box.height - 6f);
+                if (Ui.Hit(r) && e.type == EventType.MouseDown && e.button == 0)
+                {
+                    if (_module != i)
+                    {
+                        _module = i;
+                        _tab = 0;
+                        _scroll = Vector2.zero;
+                    }
+                    e.Use();
+                }
+            }
+        }
+
         private void DrawTabs()
         {
-            var bar = new Rect(_window.x + Pad, _window.y + HeaderH, _window.width - Pad * 2f, TabH);
-            float tw = bar.width / Tabs.Length;
+            string[] tabs = CurrentTabs;
+            var bar = new Rect(_window.x + Pad, _window.y + HeaderH + ModuleH, _window.width - Pad * 2f, TabH);
+            float tw = bar.width / tabs.Length;
             Event e = Event.current;
 
             // 分段控件底板
@@ -424,7 +580,7 @@ namespace ColoringPixelsTool
                 new Color(0.031f, 0.039f, 0.059f, 0.85f));
             Ui.Fill(new Rect(bar.x + 12f, bar.y + 6.5f, bar.width - 24f, 1f), new Color(0f, 0f, 0f, 0.35f));
 
-            for (int i = 0; i < Tabs.Length; i++)
+            for (int i = 0; i < tabs.Length; i++)
             {
                 var r = new Rect(bar.x + tw * i, bar.y + 6f, tw, bar.height - 12f);
                 bool active = _tab == i;
@@ -444,7 +600,7 @@ namespace ColoringPixelsTool
                     Ui.Round(r, 9f, new Color(1f, 1f, 1f, 0.04f * hv));
                 }
 
-                Ui.Text(r, Tabs[i], Ui.Tab,
+                Ui.Text(r, Ellipsize(tabs[i], Ui.Tab, tw - 4f), Ui.Tab,
                     Color.Lerp(Ui.Muted, Ui.TextCol, Mathf.Clamp01(Mathf.Max(av, hv * 0.65f))));
 
                 if (hov && e.type == EventType.MouseDown && e.button == 0)
@@ -458,8 +614,8 @@ namespace ColoringPixelsTool
 
         private void DrawContent()
         {
-            var view = new Rect(_window.x + Pad, _window.y + HeaderH + TabH,
-                _window.width - Pad * 2f, _window.height - HeaderH - TabH - FooterH);
+            var view = new Rect(_window.x + Pad, _window.y + HeaderH + ModuleH + TabH,
+                _window.width - Pad * 2f, _window.height - HeaderH - ModuleH - TabH - FooterH);
 
             Event e = Event.current;
 
@@ -483,16 +639,31 @@ namespace ColoringPixelsTool
 
             float y = -_scroll.y + 6f;
 
-            switch (_tab)
+            if (_module == ModuleManual)
             {
-                case 0: TabHome(w, ref y); break;
-                case 1: TabPaint(w, ref y); break;
-                case 2: TabAuto(w, ref y); break;
-                case 3: TabAutomation(w, ref y); break;
-                case 4: TabAssist(w, ref y); break;
-                case 5: TabUnlock(w, ref y); break;
-                case 6: TabSettings(w, ref y); break;
-                default: TabFields(w, ref y); break;
+                switch (_tab)
+                {
+                    case 0: TabAssistScan(w, ref y); break;
+                    case 1: TabAssistRegion(w, ref y); break;
+                    case 2: TabAssistParams(w, ref y); break;
+                    case 3: TabAssistPresets(w, ref y); break;
+                    case 4: TabSettings(w, ref y); break;
+                    default: TabFields(w, ref y); break;
+                }
+            }
+            else
+            {
+                switch (_tab)
+                {
+                    case 0: TabHome(w, ref y); break;
+                    case 1: TabPaint(w, ref y); break;
+                    case 2: TabAuto(w, ref y); break;
+                    case 3: TabAutomation(w, ref y); break;
+                    case 4: TabAssist(w, ref y); break;
+                    case 5: TabUnlock(w, ref y); break;
+                    case 6: TabSettings(w, ref y); break;
+                    default: TabFields(w, ref y); break;
+                }
             }
 
             _contentHeight = y + _scroll.y;
@@ -1222,12 +1393,16 @@ namespace ColoringPixelsTool
             }
             y += 48f;
 
-            Card(w, ref y, 54f, top =>
+            Card(w, ref y, 76f, top =>
             {
                 Ui.Text(new Rect(Pad, top + 8f, w - Pad * 2f, 18f),
-                    $"当前等级  Lv.{UserProfile.Level}  ·  总经验 {UserProfile.Xp} XP", Ui.Label);
-                Ui.Text(new Rect(Pad, top + 28f, w - Pad * 2f, 18f),
+                    $"当前等级  Lv.{UserProfile.Level}  ·  {UserProfile.CurrentTitle}", Ui.Label);
+                Ui.Text(new Rect(Pad, top + 27f, w - Pad * 2f, 16f),
+                    $"{UserProfile.XpIntoLevel}/{UserProfile.XpNeededForLevel} XP  ·  {UserProfile.NextTitleHint()}", Ui.MutedSmall);
+                Ui.Text(new Rect(Pad, top + 45f, w - Pad * 2f, 16f),
                     $"在线 {FormatDuration(UserProfile.TotalSeconds)}  ·  涂色 {UserProfile.PixelsPainted} 格  ·  完成 {UserProfile.ImagesCompleted} 张图", Ui.MutedSmall);
+                Ui.Text(new Rect(Pad, top + 61f, w - Pad * 2f, 16f),
+                    $"手动点击 {UserProfile.ManualClicks} 次  ·  手动 {UserProfile.ManualPixels} 格  ·  涂色率 {UserProfile.PaintingRate:0.00} 格/击", Ui.MutedSmall, Ui.Accent2);
             });
 
             y += 6f;
@@ -1235,6 +1410,22 @@ namespace ColoringPixelsTool
 
             Plugin.PanelOpacity.Value = Slider(w, ref y, "panelopacity", Plugin.PanelOpacity.Value, 0.5f, 1f,
                 "面板不透明度", $"{Plugin.PanelOpacity.Value * 100f:0}%", false);
+
+            Plugin.PanelScale.Value = Slider(w, ref y, "panelscale", Plugin.PanelScale.Value, 0f, 2.2f,
+                "面板缩放（0 = 自适应）", Plugin.PanelScale.Value < 0.05f ? "自适应" : $"{Plugin.PanelScale.Value:0.00}×", false);
+
+            float sh = (w - 8f) * 0.5f;
+            if (Ui.Button(new Rect(0f, y, sh, 34f), "按分辨率重算", Ui.Accent2, false))
+            {
+                Plugin.PanelScale.Value = 0f;
+                Toast("已切换为自适应缩放");
+            }
+            if (Ui.Button(new Rect(sh + 8f, y, sh, 34f), "放大一点", Ui.Accent, false))
+            {
+                Plugin.PanelScale.Value = Mathf.Clamp(UiScale + 0.1f, 0f, 2.2f);
+                Toast("面板缩放 " + Plugin.PanelScale.Value.ToString("0.00") + "×");
+            }
+            y += 42f;
 
             y += 6f;
             Section(w, ref y, "悬浮 HUD");
@@ -1603,6 +1794,393 @@ namespace ColoringPixelsTool
                     yy += 22f;
                 }
             }
+        }
+
+        // ============================================================ 页：人工辅助
+
+        private Assist.AssistEngine Eng => AssistOverlay.Instance != null ? AssistOverlay.Instance.Engine : null;
+
+        private void MarkAssistDirty()
+        {
+            if (AssistOverlay.Instance != null) AssistOverlay.Instance.MarkDirty();
+        }
+
+        private void InfoCard(float w, ref float y, float h, string title, string body)
+        {
+            Card(w, ref y, h, top =>
+            {
+                Ui.Text(new Rect(Pad, top + 9f, w - Pad * 2f, 18f), title, Ui.Label);
+                Ui.Text(new Rect(Pad, top + 29f, w - Pad * 2f, h - 36f), body, Ui.MutedSmall);
+            });
+        }
+
+        private void TabAssistScan(float w, ref float y)
+        {
+            var eng = Eng;
+            if (eng == null)
+            {
+                InfoCard(w, ref y, 60f, "覆盖层未就绪", "请确认插件已正确加载（BepInEx 控制台会输出初始化日志）。");
+                return;
+            }
+
+            Section(w, ref y, "扫描控制");
+
+            Card(w, ref y, 96f, top =>
+            {
+                Ui.Text(new Rect(Pad, top + 9f, w - Pad * 2f, 18f), "状态：" + eng.StateText, Ui.Label);
+                Ui.Text(new Rect(Pad, top + 30f, w - Pad * 2f, 16f),
+                    string.Format("第 {0}/{1} 行   已用 {2:0.0}s   进度 {3:0}%",
+                        eng.CurrentRow + 1, Mathf.Max(1, eng.TotalRows), eng.ElapsedSeconds, eng.Progress * 100f),
+                    Ui.MutedSmall);
+                Ui.ProgressBar(new Rect(Pad, top + 52f, w - Pad * 2f, 8f), eng.Progress, Ui.Accent2);
+                if (!string.IsNullOrEmpty(eng.Message))
+                    Ui.Text(new Rect(Pad, top + 66f, w - Pad * 2f, 16f), eng.Message, Ui.MutedSmall, Ui.Accent2);
+                else if (!string.IsNullOrEmpty(eng.LastError))
+                    Ui.Text(new Rect(Pad, top + 66f, w - Pad * 2f, 16f), eng.LastError, Ui.MutedSmall, Ui.Bad);
+            });
+
+            float half = (w - 8f) * 0.5f;
+            bool canResume = eng.State == Assist.AssistState.Paused
+                          || eng.State == Assist.AssistState.WaitingColour
+                          || eng.State == Assist.AssistState.RowPause;
+            string runLabel = canResume ? "继续 (F6)" : (eng.Running ? "暂停 (F6)" : "开始 (F6)");
+            if (Ui.Button(new Rect(0f, y, half, 38f), runLabel, Ui.Accent, true))
+                AssistOverlay.Instance.ToggleRun();
+            if (Ui.Button(new Rect(half + 8f, y, half, 38f), "停止 (F8)", Ui.Bad, false))
+                AssistOverlay.Instance.StopFromUi();
+            y += 44f;
+
+            float third = (w - 16f) / 3f;
+            if (Ui.Button(new Rect(0f, y, third, 34f), "试扫本行 (F9)", Ui.Accent2, false))
+                AssistOverlay.Instance.TestRowFromUi();
+            if (Ui.Button(new Rect(third + 8f, y, third, 34f), "重新整扫 (F10)", Ui.Accent2, false))
+                AssistOverlay.Instance.RestartFromUi();
+            if (Ui.Button(new Rect((third + 8f) * 2f, y, third, 34f), "格子校准 (F11)", Ui.Accent2, false))
+                AssistOverlay.Instance.BeginCalibrateFromUi();
+            y += 40f;
+
+            y += 6f;
+            Section(w, ref y, "区域");
+
+            if (!eng.Region.HasRegion)
+            {
+                InfoCard(w, ref y, 72f, "还没有框选区域",
+                    "按 F7 在屏幕上拖出整个画布区域，然后按 F11 框选其中一个格子自动推算行数与步长。\n" +
+                    "区域框好后还能拖动四角 / 边中点微调。");
+            }
+            else
+            {
+                InfoCard(w, ref y, 72f, "区域已就绪",
+                    string.Format("约 {0:0} × {1:0} 像素，共 {2} 行扫描线。\n"
+                                + "F11 框选一个格子可自动校准「扫描行数 / 采样步长」。",
+                        eng.Region.ApproxWidth(), eng.Region.ApproxHeight(), eng.S.Rows));
+            }
+
+            float h2 = (w - 8f) * 0.5f;
+            if (Ui.Button(new Rect(0f, y, h2, 34f), "重新框选 (F7)", Ui.Accent2, false))
+                AssistOverlay.Instance.BeginSelectFromUi();
+            if (Ui.Button(new Rect(h2 + 8f, y, h2, 34f), "清除区域", Ui.Bad, false))
+            {
+                eng.Region.Clear();
+                MarkAssistDirty();
+            }
+            y += 42f;
+        }
+
+        private void TabAssistRegion(float w, ref float y)
+        {
+            var eng = Eng;
+            if (eng == null) { InfoCard(w, ref y, 56f, "覆盖层未就绪", "请确认插件已正确加载。"); return; }
+
+            Section(w, ref y, "区域编辑");
+            InfoCard(w, ref y, 74f, "怎么用",
+                "F7 全屏拖拽框选；框好后直接拖动四个白点，可以把矩形调成平行四边形或梯形，\n" +
+                "中间亮起的小圆点是每条边的中点，用来把直边弯成弧线，贴合不规则区域。\n" +
+                "F11 再框一个格子就能自动推算行数与步长；F12 显示 / 隐藏覆盖层。");
+
+            if (eng.Region.HasRegion)
+            {
+                y += 6f;
+                Section(w, ref y, "四个角（屏幕像素）");
+                Card(w, ref y, 92f, top =>
+                {
+                    string[] names = { "左上", "右上", "右下", "左下" };
+                    for (int i = 0; i < 4; i++)
+                    {
+                        float col = i % 2;
+                        float row = i / 2;
+                        Ui.Text(new Rect(Pad + col * (w * 0.5f), top + 9f + row * 22f, w * 0.5f - Pad, 16f),
+                            string.Format("{0}  ({1:0}, {2:0})", names[i], eng.Region.X[i], eng.Region.Y[i]), Ui.MutedSmall);
+                    }
+                });
+
+                y += 6f;
+                Section(w, ref y, "弯边（-0.5 ~ 0.5）");
+                for (int i = 0; i < 4; i++)
+                {
+                    string[] edgeNames = { "上边", "右边", "下边", "左边" };
+                    float v = (float)eng.Region.Bend[i];
+                    float nv = Slider(w, ref y, "bend" + i, v, -0.5f, 0.5f, edgeNames[i] + "弯曲", v.ToString("0.00"), false);
+                    if (Mathf.Abs(nv - v) > 0.0001f)
+                    {
+                        eng.Region.Bend[i] = nv;
+                        MarkAssistDirty();
+                    }
+                }
+            }
+        }
+
+        private void TabAssistParams(float w, ref float y)
+        {
+            var eng = Eng;
+            if (eng == null) { InfoCard(w, ref y, 56f, "覆盖层未就绪", "请确认插件已正确加载。"); return; }
+
+            var s = eng.S;
+            bool changed = false;
+
+            Section(w, ref y, "扫描节奏");
+            changed |= ApplyStepper(w, ref y, "行数", ref s.Rows, 1, 1, 400, " 行");
+            changed |= ApplySliderD(w, ref y, "a-speed", ref s.Speed, 200f, 8000f, "鼠标速度", " px/s");
+            changed |= ApplySliderD(w, ref y, "a-step", ref s.Step, 1f, 30f, "采样步长", " px");
+            changed |= ApplySliderI(w, ref y, "a-rowpause", ref s.RowPauseMs, 0f, 2000f, "行间停顿", " ms");
+
+            y += 4f;
+            Section(w, ref y, "形状");
+            changed |= ApplyToggle(w, ref y, ref s.Snake, "蛇形往返", "奇数行反向扫描，避免每行都空跑回起点。");
+            changed |= ApplySliderD(w, ref y, "a-margin", ref s.EdgeMargin, 0f, 20f, "边缘内缩", " px");
+
+            y += 4f;
+            Section(w, ref y, "安全与自动化");
+            changed |= ApplySliderI(w, ref y, "a-delay", ref s.StartDelayMs, 0f, 6000f, "开始倒计时", " ms");
+            changed |= ApplyToggle(w, ref y, ref s.HoldButton, "按住鼠标左键", "扫描时保持左键按住，一路涂过去。");
+            changed |= ApplyToggle(w, ref y, ref s.DetectIntervention, "人工干预检测", "鼠标被抢走时自动暂停，避免乱涂。");
+            changed |= ApplySliderD(w, ref y, "a-fail", ref s.FailRadius, 20f, 400f, "干预判定半径", " px");
+            changed |= ApplyStepper(w, ref y, "自动停止", ref s.AutoStopMinutes, 1, 0, 600, " 分钟");
+
+            y += 4f;
+            Section(w, ref y, "自动换色");
+            changed |= ApplyStepper(w, ref y, "每 N 行换色", ref s.AutoSwitchEveryRows, 1, 0, 400, " 行");
+            changed |= ApplySwitchKey(w, ref y, ref s.AutoSwitchKeyVk);
+            changed |= ApplyStepper(w, ref y, "换色等待", ref s.AutoSwitchWaitMs, 500, 0, 60000, " ms");
+
+            if (changed)
+            {
+                s.Clamp();
+                MarkAssistDirty();
+            }
+
+            y += 6f;
+            if (Ui.Button(new Rect(0f, y, w, 36f), "恢复默认参数", Ui.Accent2, false))
+            {
+                var d = new Assist.AssistSettings();
+                s.Rows = d.Rows; s.Speed = d.Speed; s.Step = d.Step; s.RowPauseMs = d.RowPauseMs;
+                s.Snake = d.Snake; s.EdgeMargin = d.EdgeMargin; s.StartDelayMs = d.StartDelayMs;
+                s.HoldButton = d.HoldButton; s.AutoStopMinutes = d.AutoStopMinutes;
+                s.AutoSwitchEveryRows = d.AutoSwitchEveryRows; s.AutoSwitchKeyVk = d.AutoSwitchKeyVk;
+                s.AutoSwitchWaitMs = d.AutoSwitchWaitMs; s.FailRadius = d.FailRadius;
+                s.DetectIntervention = d.DetectIntervention;
+                MarkAssistDirty();
+                Toast("已恢复默认参数");
+            }
+            y += 44f;
+        }
+
+        private void TabAssistPresets(float w, ref float y)
+        {
+            Section(w, ref y, "参数预设");
+
+            InfoCard(w, ref y, 56f, "为什么要有预设",
+                "不同图幅、不同缩放，参数差别很大。存一组预设，下次一键换回来。");
+
+            Ui.Text(new Rect(0f, y, w, 16f), "预设名称", Ui.MutedSmall);
+            y += 17f;
+            var nameR = new Rect(0f, y, w, 34f);
+            Ui.Round(nameR, 8f, Ui.Card);
+            _presetName = GUI.TextField(new Rect(nameR.x + 10f, nameR.y + 7f, nameR.width - 20f, 20f),
+                _presetName ?? "", Ui.Label);
+            y += 42f;
+
+            float half = (w - 8f) * 0.5f;
+            if (Ui.Button(new Rect(0f, y, half, 36f), "保存为预设", Ui.Accent, true))
+            {
+                if (string.IsNullOrEmpty((_presetName ?? "").Trim())) Toast("先给预设起个名字");
+                else
+                {
+                    var eng = Eng;
+                    if (eng != null) Assist.AssistStore.SavePreset(_presetName.Trim(), eng.S);
+                    Toast("预设已保存：" + _presetName.Trim());
+                }
+            }
+            if (Ui.Button(new Rect(half + 8f, y, half, 36f), "加载预设", Ui.Accent2, false))
+            {
+                var eng = Eng;
+                var preset = Assist.AssistStore.LoadPreset((_presetName ?? "").Trim());
+                if (eng == null || preset == null) Toast("没找到这个预设");
+                else
+                {
+                    AssistOverlay.CopyInto(preset, eng.S);
+                    Toast("已加载预设：" + _presetName.Trim());
+                }
+            }
+            y += 42f;
+
+            y += 6f;
+            Section(w, ref y, "已保存的预设");
+            var list = Assist.AssistStore.ListPresets();
+            if (list.Count == 0)
+            {
+                InfoCard(w, ref y, 48f, "暂无预设", "在上面输入名称后点「保存为预设」。");
+            }
+            else
+            {
+                foreach (string name in list)
+                {
+                    var row = new Rect(0f, y, w, 32f);
+                    Ui.Round(row, 8f, Ui.Card);
+                    Ui.Text(new Rect(row.x + 10f, row.y + 7f, w - 120f, 18f), name, Ui.Label);
+                    if (Ui.Button(new Rect(row.x + w - 106f, row.y + 3f, 48f, 26f), "用", Ui.Accent, false))
+                    {
+                        var preset = Assist.AssistStore.LoadPreset(name);
+                        var eng = Eng;
+                        if (preset != null && eng != null)
+                        {
+                            AssistOverlay.CopyInto(preset, eng.S);
+                            _presetName = name;
+                            Toast("已加载：" + name);
+                        }
+                    }
+                    if (Ui.Button(new Rect(row.x + w - 54f, row.y + 3f, 48f, 26f), "删", Ui.Bad, false))
+                    {
+                        Assist.AssistStore.DeletePreset(name);
+                        Toast("已删除：" + name);
+                        break;
+                    }
+                    y += 38f;
+                }
+            }
+
+            y += 6f;
+            Section(w, ref y, "快速模板");
+            float t3 = (w - 16f) / 3f;
+            if (Ui.Button(new Rect(0f, y, t3, 36f), "通用", Ui.Accent2, false)) ApplyTemplate(0);
+            if (Ui.Button(new Rect(t3 + 8f, y, t3, 36f), "精细小图", Ui.Accent2, false)) ApplyTemplate(1);
+            if (Ui.Button(new Rect((t3 + 8f) * 2f, y, t3, 36f), "大图极速", Ui.Accent2, false)) ApplyTemplate(2);
+            y += 44f;
+        }
+
+        private void ApplyTemplate(int index)
+        {
+            var eng = Eng;
+            if (eng == null) return;
+            var s = eng.S;
+            var d = new Assist.AssistSettings();
+            if (index == 0)
+            {
+                AssistOverlay.CopyInto(d, s);
+            }
+            else if (index == 1)
+            {
+                AssistOverlay.CopyInto(d, s);
+                s.Rows = 40; s.Speed = 700; s.Step = 2; s.RowPauseMs = 200; s.EdgeMargin = 3;
+            }
+            else
+            {
+                AssistOverlay.CopyInto(d, s);
+                s.Rows = 12; s.Speed = 3000; s.Step = 8; s.RowPauseMs = 40; s.EdgeMargin = 1;
+            }
+            MarkAssistDirty();
+            Toast("已套用模板 " + index);
+        }
+
+        // ---- 人工辅助参数行 ----
+
+        private string _presetName = "";
+
+        private bool ApplySliderD(float w, ref float y, string key, ref double value, float min, float max,
+            string label, string unit)
+        {
+            float before = (float)value;
+            string display = before.ToString("0.#") + unit;
+            float nv = Slider(w, ref y, key, before, min, max, label, display, false);
+            if (Mathf.Abs(nv - before) < 0.0001f) return false;
+            value = nv;
+            return true;
+        }
+
+        private bool ApplySliderI(float w, ref float y, string key, ref int value, float min, float max,
+            string label, string unit)
+        {
+            float before = value;
+            string display = value + unit;
+            float nv = Slider(w, ref y, key, before, min, max, label, display, true);
+            int iv = Mathf.RoundToInt(nv);
+            if (iv == value) return false;
+            value = iv;
+            return true;
+        }
+
+        private bool ApplyStepper(float w, ref float y, string label, ref int value, int step, int min, int max, string unit)
+        {
+            var row = new Rect(0f, y, w, 34f);
+            Ui.Round(row, 8f, Ui.Card);
+            Ui.Text(new Rect(row.x + 10f, row.y + 9f, w - 160f, 18f), label, Ui.Label);
+
+            float bx = row.x + w - 140f;
+            bool changed = false;
+            if (Ui.Button(new Rect(bx, row.y + 4f, 30f, 26f), "−", Ui.Accent2, false))
+            {
+                value = Mathf.Clamp(value - step, min, max);
+                changed = true;
+            }
+            Ui.Text(new Rect(bx + 34f, row.y + 9f, 70f, 18f), value + unit, Ui.Center);
+
+            if (Ui.Button(new Rect(bx + 108f, row.y + 4f, 30f, 26f), "+", Ui.Accent, false))
+            {
+                value = Mathf.Clamp(value + step, min, max);
+                changed = true;
+            }
+            y += 40f;
+            return changed;
+        }
+
+        private bool ApplyToggle(float w, ref float y, ref bool value, string label, string desc)
+        {
+            bool nv = Toggle(w, ref y, value, label, desc);
+            if (nv == value) return false;
+            value = nv;
+            return true;
+        }
+
+        private static readonly int[] SwitchKeyVks = { 0, 0x20, 0x09, 0x31, 0x32, 0x33, 0x34, 0x35, 0x51, 0x45, 0x52, 0x46 };
+        private static readonly string[] SwitchKeyNames = { "关闭", "空格", "Tab", "1", "2", "3", "4", "5", "Q", "E", "R", "F" };
+
+        private bool ApplySwitchKey(float w, ref float y, ref int vk)
+        {
+            var row = new Rect(0f, y, w, 34f);
+            Ui.Round(row, 8f, Ui.Card);
+            Ui.Text(new Rect(row.x + 10f, row.y + 9f, w - 160f, 18f), "自动换色按键", Ui.Label);
+
+            int idx = 0;
+            for (int i = 0; i < SwitchKeyVks.Length; i++)
+                if (SwitchKeyVks[i] == vk) { idx = i; break; }
+
+            float bx = row.x + w - 140f;
+            bool changed = false;
+            if (Ui.Button(new Rect(bx, row.y + 4f, 30f, 26f), "‹", Ui.Accent2, false))
+            {
+                idx = (idx - 1 + SwitchKeyVks.Length) % SwitchKeyVks.Length;
+                vk = SwitchKeyVks[idx];
+                changed = true;
+            }
+            Ui.Text(new Rect(bx + 34f, row.y + 9f, 70f, 18f), SwitchKeyNames[idx], Ui.Center);
+            if (Ui.Button(new Rect(bx + 108f, row.y + 4f, 30f, 26f), "›", Ui.Accent, false))
+            {
+                idx = (idx + 1) % SwitchKeyVks.Length;
+                vk = SwitchKeyVks[idx];
+                changed = true;
+            }
+            y += 40f;
+            return changed;
         }
 
         // ============================================================ 布局小工具

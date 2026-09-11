@@ -50,18 +50,51 @@ namespace ColoringPixelsTool.Installer
         {
             try
             {
-                string dir = options.GameDir;
+                GameDescriptor game = AppInfo.FindGame(options.GameKey);
+                if (game == null)
+                {
+                    if (!string.IsNullOrEmpty(options.GameKey))
+                    {
+                        Log.Error("未知的游戏代号：" + options.GameKey + "（可用：cp / pcs）");
+                        return 2;
+                    }
+                    game = AppInfo.ColoringPixels;
+                }
 
+                // --all：把所有检测到的游戏都装一遍
+                if (options.AllGames && string.IsNullOrEmpty(options.GameDir))
+                {
+                    Log.Step("正在检测所有受支持的游戏……");
+                    List<string> t;
+                    List<GameCandidate> all = GameLocator.DetectAll(options.DeepScan, out t);
+                    foreach (string line in t) Log.Raw("       " + line);
+
+                    if (all.Count == 0)
+                    {
+                        Log.Error("未能定位任何受支持的游戏目录");
+                        return 2;
+                    }
+
+                    int rc = 0;
+                    foreach (GameCandidate c in all)
+                    {
+                        int r = RunOne(options, c.Game, c.Path);
+                        if (r != 0) rc = r;
+                    }
+                    return rc;
+                }
+
+                string dir = options.GameDir;
                 if (string.IsNullOrEmpty(dir))
                 {
-                    Log.Step("正在自动检测游戏目录……");
+                    Log.Step("正在自动检测「" + game.DisplayName + "」的游戏目录……");
                     List<string> trail;
-                    GameCandidate best = GameLocator.DetectBest(options.DeepScan, out trail);
+                    GameCandidate best = GameLocator.BestFor(game, options.DeepScan, out trail);
                     foreach (string t in trail) Log.Raw("       " + t);
 
                     if (best == null)
                     {
-                        Log.Error("未能定位游戏目录，请使用 --dir=\"<路径>\" 指定");
+                        Log.Error("未能定位「" + game.DisplayName + "」的目录，请使用 --dir=\"<路径>\" 指定");
                         return 2;
                     }
 
@@ -73,45 +106,7 @@ namespace ColoringPixelsTool.Installer
                     Log.Info("使用指定的游戏目录：" + dir);
                 }
 
-                GameInfo info = GameLocator.Inspect(dir);
-                if (!info.Usable)
-                {
-                    Log.Error("游戏目录不可用：" + info.Error);
-                    return 2;
-                }
-                if (info.Warning != null) Log.Warn(info.Warning);
-
-                if (options.DetectOnly)
-                {
-                    Log.Ok("检测完成：" + dir + "（" + info.ArchitectureText + "）");
-                    return 0;
-                }
-
-                if (GameLocator.IsTargetGameRunning(dir))
-                {
-                    Log.Error("游戏正在运行，无法安全部署（文件被占用）。请先关闭游戏后重试。");
-                    return 3;
-                }
-
-                if (options.Uninstall)
-                {
-                    PayloadInstaller.Uninstall(dir, options.RemoveBepInEx, options.RestoreBackup, null);
-                    Log.Ok("卸载完成");
-                    return 0;
-                }
-
-                PayloadInstaller.Install(dir, true, !options.NoBackup, null);
-                Log.Ok("安装完成");
-
-                if (!options.NoLaunch)
-                {
-                    string error;
-                    System.Diagnostics.Process p = PayloadInstaller.LaunchGame(dir, out error);
-                    if (p == null) Log.Warn("启动游戏失败：" + error);
-                    else Log.Ok("已启动游戏（PID " + p.Id + "），进入关卡后按 F1 打开面板");
-                }
-
-                return 0;
+                return RunOne(options, game, dir);
             }
             catch (Exception ex)
             {
@@ -119,6 +114,59 @@ namespace ColoringPixelsTool.Installer
                 Log.Raw(ex.ToString());
                 return 1;
             }
+        }
+
+        /// <summary>对单款游戏执行一次 检测 / 安装 / 卸载。</summary>
+        private static int RunOne(Options options, GameDescriptor game, string dir)
+        {
+            Log.Info("目标游戏：" + game.DisplayName + "（" + game.Key + "）");
+
+            GameInfo info = GameLocator.Inspect(dir, game);
+            if (!info.Usable)
+            {
+                Log.Error("游戏目录不可用：" + info.Error);
+                return 2;
+            }
+            if (info.Warning != null) Log.Warn(info.Warning);
+
+            if (options.DetectOnly)
+            {
+                Log.Ok("检测完成：" + dir + "（" + info.ArchitectureText + "）");
+                return 0;
+            }
+
+            if (GameLocator.IsTargetGameRunning(dir, game))
+            {
+                Log.Error("游戏正在运行，无法安全部署（文件被占用）。请先关闭游戏后重试。");
+                return 3;
+            }
+
+            if (options.Uninstall)
+            {
+                PayloadInstaller.Uninstall(dir, game, options.RemoveBepInEx, options.RestoreBackup, null);
+                Log.Ok("卸载完成");
+                return 0;
+            }
+
+            PayloadInstaller.Install(dir, game, true, !options.NoBackup, null);
+            Log.Ok("安装完成");
+
+            if (!options.NoLaunch)
+            {
+                string error;
+                System.Diagnostics.Process p = PayloadInstaller.LaunchGame(dir, game, out error);
+                if (p == null) Log.Warn("启动游戏失败：" + error);
+
+                if (game.AssistExeRelativePath != null)
+                {
+                    System.Diagnostics.Process a = PayloadInstaller.LaunchAssist(dir, game, out error);
+                    if (a == null) Log.Warn("启动独立助手失败：" + error);
+                }
+
+                Log.Info(game.TipText);
+            }
+
+            return 0;
         }
     }
 }

@@ -3,6 +3,56 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.1.0] - 2026-09-11
+
+### 新增
+
+- **新增第二款游戏支持：《涂色大师：像素梦想家》**
+  - 安装器现在会同时识别两款游戏的目录与配置文件，互不影响：任意一款没识别到，另一款照常安装
+    - 《Coloring Pixels》：Steam AppId `897330`，校验 `ColoringPixels.exe` + `ColoringPixels_Data\Managed\Assembly-CSharp.dll`
+    - 《涂色大师：像素梦想家》：Steam AppId `3071670`，校验 `PixelCrossStitch.exe` + `GameAssembly.dll`（IL2CPP）
+  - 界面顶部新增游戏切换标签，两款游戏各自记忆目录、安装状态与版本，可分别安装 / 卸载
+  - 该游戏是 IL2CPP 构建，无法注入 BepInEx 托管插件，因此改为随包分发**独立助手 `PixelAssist.exe`**
+    - 全局热键：<kbd>F7</kbd> 框选画布、<kbd>F11</kbd> 框选一个格子自动校准行数/步长、<kbd>F6</kbd> 开始/暂停、<kbd>F8</kbd> 急停、<kbd>F9</kbd> 试扫当前行、<kbd>F10</kbd> 停止并重新整屏扫描、<kbd>F12</kbd> 显示/隐藏范围框
+    - 全屏点击穿透覆盖层实时显示扫描区域、当前扫描线与进度 HUD
+    - 参数与区域保存在 `%APPDATA%\PixelAssist`，升级安装包不会丢失
+  - 命令行新增 `--game=cp|pcs` 与 `--all`（对所有检测到的游戏各安装一次）
+
+- **Coloring Pixels 面板分为「自动完成」与「人工辅助」两大模块**
+  - 「自动完成」保留原有全部功能（涂色、拟人、自动化、辅助、解锁、设置、调试）
+  - 「人工辅助」按设计文档实现：屏幕扫描辅助区域（四角 + 弯边模型，可逐角拖动微调）、
+    扫描行数 / 速度 / 采样步长 / 行间停顿 / 蛇形 / 边缘内缩 / 启动延时 / 按住按键 /
+    自动停止时长 / 每 N 行自动换色 / 失败半径 / 人工介入检测 / 越界收敛，
+    并提供参数预设的保存 / 载入 / 删除
+
+### 变更
+
+- **面板自适应缩放**：面板整体按屏幕分辨率与用户倍率缩放（新增 `PanelScale` 配置，`0` 为自适应），
+  低分辨率下不再出现文字互相覆盖；超宽文本自动省略号截断
+- **经验值增长大幅放缓**，并把手动点击次数、手动涂色率纳入经验判定；挂机收益明显低于真人操作
+- 每个等级区间新增趣味称号（面板顶部展示，升级时弹 Toast）
+
+### 修复
+
+- 修复面板在非 1080p 分辨率下命中区域与实际控件错位的问题
+- 修复安装器只比较文件长度就判定「已是最新」的问题：负载重建后新文件长度恰好与旧文件相同时，
+  插件会永远更新不上；现在改为逐字节内容比对，并支持「全部已是最新」时正常报成功而非误报权限错误
+
+## [2.0.0] - 2026-09-10
+
+### 新增
+
+- **用户等级系统**：头像、用户名、经验条常驻面板顶部，按在线时长 / 涂色格数 / 完成图片 / 图片大小累计 XP（不影响任何功能）
+- **面板自定义背景图**：在「设置」页填写图片路径即可替换面板背景
+- **自动化自动切图**：完成当前图片后自动加载下一张，涂完一本自动翻下一本并跳过已完成关卡
+- **游戏设置推荐预设**：在游戏原生设置界面注入「推荐预设」按钮，一键套用推荐配置
+- **安装器更新后弹窗公告**（`ChangelogDialog`），GitHub Release 正文改用 `RELEASE_NOTES.md`
+- 安装器检查更新增加 `releases/latest` 302 重定向兜底，失败时提示夸克网盘手动更新入口
+
+### 变更
+
+- 面板与安装器 UI 全面重构：深靛蓝底 + 青紫霓虹强调 + 玻璃质感卡片 + 分段式页签动画
+
 ## [1.3.1] - 2026-09-10
 
 ### 新增
@@ -102,6 +152,8 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.1.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.1.0
+[2.0.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.0.0
 [1.3.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v1.3.0
 [1.2.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v1.2.0
 [1.1.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v1.1.0
