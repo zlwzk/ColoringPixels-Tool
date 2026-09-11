@@ -45,20 +45,36 @@ cd ColoringPixelsTool
 - `build-installer.ps1` / `build-release.ps1` 读取它并用于产物文件名。
 - 插件源码中的 `Plugin.Version` 常量由 `publish.ps1` 自动同步；手动发版时才需要自己改。
 
-### 3.1 更新公告（三处同步）
+### 3.1 公告（四处同步，两个来源）
 
-「更新公告」同样只有一个来源：仓库根目录的 [`RELEASE_NOTES.md`](../RELEASE_NOTES.md)。
+公告有两个**互不相同**的来源，按「用户第几次见到它」分工：
+
+| 来源 | 内容 | 用途 |
+| --- | --- | --- |
+| [`RELEASE_NOTES.md`](../RELEASE_NOTES.md) | 每次发版都变的更新说明 | 老用户升级后看到；同时是 GitHub Release 正文 |
+| [`FEATURES.md`](../FEATURES.md) | 几乎不变的全功能总览（幽默风） | **只在用户第一次接触工具时**展示一次（安装器首装 / 游戏内首启） |
+
+`RELEASE_NOTES.md`：
 
 - CI 把它作为 GitHub Release 正文（见 `release.yml` 的 `body_path`）；
 - [`scripts/build-changelog.ps1`](../scripts/build-changelog.ps1) 把它转成两个源码文件：
   - `src\ColoringPixelsTool\Changelog.cs` —— 游戏内 <kbd>F1</kbd> 面板的「更新公告」；
   - `installer\ReleaseNotes.cs` —— 安装器安装完成后的弹窗公告。
 
-因此**改公告只需编辑 `RELEASE_NOTES.md`**，上面两个 `.cs` 由脚本生成，不要手改。
+`FEATURES.md`：
+
+- 同一个脚本把它转成另外两个源码文件：
+  - `src\ColoringPixelsTool\FeatureGuide.cs` —— 游戏内面板的「功能总览」（设置页可随时重开）；
+  - `installer\FeatureGuide.cs` —— 安装器**首次安装**时弹出的功能总览。
+
+「第一次」的判定：安装器在安装前调 `PayloadInstaller.IsInstalled()`，为 `false` 就是新玩家；
+插件看 `UserProfile.LastVersion` 是否为空。装过 / 用过的老用户只会看到当版更新公告。
+
+因此**改公告只需编辑上面两个 Markdown**，那四个 `.cs` 由脚本生成，不要手改。
 脚本会在 `publish.ps1` 与 `build-release.ps1` 编译前自动运行，也可单独执行：
 
 ```powershell
-.\scripts\build-changelog.ps1          # 生成 / 更新两个公告源码文件
+.\scripts\build-changelog.ps1          # 生成 / 更新四个公告与功能总览源码文件
 .\scripts\build-changelog.ps1 -Check   # 只校验是否已同步（未同步时退出码 1）
 ```
 
@@ -101,7 +117,7 @@ cd ColoringPixelsTool
 ## 6. 分步构建
 
 ```powershell
-# ⓪ 生成更新公告源码（RELEASE_NOTES.md -> 面板 / 安装器）
+# ⓪ 生成公告与功能总览源码（RELEASE_NOTES.md / FEATURES.md -> 面板 / 安装器）
 .\scripts\build-changelog.ps1
 
 # ① 仅编译插件

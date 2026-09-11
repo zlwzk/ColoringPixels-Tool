@@ -67,7 +67,14 @@ namespace ColoringPixelsTool
 
         // ---- 更新公告 ----
         public static bool PendingAnnouncement;
+
+        /// <summary>这次要弹的是「功能总览」（首次使用）而不是「更新公告」。</summary>
+        public static bool PendingAnnouncementIsFirstRun;
+
         private bool _showAnnouncement;
+
+        /// <summary>当前这份弹窗展示的是功能总览（true）还是更新公告（false）。</summary>
+        private bool _announcementIsGuide;
         private Vector2 _announceScroll;
 
         // ---- 首页计时器 ----
@@ -911,25 +918,30 @@ namespace ColoringPixelsTool
             Ui.Round(win, 16f, Ui.Panel);
             Ui.RoundOutline(win, 16f, Ui.CardEdge, new Color(0f, 0f, 0f, 0f), 1.5f);
 
+            // 首次使用给「功能总览」，之后升级只看「更新公告」——不再拿全部功能糊一遍老用户。
+            string title = _announcementIsGuide
+                ? "欢迎使用 · 功能总览"
+                : "V" + Changelog.CurrentVersion + " 更新公告";
+            string body = _announcementIsGuide ? FeatureGuide.Body : Changelog.Body;
+
             // 标题
-            Ui.Text(new Rect(win.x + 20f, win.y + 16f, win.width - 40f, 28f),
-                "V" + Changelog.CurrentVersion + " 更新公告", Ui.Title);
+            Ui.Text(new Rect(win.x + 20f, win.y + 16f, win.width - 40f, 28f), title, Ui.Title);
             Ui.Fill(new Rect(win.x + 20f, win.y + 48f, win.width - 40f, 1f), Ui.Line);
 
             // 滚动文本
-            var textR = new Rect(win.x + 20f, win.y + 58f, win.width - 40f, win.height - 120f);
+            var textR = new Rect(win.x + 20f, win.y + 58f, win.width - 40f, win.height - 168f);
             GUI.BeginClip(textR);
             var style = new GUIStyle(Ui.Label)
             {
                 wordWrap = true,
                 padding = new RectOffset(0, 6, 0, 0)
             };
-            var content = new GUIContent(Changelog.Body);
+            var content = new GUIContent(body);
             float textH = style.CalcHeight(content, textR.width);
             _announceScroll.y += e.type == EventType.ScrollWheel && textR.Contains(Ui.Mouse) ? e.delta.y * 28f : 0f;
             _announceScroll.y = Mathf.Clamp(_announceScroll.y, 0f, Mathf.Max(0f, textH - textR.height));
 
-            GUI.Label(new Rect(0f, -_announceScroll.y, textR.width, textH), Changelog.Body, style);
+            GUI.Label(new Rect(0f, -_announceScroll.y, textR.width, textH), body, style);
             GUI.EndClip();
 
             // 滚动条
@@ -945,9 +957,21 @@ namespace ColoringPixelsTool
             }
 
             // 关闭按钮
-            var btn = new Rect(win.x + 40f, win.y + win.height - 48f, win.width - 80f, 36f);
+            var btn = new Rect(win.x + 40f, win.y + win.height - 94f, win.width - 80f, 36f);
             if (Ui.Button(btn, "我知道了，快去涂色！", Ui.Good, true))
                 _showAnnouncement = false;
+
+            // 顺手留一个「换一份看」的入口：首启看功能总览的人常想知道这版改了什么，
+            // 升级的人也可能想翻一遍完整功能清单。
+            string swap = _announcementIsGuide
+                ? ("只看本版更新（V" + Changelog.CurrentVersion + "）")
+                : "查看完整功能清单";
+            var swapR = new Rect(win.x + 40f, win.y + win.height - 50f, win.width - 80f, 32f);
+            if (Ui.Button(swapR, swap, Ui.Accent2, false))
+            {
+                _announcementIsGuide = !_announcementIsGuide;
+                _announceScroll = new Vector2(0f, 0f);
+            }
         }
 
         // ============================================================ 页：首页
@@ -1746,7 +1770,7 @@ namespace ColoringPixelsTool
             FeedbackSection(w, ref y);
 
             y += 6f;
-            Section(w, ref y, "新手指引");
+            Section(w, ref y, "新手指引 / 功能总览");
             GuideSection(w, ref y);
 
             y += 6f;

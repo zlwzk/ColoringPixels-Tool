@@ -708,12 +708,13 @@ namespace ColoringPixelsTool
             }
         }
 
-        // ============================================================ 新手指引入口
+        // ============================================================ 新手指引 / 功能总览入口
 
         private void GuideSection(float w, ref float y)
         {
             Ui.Text(new Rect(0f, y, w, 36f),
-                "首次启动会自动弹出新手指引，也可以在下面随时重新打开。", Ui.MutedStyle);
+                "首次启动会自动弹出新手指引；第一次用这个工具时还会给一份完整的功能总览。",
+                Ui.MutedStyle);
             y += 42f;
 
             Plugin.GuideShown.Value = Toggle(w, ref y, Plugin.GuideShown.Value,
@@ -723,6 +724,14 @@ namespace ColoringPixelsTool
             {
                 _guidePage = 0;
                 _showGuide = true;
+            }
+            y += 44f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "查看完整功能清单", Ui.Accent2, false))
+            {
+                _announcementIsGuide = true;
+                _announceScroll = new Vector2(0f, 0f);
+                _showAnnouncement = true;
             }
             y += 44f;
         }

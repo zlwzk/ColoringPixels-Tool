@@ -3,6 +3,33 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.10] - 2026-09-11
+
+### 新增
+
+- **首次使用的「功能总览」公告**：新玩家第一次接触工具时，看到的是完整功能清单而不是
+  「这版改了什么」；老用户升级仍然只看当版更新公告。
+  - 新增仓库根目录 `FEATURES.md`（幽默风的全部功能说明），由 `build-changelog.ps1` 生成
+    `src\ColoringPixelsTool\FeatureGuide.cs`（游戏内面板）与 `installer\FeatureGuide.cs`（安装器弹窗）。
+  - 安装器：`MainForm.OnInstallClick` 在安装**前**记下 `PayloadInstaller.IsInstalled()`，
+    为 `false`（新玩家）时 `ChangelogDialog(firstInstall: true)` 展示功能总览。
+  - 插件：`Plugin.Awake` 用 `string.IsNullOrEmpty(UserProfile.LastVersion)` 判定首次使用，
+    置 `CheatPanel.PendingAnnouncementIsFirstRun`；首启弹功能总览，升级弹更新公告。
+  - 两种弹窗（游戏内 / 安装器）都加了「换一份看」按钮，可在功能总览与更新公告之间切换；
+    公告窗高度与按钮布局随之上调，滚动文本区相应收窄。
+  - 「设置」页新增「查看完整功能清单」按钮，分区标题改为「新手指引 / 功能总览」。
+
+### 变更
+
+- `scripts/build-changelog.ps1` 重构：把 Markdown → 纯文本的转换抽成 `Convert-Markdown`，
+  一次生成四处源码（游戏内 / 安装器 × 更新公告 / 功能总览）；
+  新增「内容未变则不写文件」的行为，避免无意义的 git 变更；`-Check` 语义保持不变。
+
+### 文档
+
+- `docs/BUILDING.md` 第 3.1 节改为说明「两个来源、四处同步」，并补充「第一次」的判定方式。
+- `README.md`、`docs/USAGE.md` 补充功能总览的触发时机与入口。
+
 ## [2.2.9] - 2026-09-11
 
 ### 新增

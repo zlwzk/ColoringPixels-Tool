@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.2.9";
+        public const string Version = "2.2.10";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -132,7 +132,10 @@ namespace ColoringPixelsTool
             PaintTimer.Load();
             if (UserProfile.LastVersion != Version)
             {
+                // 第一次用这个工具的人弹「功能总览」，老用户升级只看「这版改了什么」。
+                // LastVersion 为空 = 从没用过（存档刚建好），这一刻问最准，下面就会被覆盖掉。
                 CheatPanel.PendingAnnouncement = true;
+                CheatPanel.PendingAnnouncementIsFirstRun = string.IsNullOrEmpty(UserProfile.LastVersion);
                 UserProfile.LastVersion = Version;
                 UserProfile.Save();
             }

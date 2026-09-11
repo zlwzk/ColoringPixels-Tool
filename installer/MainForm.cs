@@ -757,6 +757,10 @@ namespace ColoringPixelsTool.Installer
             bool backup = _chkBackup.Checked;
             bool launch = _chkLaunch.Checked;
 
+            // 装之前先问一句「之前装过没有」：没有 = 新玩家，等会儿弹全功能总览；
+            // 装过 = 老玩家升级，只弹这版的更新公告。（装完再问就永远是「装过」了。）
+            bool firstInstall = !PayloadInstaller.IsInstalled(dir, game);
+
             RunTask("正在安装……", delegate()
             {
                 PayloadInstaller.Install(dir, game, overwrite, backup, OnProgress);
@@ -767,7 +771,7 @@ namespace ColoringPixelsTool.Installer
                     RefreshStatus(true);
                     try
                     {
-                        using (ChangelogDialog dlg = new ChangelogDialog())
+                        using (ChangelogDialog dlg = new ChangelogDialog(firstInstall))
                         {
                             // 留一份引用：游戏起来自动关安装器时要把这个模态弹窗一起关掉，
                             // 否则「自动关闭」会被它压在屏幕上，看起来就是没关。
