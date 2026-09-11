@@ -3,6 +3,20 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.3.1] - 2026-09-11
+
+### 文档
+
+- `docs/CHRONICLE.md` 时间线补齐 2.2.2 ~ 2.3.0 共 11 个版本的关键词记录（此前停在 2.2.1）。
+- 新增「第九章 · 那些『看起来在工作』的功能」：记录速度预设被每帧覆盖、经验值保底导致实际快 30 倍、
+  扫描速度受「一帧只推进一个采样点」限制、助手「预览」页构建函数未被调用这几类
+  「界面正常、按钮能点、功能不动」的问题，以及由此得出的「显式状态」与「唯一真源」两条结论。
+- 「接下来想做的事」中「格子校准少依赖人工框选」已在 2.2.5 / 2.3.0 实现，予以标记。
+
+### 说明
+
+- 本版不含程序代码改动，插件 / 安装器 / 助手的功能与 2.3.0 一致（仅版本号随之更新）。
+
 ## [2.3.0] - 2026-09-11
 
 ### 修复
@@ -528,6 +542,7 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.3.1]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.3.1
 [2.3.0]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.3.0
 [2.2.12]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.12
 [2.2.5]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.5
