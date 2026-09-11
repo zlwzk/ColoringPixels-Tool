@@ -144,7 +144,7 @@ namespace ColoringPixelsTool
             float k = Mathf.Clamp(UiScale, 0.8f, 1.4f);
             float mw = Mathf.Min(510f * k, Screen.width - 60f);
             float mh = Mathf.Min(348f * k, Screen.height - 60f);
-            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+            var win = ModalRect(mw, mh);
 
             float open = Ui.Tween("unlock-open", true, 9f);
             var body = new Rect(win.x, win.y + (1f - open) * 18f, win.width, win.height);
@@ -277,7 +277,7 @@ namespace ColoringPixelsTool
             float k = Mathf.Clamp(UiScale, 0.8f, 1.4f);
             float mw = Mathf.Min(560f * k, Screen.width - 60f);
             float mh = Mathf.Min(430f * k, Screen.height - 80f);
-            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+            var win = ModalRect(mw, mh);
 
             float open = Ui.Tween("guide-open", true, 7f);
             float slide = (1f - open) * 24f;

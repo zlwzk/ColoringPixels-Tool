@@ -180,8 +180,28 @@ namespace ColoringPixelsTool
 
         private void Update()
         {
+            // 面板热键的语义是「把面板调出来」：有弹窗压在上面时，先收起弹窗并保证面板可见，
+            // 而不是顺手把面板也一起关掉——否则新手指引 / 更新公告一弹，用户按热键
+            // 只会连着面板一起关掉，看起来就像「面板怎么都调不出来」。
             if (Plugin.KeyToggle.Value != KeyCode.None && Input.GetKeyDown(Plugin.KeyToggle.Value))
-                _visible = !_visible;
+            {
+                if (HasModal)
+                {
+                    DismissModals();
+                    _visible = true;
+                }
+                else
+                {
+                    _visible = !_visible;
+                }
+            }
+
+            // Esc 同样用来退出弹窗（只在真的有弹窗时拦截，不影响游戏自己的 Esc）
+            if (Input.GetKeyDown(KeyCode.Escape) && HasModal)
+            {
+                DismissModals();
+                _visible = true;
+            }
 
             if (Plugin.KeyFill.Value != KeyCode.None && Input.GetKeyDown(Plugin.KeyFill.Value))
                 DoInstantFill();
@@ -339,7 +359,73 @@ namespace ColoringPixelsTool
             _timerOffset = 0f;
         }
 
+        /// <summary>当前是否有压在面板上面的弹窗（新手指引 / 更新公告 / 解锁确认）。</summary>
+        private bool HasModal => _showGuide || _showAnnouncement || _showUnlockWarning;
+
+        /// <summary>
+        /// 收起所有弹窗。面板热键永远表示「回到面板」，所以按下热键时直接关掉弹窗
+        /// 并保证面板可见，而不是让用户在多个弹窗之间来回按。
+        /// </summary>
+        private void DismissModals()
+        {
+            _showAnnouncement = false;
+            _showUnlockWarning = false;
+            if (_showGuide)
+            {
+                _showGuide = false;
+                // 用户主动跳过 = 不再自动弹出（「设置 → 新手指引」里仍可随时重看）
+                if (Plugin.GuideShown != null) Plugin.GuideShown.Value = true;
+                UserProfile.Save();
+            }
+        }
+
+        /// <summary>
+        /// 弹窗卡片的位置：面板打开时把卡片让到面板右侧，避免和面板叠在一起；
+        /// 右侧放不下就退回屏幕居中（此时面板画在卡片上方，依然完整可点）。
+        /// </summary>
+        private Rect ModalRect(float w, float h)
+        {
+            float x = (Screen.width - w) * 0.5f;
+            float y = (Screen.height - h) * 0.5f;
+            if (_visible)
+            {
+                float right = ScreenRect.xMax + 16f;
+                if (right + w <= Screen.width - 8f) x = right;
+            }
+            return new Rect(x, y, w, h);
+        }
+
         // ============================================================ 绘制
+
+        /// <summary>
+        /// 单独包一层 OnGUI 绘制：任何一段画错都只影响它自己，
+        /// 绝不会把整个 OnGUI 打断导致面板整块消失（那种情况下日志里只剩一条难定位的异常）。
+        /// 出错只记一次，避免每帧刷屏。
+        /// </summary>
+        private static readonly HashSet<string> _guiFaultsLogged = new HashSet<string>();
+
+        private static void GuiSafe(string tag, Action draw)
+        {
+            if (draw == null) return;
+
+            Matrix4x4 matrix = GUI.matrix;
+            Color color = GUI.color;
+            try
+            {
+                draw();
+            }
+            catch (Exception ex)
+            {
+                if (_guiFaultsLogged.Add(tag))
+                    Debug.LogError($"[Coloring Pixels Tool] 绘制「{tag}」时出错（已抑制重复日志）：{ex}");
+            }
+            finally
+            {
+                // 出错时绘制方可能没来得及还原缩放矩阵 / 颜色，这里兜底
+                GUI.matrix = matrix;
+                GUI.color = color;
+            }
+        }
 
         private void OnGUI()
         {
@@ -352,40 +438,34 @@ namespace ColoringPixelsTool
             // 有输入框在取字时，「长按左键」这类字母热键要让路
             TextFieldFocused = _visible && GUIUtility.keyboardControl != 0;
 
-            if (Plugin.ShowHud.Value) DrawHud();
+            GuiSafe("悬浮 HUD", () => { if (Plugin.ShowHud.Value) DrawHud(); });
 
             // 面板没打开时也要能看到（例如在游戏设置界面点了「推荐预设」）
-            DrawGameToast();
+            GuiSafe("轻提示", DrawGameToast);
 
             // 粒子（彩纸 / 微光）：在缩放矩阵之外绘制，任何界面状态下都可见
-            if (UiFx.ParticlesAlive) UiFx.DrawParticles();
+            if (UiFx.ParticlesAlive) GuiSafe("粒子特效", UiFx.DrawParticles);
 
-            // 爱心二次确认：最优先，玩家正在重置进度，别被其它窗口挡住
+            // 弹窗层先画、主面板后画（主面板压在最上层），并且弹窗之间互斥。
+            // 这样无论新手指引 / 更新公告 / 解锁确认是否弹出，作弊面板都始终完整可见、可点，
+            // 不会再出现「弹窗一挡，面板怎么调都出不来」；弹窗卡片会被让到面板右侧。
+            if (_visible)
+            {
+                if (_showAnnouncement) GuiSafe("更新公告", DrawAnnouncement);
+                else if (_showGuide) GuiSafe("新手指引", DrawGuide);
+                if (_showUnlockWarning) GuiSafe("解锁确认", DrawUnlockWarning);
+            }
+
+            // 爱心二次确认：最优先，玩家正在重置进度，画在最上层
             if (HeartGuard.Pending)
             {
-                DrawHeartConfirm();
-                return;
-            }
-
-            // 新手指引：不再独占整画面板。先画面板，再画引导遮罩，
-            // 避免引导一弹就把面板完全顶掉，导致用户以为插件没装上。
-            if (_showGuide)
-            {
-                if (_visible) DrawWindow();
-                DrawGuide();
-                return;
-            }
-
-            // 解锁自动绘图的风险确认：同样独占，确认之前绝不会写入配置
-            if (_showUnlockWarning)
-            {
-                DrawUnlockWarning();
+                GuiSafe("爱心确认", DrawHeartConfirm);
                 return;
             }
 
             if (!_visible) return;
 
-            DrawWindow();
+            GuiSafe("主面板", DrawWindow);
         }
 
         private void DrawGameToast()
@@ -469,9 +549,6 @@ namespace ColoringPixelsTool
             // ---------------- 还原 ----------------
             GUI.matrix = prevMatrix;
             Ui.Mouse = prevMouse;
-
-            // 公告是全屏遮罩，放在缩放矩阵之外绘制
-            if (_showAnnouncement) DrawAnnouncement();
         }
 
         private void DrawBackground()
@@ -925,7 +1002,7 @@ namespace ColoringPixelsTool
 
             float mw = Mathf.Min(520f, Screen.width - 60f);
             float mh = Mathf.Min(600f, Screen.height - 80f);
-            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+            var win = ModalRect(mw, mh);
 
             Ui.Round(win, 16f, Ui.Panel);
             Ui.RoundOutline(win, 16f, Ui.CardEdge, new Color(0f, 0f, 0f, 0f), 1.5f);
