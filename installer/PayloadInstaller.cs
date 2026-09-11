@@ -475,46 +475,28 @@ namespace ColoringPixelsTool.Installer
         public static Process LaunchGame(string gameDir, out string error)
         {
             bool alreadyRunning;
-            bool viaSteam;
-            return LaunchGame(gameDir, AppInfo.ColoringPixels, out alreadyRunning, out viaSteam, out error);
+            return LaunchGame(gameDir, AppInfo.ColoringPixels, out alreadyRunning, out error);
         }
 
         public static Process LaunchGame(string gameDir, GameDescriptor game, out string error)
         {
             bool alreadyRunning;
-            bool viaSteam;
-            return LaunchGame(gameDir, game, out alreadyRunning, out viaSteam, out error);
-        }
-
-        public static Process LaunchGame(string gameDir, GameDescriptor game,
-            out bool alreadyRunning, out string error)
-        {
-            bool viaSteam;
-            return LaunchGame(gameDir, game, out alreadyRunning, out viaSteam, out error);
+            return LaunchGame(gameDir, game, out alreadyRunning, out error);
         }
 
         /// <summary>
         /// 启动游戏。<paramref name="alreadyRunning"/> 为 true 表示游戏本来就在跑，
         /// 返回的是那个已经在运行的进程，没有重复启动。
         ///
-        /// <paramref name="viaSteam"/> 为 true 表示走的是 <c>steam://rungameid/</c>，
-        /// 这时返回值一定是 null —— 游戏进程由 Steam 稍后拉起来，这里拿不到句柄，
-        /// 调用方得按进程名轮询而不是拿 null 当失败。
-        ///
-        /// 为什么要先看一眼进程：Unity 游戏不拦多开，重复 Process.Start 只会多出
+        /// 为什么要先看一眼：Unity 游戏不拦多开，重复 Process.Start 只会多出
         /// 一个游戏窗口。用户点「一键安装」（勾了安装后自动启动）之后再顺手点
         /// 「启动游戏」，就会出现「装一次游戏画面冒出好几遍」的现象。
-        ///
-        /// 为什么优先走 Steam：这两款游戏都是在 Steam 上卖的，直接双击 exe 会因为
-        /// Steamworks 没被 Steam 客户端接管而瞬间退出（用户看到的就是「闪退」），
-        /// 所以一律交给 Steam 去拉，只有确认不是 Steam 库里的那份时才回退到直启。
         /// </summary>
         public static Process LaunchGame(string gameDir, GameDescriptor game,
-            out bool alreadyRunning, out bool viaSteam, out string error)
+            out bool alreadyRunning, out string error)
         {
             error = null;
             alreadyRunning = false;
-            viaSteam = false;
             if (game == null) game = AppInfo.Games[0];
 
             try
@@ -524,27 +506,6 @@ namespace ColoringPixelsTool.Installer
                 {
                     alreadyRunning = true;
                     return running;
-                }
-
-                // 只有「Steam 库清单里确实有这个 AppId，且就是当前目录」才敢走 steam://，
-                // 免得绿色版点了之后 Steam 只弹一下商店页、游戏反倒没起来。
-                if (!string.IsNullOrEmpty(game.SteamAppId) &&
-                    SteamLocator.IsSteamInstall(gameDir, game.SteamAppId, game.SteamInstallDirName))
-                {
-                    try
-                    {
-                        ProcessStartInfo uri = new ProcessStartInfo();
-                        uri.FileName = "steam://rungameid/" + game.SteamAppId;
-                        uri.UseShellExecute = true;
-                        Process.Start(uri);
-                        viaSteam = true;
-                        return null;
-                    }
-                    catch (Exception ex)
-                    {
-                        // Steam 没装 / 协议没注册 / 被安全软件拦了：退回直启，别让用户点了个没反应的按钮。
-                        Log.Warn("Steam 启动失败（" + ex.Message + "），改为直接启动游戏。");
-                    }
                 }
 
                 string exe = Path.Combine(gameDir, game.ExeName);

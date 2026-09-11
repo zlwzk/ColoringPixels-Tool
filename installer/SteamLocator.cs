@@ -180,60 +180,7 @@ namespace ColoringPixelsTool.Installer
             }
         }
 
-        /// <summary>
-        /// <paramref name="gameDir"/> 是否就是某个 Steam 库里装的这个 AppId 的游戏。
-        ///
-        /// 用来决定能不能用 <c>steam://rungameid/</c> 启动：Steam 版游戏直接拉 exe 会因为
-        /// Steamworks / DRM 没接管而秒退，必须让 Steam 自己拉起来。反过来，如果目录只是
-        /// 一份绿色版（同名文件夹但没在 Steam 库清单里），走 steam:// 会弹到商店页却什么都不发生，
-        /// 那就还不如直接启动 exe，所以这里要能区分开。
-        /// </summary>
-        public static bool IsSteamInstall(string gameDir, string appId, string installDirName)
-        {
-            if (string.IsNullOrEmpty(gameDir) || string.IsNullOrEmpty(appId)) return false;
-
-            List<string> trail;
-            List<string> libs = GetLibraryRoots(out trail);
-            foreach (string lib in libs)
-            {
-                try
-                {
-                    // 没有这个 AppId 的清单，就说明这台机器上的 Steam 不认这个游戏。
-                    if (!HasAppManifest(lib, appId)) continue;
-
-                    string common = Path.Combine(Path.Combine(lib, "steamapps"), "common");
-                    if (SameDir(Path.Combine(common, installDirName), gameDir)) return true;
-
-                    // 清单里的 installdir 可能和默认目录名不一样，再比一次。
-                    string dirName = GetInstallDirName(lib, appId);
-                    if (!string.IsNullOrEmpty(dirName) && SameDir(Path.Combine(common, dirName), gameDir))
-                        return true;
-                }
-                catch (Exception)
-                {
-                }
-            }
-
-            return false;
-        }
-
         // ------------------------------------------------------------ 工具
-
-        /// <summary>两个路径是否指向同一个目录（忽略大小写与末尾分隔符）。</summary>
-        private static bool SameDir(string a, string b)
-        {
-            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
-            try
-            {
-                return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'),
-                                     Path.GetFullPath(b).TrimEnd('\\', '/'),
-                                     StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
 
         public static List<DriveInfo> FixedDrives()
         {
