@@ -193,14 +193,16 @@ namespace ColoringPixelsTool.Installer
             Text = text;
             Font = Theme.FontBold;
             ForeColor = Color.White;
-            BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
             TabStop = false;
             Size = new Size(Theme.S(160), Theme.S(40));
 
+            // 必须先声明支持透明背景，再设置 BackColor=Transparent，
+            // 否则在某些 .NET Framework / DPI 环境下会抛出「控件不支持透明的背景色」。
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
                      ControlStyles.ResizeRedraw | ControlStyles.UserPaint |
                      ControlStyles.StandardClick | ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
 
             Fx.Animate(this, delegate { return Visible && Enabled; });
 
