@@ -63,6 +63,10 @@ namespace PixelAssist
         private DateTime _lastSaveStamp = DateTime.MinValue;
         private bool _updatingLevelBox;
 
+        // 上次关窗时的位置（int.MinValue = 没有记录，退回居中显示）
+        private int _restoreX = int.MinValue;
+        private int _restoreY = int.MinValue;
+
         // ---------------------------------------------------------------- 页签系统
         private const int TabBarHeight = 46;
         private BackdropPanel _tabBar;
@@ -105,8 +109,9 @@ namespace PixelAssist
         private StatusDot _autoDot;
         private ComboBox _levelBox;
         private Label _levelInfoLabel;
-        private Label _paletteInfoLabel;
-        private NeonButton _btnRefreshSave, _btnCalibratePalette, _btnStartAuto, _btnStopAuto, _btnPauseAuto;
+        private Label _paletteInfoLabel;      // 「画布 / 调色板 / 关卡」准备情况
+        private NeonButton _btnRefreshSave, _btnCalibratePalette, _btnAutoPalette;
+        private NeonButton _btnStartAuto, _btnStopAuto, _btnPauseAuto;
         private NumericUpDown _autoSpeed, _autoStroke, _autoPause, _autoMistake;
         private CheckBox _autoCurrentColor, _autoDrag, _autoRefreshDone;
         private Label _autoColorPreview;
@@ -164,6 +169,7 @@ namespace PixelAssist
                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
             LoadRegionAndSettings();
+            LoadPalette();
             LoadUiPrefs();
             BuildTabs();
             BuildHomePage();
@@ -172,7 +178,11 @@ namespace PixelAssist
             BuildPreviewPage();
             BuildRankPage();
             BuildSettingsPage();
-            SelectTab(0);
+
+            // 回到上次看的那一页（新用户从「首页」开始）。
+            int lastTab;
+            if (!int.TryParse(AssistStore.LoadValue("tab", "0"), out lastTab)) lastTab = 0;
+            SelectTab(Math.Max(0, Math.Min(_tabNames.Length - 1, lastTab)));
 
             _overlay.Engine = _engine;
             _overlay.Show();
@@ -193,9 +203,13 @@ namespace PixelAssist
             LoadUserProfile();
             RefreshSaveFile();
 
-            Location = new Point(
-                Math.Max(8, (Screen.PrimaryScreen.Bounds.Width - Width) / 2),
-                Math.Max(8, Screen.PrimaryScreen.Bounds.Height / 2 - Height / 2));
+            // 记住上次的位置：助手总是要跟游戏窗口并排放，每次都要重新拖太烦。
+            if (_restoreX != int.MinValue && _restoreY != int.MinValue)
+                Location = new Point(_restoreX, _restoreY);
+            else
+                Location = new Point(
+                    Math.Max(8, (Screen.PrimaryScreen.Bounds.Width - Width) / 2),
+                    Math.Max(8, Screen.PrimaryScreen.Bounds.Height / 2 - Height / 2));
         }
 
         // ---------------------------------------------------------------- 界面初始化
@@ -262,7 +276,10 @@ namespace PixelAssist
             }
 
             if (idx == 0) UpdateHomeLevel();
+            if (idx == 1) UpdatePaletteInfo();
             if (idx == 2) UpdateRegionUi();
+
+            AssistStore.SaveValue("tab", idx.ToString());
         }
 
         private BackdropPanel CreatePage()
@@ -447,85 +464,99 @@ namespace PixelAssist
             int y = 14;
 
             Add2(_pageAuto, Heading("自动绘图"), 16, y, 420, 24); y += 30;
-            Add2(_pageAuto, Sub("读取游戏存档，按目标颜色一键涂完整张图"), 16, y, 420, 18); y += 28;
+            Add2(_pageAuto, Sub("读取游戏存档，按目标颜色一键涂完整张图"), 16, y, 420, 18); y += 26;
 
-            AddCard(_pageAuto, 16, y, 420, 110); y += 118;
+            // ---- ① 选关卡：目标颜色、格子尺寸都来自它，所以放在最前面
+            Add2(_pageAuto, Sub("① 选择关卡"), 16, y, 420, 18); y += 22;
 
-            _autoDot = new StatusDot();
-            _autoDot.SetBounds(30, y - 102 + 4, 12, 12);
-            _autoDot.Tint = Muted;
-            _pageAuto.Controls.Add(_autoDot);
-
-            _autoStatusLabel = new Label();
-            _autoStatusLabel.SetBounds(50, y - 102, 372, 20);
-            _autoStatusLabel.ForeColor = TextCol;
-            _autoStatusLabel.BackColor = Color.Transparent;
-            _pageAuto.Controls.Add(_autoStatusLabel);
-
-            _autoDetailLabel = new Label();
-            _autoDetailLabel.SetBounds(30, y - 78, 392, 18);
-            _autoDetailLabel.ForeColor = Muted;
-            _autoDetailLabel.BackColor = Color.Transparent;
-            _pageAuto.Controls.Add(_autoDetailLabel);
-
-            _autoProgress = new AssistProgress();
-            _autoProgress.SetBounds(30, y - 56, 392, 12);
-            _pageAuto.Controls.Add(_autoProgress);
-
-            _paletteInfoLabel = new Label();
-            _paletteInfoLabel.SetBounds(30, y - 36, 392, 18);
-            _paletteInfoLabel.ForeColor = Accent2;
-            _paletteInfoLabel.BackColor = Color.Transparent;
-            _pageAuto.Controls.Add(_paletteInfoLabel);
-
-            y += 0;
-            _btnRefreshSave = FlatButton("刷新存档", Accent2, 16, y - 10, 130, 32);
-            _btnRefreshSave.Click += delegate { RefreshSaveFile(); };
-            _pageAuto.Controls.Add(_btnRefreshSave);
-
-            _btnCalibratePalette = FlatButton("框选调色板 (F5)", CardBg, 154, y - 10, 130, 32);
-            _btnCalibratePalette.Click += delegate { BeginSelect(2); };
-            _pageAuto.Controls.Add(_btnCalibratePalette);
-
-            _btnStartAuto = FlatButton("开始 (F6)", Accent, 292, y - 10, 144, 32);
-            _btnStartAuto.Click += delegate { StartAutoPaint(); };
-            _pageAuto.Controls.Add(_btnStartAuto);
-
-            y += 32;
-            _btnPauseAuto = FlatButton("暂停", CardBg, 16, y, 130, 30);
-            _btnPauseAuto.Click += delegate { if (_autoPainter != null) _autoPainter.TogglePause(); };
-            _pageAuto.Controls.Add(_btnPauseAuto);
-
-            _btnStopAuto = FlatButton("停止 / 急停", Danger, 154, y, 130, 30);
-            _btnStopAuto.Click += delegate { StopAutoPaint(); };
-            _pageAuto.Controls.Add(_btnStopAuto);
-
-            _autoColorPreview = new Label();
-            _autoColorPreview.SetBounds(292, y + 2, 144, 26);
-            _autoColorPreview.BackColor = Color.DimGray;
-            _autoColorPreview.ForeColor = Color.White;
-            _autoColorPreview.TextAlign = ContentAlignment.MiddleCenter;
-            _autoColorPreview.Text = "当前颜色";
-            _pageAuto.Controls.Add(_autoColorPreview);
-            y += 40;
-
-            Add2(_pageAuto, Sub("选择关卡："), 16, y, 80, 20);
             _levelBox = new ComboBox();
             _levelBox.DropDownStyle = ComboBoxStyle.DropDownList;
-            _levelBox.SetBounds(100, y, 336, 24);
+            _levelBox.SetBounds(16, y, 420, 24);
             _levelBox.BackColor = CardBg;
             _levelBox.ForeColor = TextCol;
             _levelBox.FlatStyle = FlatStyle.Flat;
             _levelBox.SelectedIndexChanged += delegate { OnLevelSelected(); };
             _pageAuto.Controls.Add(_levelBox);
-            y += 32;
+            y += 30;
 
             _levelInfoLabel = new Label();
-            _levelInfoLabel.SetBounds(16, y, 420, 40);
+            _levelInfoLabel.SetBounds(16, y, 420, 36);
             _levelInfoLabel.ForeColor = Muted;
             _levelInfoLabel.BackColor = Color.Transparent;
             _pageAuto.Controls.Add(_levelInfoLabel);
-            y += 48;
+            y += 42;
+
+            // ---- 状态卡：进度 + 准备情况
+            AddCard(_pageAuto, 16, y, 420, 128);
+            int cardTop = y;
+            y += 136;
+
+            _autoDot = new StatusDot();
+            _autoDot.SetBounds(30, cardTop + 14, 12, 12);
+            _autoDot.Tint = Muted;
+            _pageAuto.Controls.Add(_autoDot);
+
+            _autoStatusLabel = new Label();
+            _autoStatusLabel.SetBounds(50, cardTop + 10, 372, 20);
+            _autoStatusLabel.ForeColor = TextCol;
+            _autoStatusLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_autoStatusLabel);
+
+            _autoDetailLabel = new Label();
+            _autoDetailLabel.SetBounds(30, cardTop + 34, 392, 18);
+            _autoDetailLabel.ForeColor = Muted;
+            _autoDetailLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_autoDetailLabel);
+
+            _autoProgress = new AssistProgress();
+            _autoProgress.SetBounds(30, cardTop + 56, 392, 12);
+            _pageAuto.Controls.Add(_autoProgress);
+
+            // 准备情况：画布 / 调色板 / 关卡，缺哪一项直接写清楚
+            _paletteInfoLabel = new Label();
+            _paletteInfoLabel.SetBounds(30, cardTop + 76, 392, 42);
+            _paletteInfoLabel.ForeColor = Accent2;
+            _paletteInfoLabel.BackColor = Color.Transparent;
+            _pageAuto.Controls.Add(_paletteInfoLabel);
+
+            // ---- ② 标定：调色板可以手框（F5），也可以让助手照着存档里的颜色自动去找
+            Add2(_pageAuto, Sub("② 标定画布与调色板"), 16, y, 420, 18); y += 22;
+
+            _btnCalibratePalette = FlatButton("框选调色板 (F5)", CardBg, 16, y, 130, 32);
+            _btnCalibratePalette.Click += delegate { BeginSelect(2); };
+            _pageAuto.Controls.Add(_btnCalibratePalette);
+
+            _btnAutoPalette = FlatButton("识别调色板", Accent2, 154, y, 130, 32);
+            _btnAutoPalette.Click += delegate { AutoLocatePalette(); };
+            _pageAuto.Controls.Add(_btnAutoPalette);
+
+            _btnRefreshSave = FlatButton("刷新存档", CardBg, 292, y, 144, 32);
+            _btnRefreshSave.Click += delegate { RefreshSaveFile(true); };
+            _pageAuto.Controls.Add(_btnRefreshSave);
+            y += 40;
+
+            // ---- ③ 开始
+            _btnStartAuto = FlatButton("开始 (F6)", Accent, 16, y, 190, 34);
+            _btnStartAuto.Click += delegate { StartAutoPaint(); };
+            _pageAuto.Controls.Add(_btnStartAuto);
+
+            _btnPauseAuto = FlatButton("暂停", CardBg, 214, y, 100, 34);
+            _btnPauseAuto.Click += delegate { if (_autoPainter != null) _autoPainter.TogglePause(); };
+            _pageAuto.Controls.Add(_btnPauseAuto);
+
+            _btnStopAuto = FlatButton("停止 / 急停", Danger, 322, y, 114, 34);
+            _btnStopAuto.Click += delegate { StopAutoPaint(); };
+            _pageAuto.Controls.Add(_btnStopAuto);
+            y += 42;
+
+            _autoColorPreview = new Label();
+            _autoColorPreview.SetBounds(16, y, 420, 26);
+            _autoColorPreview.BackColor = Color.DimGray;
+            _autoColorPreview.ForeColor = Color.White;
+            _autoColorPreview.TextAlign = ContentAlignment.MiddleCenter;
+            _autoColorPreview.Text = "当前颜色";
+            _pageAuto.Controls.Add(_autoColorPreview);
+            y += 36;
 
             // 速度预设：一键把「拟人参数」推到慢 / 中 / 快三档
             Add2(_pageAuto, Heading("涂色速度"), 16, y, 420, 22); y += 28;
@@ -1004,6 +1035,15 @@ namespace PixelAssist
                         _levelBox.Items.Add(_levels[i].Title);
 
                     int pick = _levels.Count - 1; // 默认选最后一张（最可能正在玩）
+
+                    // 没有会话内的选择时，回到「上次看的那张」——
+                    // 也就是上次关掉助手前正在涂的那一关。
+                    if (wantPackage == int.MinValue)
+                    {
+                        int lastPick = FindSavedLevel(_levels);
+                        if (lastPick >= 0) pick = lastPick;
+                    }
+
                     if (wantPackage != int.MinValue)
                     {
                         for (int i = 0; i < _levels.Count; i++)
@@ -1047,8 +1087,34 @@ namespace PixelAssist
             }
             _currentLevel = _levels[idx];
             _levelInfoLabel.Text = _currentLevel.Detail;
+
+            // 记下看的这张图：下次打开助手直接回到它。
+            AssistStore.SaveValue("level", _currentLevel.PackageNumber + "/" + _currentLevel.LevelNumber);
+
             UpdatePaletteInfo();
             UpdatePreview();
+        }
+
+        /// <summary>从本地偏好里取「上次看过的关卡」，返回到 <paramref name="levels"/> 里的下标（没有则 -1）。</summary>
+        private static int FindSavedLevel(List<PcsLevel> levels)
+        {
+            if (levels == null || levels.Count == 0) return -1;
+
+            string saved = AssistStore.LoadValue("level", "");
+            if (string.IsNullOrEmpty(saved)) return -1;
+
+            int slash = saved.IndexOf('/');
+            if (slash <= 0 || slash >= saved.Length - 1) return -1;
+
+            int package, number;
+            if (!int.TryParse(saved.Substring(0, slash).Trim(), out package)) return -1;
+            if (!int.TryParse(saved.Substring(slash + 1).Trim(), out number)) return -1;
+
+            for (int i = 0; i < levels.Count; i++)
+            {
+                if (levels[i].PackageNumber == package && levels[i].LevelNumber == number) return i;
+            }
+            return -1;
         }
 
         /// <summary>预览页跟着「当前关卡 / 自动绘图进度」走。</summary>
@@ -1070,19 +1136,42 @@ namespace PixelAssist
 
         private void StartAutoPaint()
         {
+            // 三样准备缺一不可。这里不再只写一行状态 —— 用户点了「开始」没反应，
+            // 却不知道到底差什么、该按哪个键，于是就说「功能不能用」。
+            // 现在直接弹窗写清楚：差什么、怎么补、或者怎么绕过去。
             if (_currentLevel == null)
             {
-                _autoStatusLabel.Text = "请先选择要涂的关卡";
+                _autoStatusLabel.Text = "还没有可涂的关卡";
+                UpdatePaletteInfo();
+                MessageBox.Show(this,
+                    "还没有可涂的关卡。\n\n" +
+                    "先在游戏里打开一张没涂完的图，再点「刷新存档」，\n" +
+                    "然后在「① 选择关卡」里把它选上。",
+                    "自动绘图", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!_engine.Region.HasRegion)
             {
-                _autoStatusLabel.Text = "画布区域未校准：请按 F7 框选游戏中的画布";
+                _autoStatusLabel.Text = "画布区域未校准";
+                UpdatePaletteInfo();
+                MessageBox.Show(this,
+                    "还没框选画布，助手不知道该往哪里涂。\n\n" +
+                    "按 F7，然后在游戏画面上拖拽框出整张画布（四角对准画布边缘即可）。\n" +
+                    "框一次就会被记住，以后不用重框。",
+                    "自动绘图", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (!_autoCurrentColor.Checked && !_palette.IsCalibrated)
             {
-                _autoStatusLabel.Text = "调色板未校准：请按 F5 框选游戏中的调色板，或勾选「只涂当前颜色」";
+                _autoStatusLabel.Text = "调色板未校准";
+                UpdatePaletteInfo();
+                MessageBox.Show(this,
+                    "还没标定调色板，助手不知道该点哪些色块。\n\n" +
+                    "三种做法，挑一种：\n" +
+                    "  · 点「识别调色板」——让助手照着存档里的颜色自己找；\n" +
+                    "  · 按 F5 手动框一次调色板区域（框一次就会被记住）；\n" +
+                    "  · 勾选「只涂当前颜色」——你在游戏里手动换色，助手只负责把这一色涂完。",
+                    "自动绘图", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -1217,17 +1306,33 @@ namespace PixelAssist
             }
         }
 
+        /// <summary>
+        /// 刷新自动绘图页的「准备情况」：画布 / 调色板 / 关卡。
+        ///
+        /// 这三样缺任何一样自动绘图都起不来。过去这里只提示调色板，
+        /// 用户看到「开始」点了没反应，根本不知道还差什么，只能一个个按钮乱试。
+        /// </summary>
         private void UpdatePaletteInfo()
         {
-            if (_palette.IsCalibrated)
+            if (_paletteInfoLabel == null) return;
+
+            bool canvas = _engine != null && _engine.Region != null && _engine.Region.HasRegion;
+            bool palette = _palette.IsCalibrated;
+            bool level = _currentLevel != null;
+
+            string text = string.Format("准备情况：{0} 画布{1}   {2} 调色板{3}   {4} 关卡{5}",
+                canvas ? "✓" : "✗", canvas ? "" : "（F7 框选）",
+                palette ? "✓" : "✗", palette ? "" : "（识别 / F5 框选）",
+                level ? "✓" : "✗", level ? "" : "（刷新存档）");
+
+            if (palette)
             {
-                _paletteInfoLabel.Text = string.Format("调色板：{0} 列 × {1} 行 = {2} 个色块",
+                text += string.Format("\r\n调色板已记住：{0} 列 × {1} 行 = {2} 个色块（下次打开无需重框）",
                     _palette.Columns, _palette.Rows, _palette.SwatchCount);
             }
-            else
-            {
-                _paletteInfoLabel.Text = "调色板：未校准（按 F5 框选）";
-            }
+
+            _paletteInfoLabel.Text = text;
+            _paletteInfoLabel.ForeColor = (canvas && palette && level) ? Accent2 : Danger;
         }
 
         private static bool TryParseHex(string hex, out int r, out int g, out int b)
@@ -1446,21 +1551,127 @@ namespace PixelAssist
                 "人工辅助", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
+        /// <summary>
+        /// 框选调色板区域后校准（F5 或「框选调色板」按钮）。
+        ///
+        /// 优先用「存档里这一关用到的颜色」反查色块位置：色块里装的就是那些颜色，
+        /// 是我们已知的信息，比原来的「跳变峰投影」稳得多（投影法在色块颜色相近、
+        /// 边框很细或有渐变阴影时经常把行列数错，自动绘图就会莫名涂错颜色）。
+        /// 颜色反查没把握时再退回投影法。
+        /// </summary>
         private void CalibratePalette(Rectangle bounds)
         {
             _sampler.Capture(bounds);
-            _palette.AutoDetect(_sampler, bounds);
+
+            List<PcsColorGroup> groups = _currentLevel == null ? null : PcsSave.GroupColors(_currentLevel, 0);
+
+            int located = 0;
+            if (groups != null && groups.Count > 0)
+                located = _palette.LocateByColors(_sampler, bounds, groups, 26);
+
+            if (located < 2) _palette.AutoDetect(_sampler, bounds);
+
+            SavePalette();          // 框一次就够，之后都从本地恢复
             UpdatePaletteInfo();
 
             if (_palette.IsCalibrated)
             {
-                _autoStatusLabel.Text = string.Format("调色板已校准：{0} 列 × {1} 行 = {2} 个色块",
-                    _palette.Columns, _palette.Rows, _palette.SwatchCount);
+                _autoStatusLabel.Text = located >= 2
+                    ? string.Format("调色板已识别：{0} 列 × {1} 行 = {2} 个色块（按存档颜色匹配到 {3} 种）",
+                        _palette.Columns, _palette.Rows, _palette.SwatchCount, located)
+                    : string.Format("调色板已校准：{0} 列 × {1} 行 = {2} 个色块",
+                        _palette.Columns, _palette.Rows, _palette.SwatchCount);
             }
             else
             {
                 _autoStatusLabel.Text = "调色板校准失败：请确认框选的是调色板区域";
             }
+        }
+
+        /// <summary>
+        /// 「识别调色板」：不用手动框选，照着存档里的目标颜色去屏幕上找色块。
+        ///
+        /// 搜索顺序：上次校准过的区域（调色板位置通常固定）→ 各屏幕的右半 / 下半。
+        /// 找不到就明确告诉用户「用手框一次，之后助手会记住」。
+        /// </summary>
+        private void AutoLocatePalette()
+        {
+            List<PcsColorGroup> groups = _currentLevel == null ? null : PcsSave.GroupColors(_currentLevel, 0);
+            if (groups == null || groups.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "先在「① 选择关卡」里选一张图 —— 识别调色板需要知道这一关用到的颜色。",
+                    "识别调色板", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            _autoStatusLabel.Text = "正在按存档颜色识别调色板……";
+            Application.DoEvents();
+
+            // 候选搜索区域，按「最可能命中」排序
+            List<Rectangle> areas = new List<Rectangle>();
+            Rectangle last = _palette.Bounds;
+            if (last.Width > 8 && last.Height > 8)
+                areas.Add(new Rectangle(last.X - 40, last.Y - 40, last.Width + 80, last.Height + 80));
+
+            foreach (Screen s in Screen.AllScreens)
+            {
+                Rectangle wa = s.WorkingArea;
+                areas.Add(new Rectangle(wa.X + wa.Width / 2, wa.Y, wa.Width - wa.Width / 2, wa.Height));
+                areas.Add(new Rectangle(wa.X, wa.Y + wa.Height / 2, wa.Width, wa.Height - wa.Height / 2));
+            }
+
+            bool ok = false;
+            int located = 0;
+
+            foreach (Rectangle area in areas)
+            {
+                if (area.Width < 40 || area.Height < 40) continue;
+
+                _sampler.Capture(area);
+                PaletteMap probe = new PaletteMap();
+                located = probe.LocateByColors(_sampler, area, groups, 26);
+                if (located >= 2)
+                {
+                    _palette.CopyFrom(probe);
+                    ok = true;
+                    break;
+                }
+            }
+
+            if (ok)
+            {
+                SavePalette();
+                UpdatePaletteInfo();
+                _autoStatusLabel.Text = string.Format("调色板已识别：{0} 列 × {1} 行 = {2} 个色块（匹配到 {3} 种颜色）",
+                    _palette.Columns, _palette.Rows, _palette.SwatchCount, located);
+                return;
+            }
+
+            UpdatePaletteInfo();
+            _autoStatusLabel.Text = "没能自动认出调色板";
+            MessageBox.Show(this,
+                "没能按存档颜色找到调色板。\n\n" +
+                "请点「框选调色板 (F5)」手动框一次调色板区域。\n" +
+                "框一次之后助手会把它记下来，以后打开就不用再框了。",
+                "识别调色板", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void LoadPalette()
+        {
+            string text = AssistStore.LoadText(AssistStore.PaletteFileName);
+            if (string.IsNullOrEmpty(text)) return;
+
+            PaletteMap saved = PaletteMap.Deserialize(text);
+            if (saved == null) return;
+
+            _palette.CopyFrom(saved);
+        }
+
+        private void SavePalette()
+        {
+            if (!_palette.IsCalibrated) return;
+            AssistStore.SaveText(AssistStore.PaletteFileName, _palette.Serialize());
         }
 
         private void ToggleOverlay()
@@ -1933,6 +2144,22 @@ namespace PixelAssist
         private void LoadUiPrefs()
         {
             _overlayVisible = AssistStore.LoadValue("overlayOnStart", "0") == "1";
+
+            // 恢复上次的窗口位置。助手总得跟游戏窗口并排放，每次重拖很烦。
+            // 但只在落点仍落在某块屏幕里时才用 —— 换过显示器之后不能把窗口扔到看不见的地方。
+            int x, y;
+            if (int.TryParse(AssistStore.LoadValue("winX", ""), out x)
+                && int.TryParse(AssistStore.LoadValue("winY", ""), out y))
+            {
+                Rectangle want = new Rectangle(x, y, Width, Height);
+                foreach (Screen s in Screen.AllScreens)
+                {
+                    if (!s.WorkingArea.IntersectsWith(want)) continue;
+                    _restoreX = x;
+                    _restoreY = y;
+                    break;
+                }
+            }
         }
 
         private void RefreshPresets()
@@ -2014,6 +2241,18 @@ namespace PixelAssist
         {
             try { _engine.Stop(); } catch (Exception) { }
             try { StopAutoPaint(); } catch (Exception) { }
+
+            // 记住窗口落点，下次打开还在原处
+            try
+            {
+                if (WindowState == FormWindowState.Normal)
+                {
+                    AssistStore.SaveValue("winX", Location.X.ToString());
+                    AssistStore.SaveValue("winY", Location.Y.ToString());
+                }
+            }
+            catch (Exception) { }
+
             Save(true);
             UserProfile.Save();
             _timer.Stop();

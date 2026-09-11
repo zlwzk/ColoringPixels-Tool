@@ -107,19 +107,73 @@ namespace ColoringPixelsTool.Installer
         {
             if (game == null || ReferenceEquals(game, _game)) return;
 
-            _dirByGame[_game.Key] = _txtDir.Text.Trim();
+            RememberDir(_game, _txtDir.Text.Trim());
 
             _game = game;
             _source = null;
 
-            string saved = null;
-            _dirByGame.TryGetValue(game.Key, out saved);
+            string saved = RecallDir(game);
             _txtDir.Text = saved == null ? "" : saved;
 
             ApplyGameVisuals();
 
-            if (!string.IsNullOrEmpty(_txtDir.Text)) RefreshStatus(true);
-            else RefreshStatus(false);
+            if (!string.IsNullOrEmpty(_txtDir.Text))
+            {
+                _source = "上次使用";
+                RefreshStatus(true);
+            }
+            else
+            {
+                RefreshStatus(false);
+            }
+        }
+
+        // ============================================================ 目录记忆
+        //
+        // 用户只要选过一次目录，下次打开安装器就该直接可用 —— 这是最基本的手感。
+        // 记忆存在 %APPDATA%\ColoringPixelsTool\installer.settings（见 Settings.cs），
+        // 刻意不放游戏目录：游戏目录会被「验证文件完整性 / 卸载 / 重装」清掉，
+        // 而那恰恰是最需要留住这份记忆的时候。
+
+        /// <summary>记住某款游戏的目录（内存字典 + 本地偏好；只有校验通过才落盘）。</summary>
+        private void RememberDir(GameDescriptor game, string dir)
+        {
+            if (game == null) return;
+
+            if (string.IsNullOrEmpty(dir))
+            {
+                _dirByGame.Remove(game.Key);
+                return;
+            }
+
+            _dirByGame[game.Key] = dir;
+
+            // 只在目录确实可用时落盘，免得把用户敲了一半的路径记下来。
+            if (GameLocator.Inspect(dir, game).Usable) Settings.SaveDir(game.Key, dir);
+        }
+
+        /// <summary>取回某款游戏上次使用的目录（先内存、再本地偏好）。</summary>
+        private string RecallDir(GameDescriptor game)
+        {
+            if (game == null) return null;
+
+            string dir;
+            if (_dirByGame.TryGetValue(game.Key, out dir) && !string.IsNullOrEmpty(dir)) return dir;
+
+            dir = Settings.LoadDir(game.Key);
+            if (!string.IsNullOrEmpty(dir)) _dirByGame[game.Key] = dir;
+            return dir;
+        }
+
+        /// <summary>把本地偏好里的目录一次性预读进内存。</summary>
+        private void PreloadSavedDirs()
+        {
+            foreach (GameDescriptor g in AppInfo.Games)
+            {
+                string dir = Settings.LoadDir(g.Key);
+                if (string.IsNullOrEmpty(dir)) continue;
+                _dirByGame[g.Key] = dir;
+            }
         }
 
         private void ApplyGameVisuals()
@@ -358,13 +412,31 @@ namespace ColoringPixelsTool.Installer
             if (!string.IsNullOrEmpty(_options.GameDir))
             {
                 _txtDir.Text = _options.GameDir;
-                _dirByGame[_game.Key] = _options.GameDir;
+                RememberDir(_game, _options.GameDir);
                 RefreshStatus(true);
                 StartUpdateCheck(true);
                 return;
             }
 
-            DetectAsync(false);
+            // 先看本地偏好里有没有上次用过的目录：有就直接用，不再让用户重选一遍。
+            PreloadSavedDirs();
+            string saved = RecallDir(_game);
+            if (!string.IsNullOrEmpty(saved))
+            {
+                _txtDir.Text = saved;
+                _source = "上次使用";
+                RefreshStatus(true);
+
+                if (GameLocator.Inspect(saved, _game).Usable)
+                    Log.Info("已恢复上次使用的游戏目录：" + saved);
+                else
+                    DetectAsync(false);   // 记忆里的目录没了（换盘 / 卸载）才重新检测
+            }
+            else
+            {
+                DetectAsync(false);
+            }
+
             StartUpdateCheck(true);
         }
 
@@ -563,10 +635,24 @@ namespace ColoringPixelsTool.Installer
 
             Thread thread = new Thread(delegate()
             {
+                // 后台线程开始时记下「当时在看哪款游戏」，免得中途用户切了页签导致结果错位。
+                GameDescriptor target = _game;
+
                 try
                 {
                     List<string> trail;
-                    List<GameCandidate> found = GameLocator.Detect(deep, out trail);
+
+                    // 关键：一次把两款游戏都探测出来。
+                    //
+                    // 旧代码用的是 GameLocator.Detect()（内部写死只扫 Coloring Pixels），
+                    // 所以在《涂色大师》页签点「自动检测」永远找不到本机明明装着的游戏。
+                    List<GameCandidate> found = GameLocator.DetectAll(deep, out trail);
+
+                    bool hitTarget = false;
+                    foreach (GameCandidate c in found)
+                    {
+                        if (ReferenceEquals(c.Game, target)) { hitTarget = true; break; }
+                    }
 
                     Ui(delegate
                     {
@@ -575,27 +661,50 @@ namespace ColoringPixelsTool.Installer
                         _candidates.Clear();
                         _candidates.AddRange(found);
 
-                        if (found.Count > 0)
+                        // 找到的每一款都各自记住（下次打开安装器直接可用）。
+                        foreach (GameCandidate c in found)
                         {
-                            _txtDir.Text = found[0].Path;
-                            _source = found[0].Source;
-                            Log.Ok("已定位游戏目录：" + found[0].Path + "（来源：" + found[0].Source + "）");
+                            if (c.Game == null) continue;
+                            RememberDir(c.Game, c.Path);
+                        }
+
+                        if (!ReferenceEquals(target, _game)) return;   // 用户已经切走了
+
+                        GameCandidate mine = null;
+                        foreach (GameCandidate c in found)
+                        {
+                            if (ReferenceEquals(c.Game, _game)) { mine = c; break; }
+                        }
+
+                        if (mine != null)
+                        {
+                            _txtDir.Text = mine.Path;
+                            _source = mine.Source;
+                            Log.Ok("已定位「" + _game.DisplayName + "」目录：" + mine.Path + "（来源：" + mine.Source + "）");
+                            RefreshStatus(true);
+                        }
+                        else if (GameLocator.Inspect(_txtDir.Text, _game).Usable)
+                        {
+                            // 输入框里已经是一个可用目录（多半来自上次记忆），保留它。
                             RefreshStatus(true);
                         }
                         else
                         {
                             _source = null;
+                            _txtDir.Text = "";
                             RefreshStatus(false);
-                            Log.Warn("未能自动定位游戏目录，请点击「浏览…」手动选择");
+                            Log.Warn("未能自动定位「" + _game.DisplayName + "」的目录，请点击「浏览…」手动选择");
                         }
                     });
 
-                    if (found.Count == 0 && !deep)
+                    if (!hitTarget && !deep)
                     {
                         Ui(delegate
                         {
+                            if (!ReferenceEquals(target, _game)) return;
+
                             DialogResult r = MessageBox.Show(this,
-                                "常规位置没有找到游戏目录。\n是否要扫描所有磁盘进行深度查找？",
+                                "常规位置没有找到「" + target.DisplayName + "」的游戏目录。\n是否要扫描所有磁盘进行深度查找？",
                                 AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                             if (r == DialogResult.Yes) DetectAsync(true);
                         });
@@ -653,7 +762,8 @@ namespace ColoringPixelsTool.Installer
                 return;
             }
 
-            _dirByGame[_game.Key] = info.Directory;
+            // 校验通过的目录顺手落盘：这样手动浏览选过一次，下次打开安装器就直接可用。
+            RememberDir(_game, info.Directory);
             _dot.Pulsing = false;
 
             bool installed = PayloadInstaller.IsInstalled(info.Directory, _game);

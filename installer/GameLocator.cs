@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 
 namespace ColoringPixelsTool.Installer
 {
@@ -207,12 +208,25 @@ namespace ColoringPixelsTool.Installer
             foreach (GameDescriptor game in AppInfo.Games)
                 Scan(game, false, found, seen, libraries, trail);
 
-            // 只有一款都没找到时才做昂贵的深度扫描，避免把磁盘扫两遍。
-            if (deep && found.Count == 0)
+            // 逐款游戏各自判断：哪款一款都没找到，才对哪款做昂贵的深度扫描。
+            //
+            // 这里曾经写成「两款都找不到才深扫」，于是只要本机装了 Coloring Pixels，
+            // 切到《涂色大师》点「自动检测」就永远不会深扫，也就永远找不到 ——
+            // 用户只能每次手动浏览选目录。这是那个 bug 的根源。
+            if (deep)
             {
-                trail.Add("开始深度扫描磁盘……");
                 foreach (GameDescriptor game in AppInfo.Games)
+                {
+                    bool any = false;
+                    foreach (GameCandidate c in found)
+                    {
+                        if (ReferenceEquals(c.Game, game)) { any = true; break; }
+                    }
+                    if (any) continue;
+
+                    trail.Add("开始深度扫描磁盘（" + game.DisplayName + "）……");
                     Scan(game, true, found, seen, libraries, trail);
+                }
             }
 
             return found;
@@ -372,6 +386,7 @@ namespace ColoringPixelsTool.Installer
         {
             string name = game.SteamInstallDirName;
             string lower = name.ToLowerInvariant();
+            string[] hints = HintsOf(game);
 
             string[] skip = new string[]
             {
@@ -434,7 +449,11 @@ namespace ColoringPixelsTool.Installer
                             continue;
                         }
 
-                        if (string.Equals(childName, lower, StringComparison.OrdinalIgnoreCase))
+                        // 目录名与标准名完全一致，或只是「沾边」（PixelCrossStitch、
+                        // 涂色大师：像素梦想家……）：后者交给 Consider→Inspect 用
+                        // exe / 数据目录名确认，这样即使用户把游戏装在自定义目录也能找到。
+                        if (string.Equals(childName, lower, StringComparison.OrdinalIgnoreCase) ||
+                            NameHints(childName, hints))
                         {
                             yield return child;
                             continue;
@@ -445,6 +464,60 @@ namespace ColoringPixelsTool.Installer
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 深度扫描时用来「认亲」的目录名关键字。
+        ///
+        /// 只按 Steam 的标准目录名匹配是不够的：游戏可能被装到
+        /// D:\Games\PixelCrossStitch、D:\我的游戏\涂色大师 这类自定义目录里。
+        /// 这里列出几个不带空格/连字符的关键字，命中后仍要经过 Inspect 的
+        /// exe + 数据目录校验，所以放宽一点也不会误判。
+        /// </summary>
+        private static string[] HintsOf(GameDescriptor game)
+        {
+            if (game != null && game.Key == "pcs")
+            {
+                return new string[]
+                {
+                    "pixelcrossstitch", "crossstitch", "pixelcross",
+                    "涂色大师", "像素梦想家"
+                };
+            }
+
+            return new string[] { "coloringpixels", "coloringpixel" };
+        }
+
+        /// <summary>去掉空格与常见分隔符并转小写，用于模糊比较目录名。</summary>
+        private static string NormalizeName(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+
+            StringBuilder sb = new StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                if (c == ' ' || c == '-' || c == '_' || c == '.' || c == '\'' ||
+                    c == '(' || c == ')' || c == '[' || c == ']' || c == '+' || c == '&')
+                    continue;
+
+                sb.Append(char.ToLowerInvariant(c));
+            }
+            return sb.ToString();
+        }
+
+        private static bool NameHints(string childName, string[] hints)
+        {
+            if (hints == null || hints.Length == 0) return false;
+
+            string name = NormalizeName(childName);
+            if (name.Length == 0) return false;
+
+            foreach (string hint in hints)
+            {
+                if (hint.Length == 0) continue;
+                if (name.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
         }
 
         // ------------------------------------------------------------ 运行状态

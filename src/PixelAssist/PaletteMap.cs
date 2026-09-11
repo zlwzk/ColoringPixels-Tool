@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Text;
 
 namespace PixelAssist
 {
@@ -246,6 +247,17 @@ namespace PixelAssist
             return bestIdx;
         }
 
+        /// <summary>把另一份校准结果整体拷进来（用于「识别调色板」试算成功后落定）。</summary>
+        public void CopyFrom(PaletteMap other)
+        {
+            if (other == null) return;
+
+            Bounds = other.Bounds;
+            Columns = other.Columns;
+            Rows = other.Rows;
+            _swatches = new List<PaletteSwatch>(other._swatches);
+        }
+
         /// <summary>返回每个唯一颜色匹配到的色块索引（key = 24-bit RGB）。</summary>
         public Dictionary<int, int> BuildColorIndex(List<PcsColorGroup> groups)
         {
@@ -266,6 +278,202 @@ namespace PixelAssist
             int dg = a.G - b.G;
             int db = a.B - b.B;
             return dr * dr + dg * dg + db * db;
+        }
+
+        // ---------------------------------------------------------------- 按存档颜色定位
+
+        /// <summary>
+        /// 用「这一关用到的目标颜色」在框选区域内反查色块位置，并推出列数 / 行数。
+        ///
+        /// 为什么比投影法稳：色块里装的就是存档里那张图的目标颜色，是我们已知的信息，
+        /// 只要在屏幕上找到这些颜色出现在哪即可 —— 不必再靠「跳变峰」去猜色块边界。
+        /// 投影法在色块颜色相近、边框很细、或者画面有渐变阴影时经常数错行列，
+        /// 这正是「自动绘图老是涂错颜色」的一大来源。
+        ///
+        /// 返回成功定位到的颜色个数；小于 2 表示没把握，调用方应回退到 <see cref="AutoDetect"/>。
+        /// </summary>
+        public int LocateByColors(ScreenSampler sampler, Rectangle bounds, List<PcsColorGroup> groups, int tolerance)
+        {
+            if (groups == null || groups.Count == 0) return 0;
+            if (sampler == null) return 0;
+            if (bounds.Width < 20 || bounds.Height < 20) return 0;
+
+            Bitmap bmp = sampler.Bitmap;
+            if (bmp == null) return 0;
+
+            Rectangle local = Rectangle.Intersect(
+                new Rectangle(bounds.X - sampler.Bounds.X, bounds.Y - sampler.Bounds.Y, bounds.Width, bounds.Height),
+                new Rectangle(0, 0, bmp.Width, bmp.Height));
+            if (local.Width < 20 || local.Height < 20) return 0;
+
+            int count = groups.Count;
+            int tol2 = tolerance * tolerance;
+
+            // 每个目标颜色累积「命中的像素坐标」，最后取平均作为该色块的中心。
+            long[] sumX = new long[count];
+            long[] sumY = new long[count];
+            int[] hits = new int[count];
+
+            // 隔一个像素采样即可：找的是色块中心，不需要逐个像素。
+            for (int y = 0; y < local.Height; y += 2)
+            {
+                int py = local.Y + y;
+                for (int x = 0; x < local.Width; x += 2)
+                {
+                    Color c = bmp.GetPixel(local.X + x, py);
+
+                    int bestIdx = -1;
+                    int bestDist = tol2;
+                    for (int i = 0; i < count; i++)
+                    {
+                        int dr = c.R - groups[i].R;
+                        int dg = c.G - groups[i].G;
+                        int db = c.B - groups[i].B;
+                        int d = dr * dr + dg * dg + db * db;
+                        if (d <= bestDist)
+                        {
+                            bestDist = d;
+                            bestIdx = i;
+                        }
+                    }
+
+                    if (bestIdx < 0) continue;
+
+                    sumX[bestIdx] += local.X + x;
+                    sumY[bestIdx] += py;
+                    hits[bestIdx]++;
+                }
+            }
+
+            List<int> centersX = new List<int>();
+            List<int> centersY = new List<int>();
+            for (int i = 0; i < count; i++)
+            {
+                if (hits[i] < 4) continue;   // 零星命中不算数
+                centersX.Add((int)(sumX[i] / hits[i]));
+                centersY.Add((int)(sumY[i] / hits[i]));
+            }
+
+            if (centersX.Count < 2) return centersX.Count;
+
+            centersX.Sort();
+            centersY.Sort();
+
+            int minGap = Math.Max(6, Math.Min(bounds.Width, bounds.Height) / 24);
+            int cols = CountClusters(centersX, minGap);
+            int rows = CountClusters(centersY, minGap);
+
+            if (cols < 1 || rows < 1) return 0;
+            if (cols * rows > 240) return 0;   // 排布明显不合理，交给投影法
+
+            CalibrateFromGrid(sampler, bounds, cols, rows);
+            return centersX.Count;
+        }
+
+        /// <summary>把一串已排序的坐标按「间距超过阈值就断开」聚成几簇。</summary>
+        private static int CountClusters(List<int> sorted, int minGap)
+        {
+            if (sorted.Count == 0) return 0;
+
+            int count = 1;
+            for (int i = 1; i < sorted.Count; i++)
+            {
+                if (sorted[i] - sorted[i - 1] > minGap) count++;
+            }
+            return count;
+        }
+
+        // ---------------------------------------------------------------- 持久化
+        //
+        // 校准一次就够用很久，所以把结果存下来：下次打开助手直接可用，
+        // 不必每回都重新框选一遍（这是「自动绘图用不起来」最常见的卡点）。
+
+        /// <summary>序列化成自包含的纯文本：位置、行列、每个色块的颜色都存下来。</summary>
+        public string Serialize()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("v1\r\n");
+            sb.Append("bounds=").Append(Bounds.X).Append(',').Append(Bounds.Y).Append(',')
+              .Append(Bounds.Width).Append(',').Append(Bounds.Height).Append("\r\n");
+            sb.Append("grid=").Append(Columns).Append(',').Append(Rows).Append("\r\n");
+
+            for (int i = 0; i < _swatches.Count; i++)
+            {
+                PaletteSwatch s = _swatches[i];
+                sb.Append("s=").Append(s.Column).Append(',').Append(s.Row).Append(',')
+                  .Append(s.Bounds.X).Append(',').Append(s.Bounds.Y).Append(',')
+                  .Append(s.Bounds.Width).Append(',').Append(s.Bounds.Height).Append(',')
+                  .Append(s.Color.R).Append(',').Append(s.Color.G).Append(',').Append(s.Color.B)
+                  .Append("\r\n");
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>从 <see cref="Serialize"/> 的文本还原；内容不可用时返回 null。</summary>
+        public static PaletteMap Deserialize(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+
+            PaletteMap map = new PaletteMap();
+            List<PaletteSwatch> swatches = new List<PaletteSwatch>();
+
+            string[] lines = text.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string raw in lines)
+            {
+                string line = raw == null ? "" : raw.Trim();
+                int eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+
+                string key = line.Substring(0, eq).Trim();
+                int[] nums = ParseInts(line.Substring(eq + 1));
+
+                if (string.Equals(key, "bounds", StringComparison.OrdinalIgnoreCase) && nums.Length >= 4)
+                {
+                    map.Bounds = new Rectangle(nums[0], nums[1], nums[2], nums[3]);
+                }
+                else if (string.Equals(key, "grid", StringComparison.OrdinalIgnoreCase) && nums.Length >= 2)
+                {
+                    map.Columns = nums[0];
+                    map.Rows = nums[1];
+                }
+                else if (string.Equals(key, "s", StringComparison.OrdinalIgnoreCase) && nums.Length >= 9)
+                {
+                    PaletteSwatch s = new PaletteSwatch();
+                    s.Column = nums[0];
+                    s.Row = nums[1];
+                    s.Bounds = new Rectangle(nums[2], nums[3], nums[4], nums[5]);
+                    s.Color = Color.FromArgb(Clamp255(nums[6]), Clamp255(nums[7]), Clamp255(nums[8]));
+                    swatches.Add(s);
+                }
+            }
+
+            if (map.Bounds.Width <= 0 || map.Bounds.Height <= 0) return null;
+            if (swatches.Count == 0) return null;
+
+            map._swatches = swatches;
+            return map;
+        }
+
+        private static int Clamp255(int value)
+        {
+            if (value < 0) return 0;
+            if (value > 255) return 255;
+            return value;
+        }
+
+        private static int[] ParseInts(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return new int[0];
+
+            string[] parts = value.Split(',');
+            List<int> list = new List<int>(parts.Length);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                int n;
+                if (int.TryParse(parts[i].Trim(), out n)) list.Add(n);
+            }
+            return list.ToArray();
         }
     }
 
