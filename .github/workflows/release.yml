@@ -42,6 +42,6 @@ jobs:
           files: |
             dist/*.exe
             dist/SHA256SUMS.txt
-          generate_release_notes: true
+          body_path: ./RELEASE_NOTES.md
           draft: false
           prerelease: false

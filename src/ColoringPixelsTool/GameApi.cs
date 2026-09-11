@@ -121,6 +121,8 @@ namespace ColoringPixelsTool
             }
 
             ct.SetSingleCell(x, y);
+
+            if (correct) UserProfile.RecordPixels(1);
         }
 
         public static void AddComplete(ClickTest ct, float delta)

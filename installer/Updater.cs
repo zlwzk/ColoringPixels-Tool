@@ -39,6 +39,11 @@ namespace ColoringPixelsTool.Installer
         private const string UserAgent = "ColoringPixelsTool-Installer";
         private const int TimeoutMs = 20000;
 
+        /// <summary>自动更新失败时引导用户去夸克网盘手动下载。</summary>
+        public const string ManualUpdateUrl = "https://pan.quark.cn/s/81b8dbdf90c0";
+        public const string ManualUpdateCode = "/~052d3anjXR~:/";
+        public const string ManualUpdateHint = "夸克网盘「涂色软件工具」";
+
         /// <summary>owner/repo，例如 zlwzk/ColoringPixels-Tool（来自构建时写入的 RepositoryUrl）。</summary>
         public static string RepoSlug
         {

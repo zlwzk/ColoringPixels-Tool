@@ -651,6 +651,15 @@ namespace ColoringPixelsTool.Installer
                 Ui(delegate
                 {
                     RefreshStatus(true);
+                    try
+                    {
+                        using (ChangelogDialog dlg = new ChangelogDialog())
+                            dlg.ShowDialog(this);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("更新公告弹窗失败：" + ex.Message);
+                    }
                 });
 
                 if (launch) Launch(dir);
@@ -860,9 +869,7 @@ namespace ColoringPixelsTool.Installer
 
                 if (!silent)
                 {
-                    MessageBox.Show(this,
-                        "检查更新失败：\n" + error + "\n\n可以稍后再试，或手动打开：\n" + Updater.ReleasesPage,
-                        AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    PromptManualUpdate();
                 }
                 return;
             }
@@ -912,6 +919,39 @@ namespace ColoringPixelsTool.Installer
                 "发现新版本 v" + info.Version + "（当前 v" + AppInfo.AppVersion + "）。\n\n是否现在下载最新版安装器？",
                 AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Information);
             if (r == DialogResult.Yes) DownloadUpdate();
+        }
+
+        private void PromptManualUpdate()
+        {
+            if (IsDisposed) return;
+
+            DialogResult r = MessageBox.Show(this,
+                "自动检查更新失败，已为你准备好手动更新入口：\n\n" +
+                Updater.ManualUpdateHint + "\n" +
+                Updater.ManualUpdateUrl + "\n\n" +
+                "夸克口令：" + Updater.ManualUpdateCode + "\n\n" +
+                "是否现在打开网盘链接？",
+                AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+
+            if (r == DialogResult.Yes)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = Updater.ManualUpdateUrl,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("打开手动更新链接失败：" + ex.Message);
+                    MessageBox.Show(this,
+                        "浏览器打开失败，请手动复制链接：\n" + Updater.ManualUpdateUrl + "\n\n" +
+                        "夸克口令：" + Updater.ManualUpdateCode,
+                        AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
         }
 
         private void DownloadUpdate()

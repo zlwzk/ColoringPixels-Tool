@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using BepInEx.Configuration;
 using UnityEngine;
@@ -33,6 +34,21 @@ namespace ColoringPixelsTool
         private Vector2 _dragOffset;
         private int _hintOriginal = -1;
 
+        // ---- 用户资料 / 背景 ----
+        private Texture2D _avatarTex;
+        private Texture2D _bgTex;
+        private string _avatarPathCached;
+        private string _bgPathCached;
+        private string _usernameDraft;
+        private string _avatarDraft;
+        private string _backgroundDraft;
+        private bool _profileInit;
+
+        // ---- 更新公告 ----
+        public static bool PendingAnnouncement;
+        private bool _showAnnouncement;
+        private Vector2 _announceScroll;
+
         // ---- 首页计时器 ----
         private bool _timerRunning;
         private float _timerElapsed;
@@ -48,6 +64,8 @@ namespace ColoringPixelsTool
         private void Awake()
         {
             Instance = this;
+            _showAnnouncement = PendingAnnouncement;
+            PendingAnnouncement = false;
         }
 
         public static bool Visible
@@ -117,6 +135,9 @@ namespace ColoringPixelsTool
                 Toast(Plugin.HighlightEnabled.Value ? "画布颜色高亮已开启" : "画布颜色高亮已关闭");
             }
 
+            // 累计在线时长（等级系统）
+            UserProfile.Tick(Time.unscaledDeltaTime);
+
             // 每帧把配置同步给自动涂色引擎
             var painter = AutoPainter.Instance;
             if (painter != null)
@@ -151,7 +172,11 @@ namespace ColoringPixelsTool
             int n = GameApi.InstantFill();
             if (n > 0)
             {
+                UserProfile.RecordPixels(n);
                 if (Plugin.AutoSaveAfterRun.Value) GameApi.SaveNow();
+                var ct = GameApi.Ct;
+                if (GameApi.InLevel(ct) && GameApi.RemainingPixels(ct) <= 0)
+                    UserProfile.RecordImageCompleted(GameApi.TotalPixels(ct));
                 Toast($"一键涂完：填涂 {n} 格");
             }
             else
@@ -242,6 +267,9 @@ namespace ColoringPixelsTool
             // 背景（全屏透明遮罩，点击外部可关闭——这里只用于捕获事件）
             Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0f));
 
+            // 自定义背景图（在面板底色之下）
+            DrawBackground();
+
             // 面板主体：多层圆角营造深度
             Ui.Round(_window, 16f, new Color(0.12f, 0.13f, 0.18f, opacity));
             Ui.Round(new Rect(_window.x + 1f, _window.y + 1f, _window.width - 2f, _window.height - 2f), 15f,
@@ -255,6 +283,27 @@ namespace ColoringPixelsTool
             DrawTabs();
             DrawContent();
             DrawFooter();
+
+            if (_showAnnouncement) DrawAnnouncement();
+        }
+
+        private void DrawBackground()
+        {
+            if (string.IsNullOrEmpty(UserProfile.BackgroundPath)) return;
+            EnsureBackgroundTexture();
+            if (_bgTex == null) return;
+
+            var r = new Rect(_window.x, _window.y, _window.width, _window.height);
+            Color prev = GUI.color;
+
+            // 先整体压暗，让文字可读
+            GUI.color = new Color(1f, 1f, 1f, 0.28f);
+            GUI.DrawTexture(r, _bgTex, ScaleMode.ScaleAndCrop, true);
+
+            GUI.color = new Color(0.06f, 0.07f, 0.10f, 0.72f);
+            GUI.DrawTexture(r, Ui.White, ScaleMode.StretchToFill, false);
+
+            GUI.color = prev;
         }
 
         private void DrawHeader(Event e)
@@ -295,8 +344,11 @@ namespace ColoringPixelsTool
             Ui.Text(new Rect(icon.xMax + 12f, _window.y + 32f, 320f, 16f),
                 "按 " + KeyName(Plugin.KeyToggle.Value) + " 开关面板", Ui.MutedSmall);
 
+            // 用户资料（位于标题栏右侧，软件最上方）
+            DrawProfileHeader();
+
             // 关闭按钮
-            var close = new Rect(_window.xMax - 38f, _window.y + 16f, 26f, 26f);
+            var close = new Rect(_window.xMax - 38f, _window.y + 12f, 26f, 26f);
             bool hov = Ui.Hit(close);
             float ch = Ui.Tween("hdr-close", hov, 20f);
             Ui.Round(close, 8f, Color.Lerp(new Color(0.145f, 0.165f, 0.230f, 1f), Ui.Bad, ch));
@@ -309,6 +361,56 @@ namespace ColoringPixelsTool
 
             // 标题栏底部分隔线
             Ui.Fill(new Rect(_window.x + Pad, _window.y + HeaderH - 1f, _window.width - Pad * 2f, 1f), Ui.Line);
+        }
+
+        private void DrawProfileHeader()
+        {
+            EnsureAvatarTexture();
+
+            float areaW = 230f;
+            float areaX = _window.xMax - areaW - 44f;
+            float areaY = _window.y + 8f;
+
+            var area = new Rect(areaX, areaY, areaW, HeaderH - 16f);
+            bool hover = Ui.Hit(area);
+            if (hover) Ui.Round(area, 10f, new Color(1f, 1f, 1f, 0.04f));
+
+            // 头像（圆角方形 + 圆形描边）
+            var avatar = new Rect(areaX + 6f, areaY + 2f, 36f, 36f);
+            if (_avatarTex != null)
+            {
+                GUI.DrawTexture(avatar, _avatarTex, ScaleMode.ScaleAndCrop, true);
+            }
+            else
+            {
+                Ui.Round(avatar, 10f, Ui.Alpha(Ui.Accent, 0.35f));
+                Ui.Text(avatar, "我", Ui.Center, Ui.TextCol);
+            }
+            Ui.RoundOutline(avatar, 10f, Ui.Alpha(Ui.TextCol, 0.18f), new Color(0f, 0f, 0f, 0f), 1.5f);
+
+            // 用户名与等级徽章
+            string name = string.IsNullOrEmpty(UserProfile.Username) ? "未命名画师" : UserProfile.Username;
+            float nx = avatar.xMax + 10f;
+            float nw = areaW - (avatar.xMax - areaX) - 14f;
+
+            Ui.Text(new Rect(nx, areaY + 3f, nw - 46f, 18f), name, Ui.Label);
+            var badge = new Rect(nx + nw - 44f, areaY + 3f, 44f, 16f);
+            Ui.Badge(badge, "Lv." + UserProfile.Level, Ui.Accent2);
+
+            // 经验条
+            var xpTrack = new Rect(nx, areaY + 26f, nw, 6f);
+            Ui.ProgressBar(xpTrack, UserProfile.LevelProgress, Ui.Accent);
+
+            Ui.Text(new Rect(nx, areaY + 34f, nw, 14f),
+                $"{UserProfile.XpIntoLevel}/{UserProfile.XpNeededForLevel} XP", Ui.MutedSmall);
+
+            if (hover && Event.current.type == EventType.MouseDown && Event.current.button == 0)
+            {
+                _tab = 6;
+                _scroll = Vector2.zero;
+                _profileInit = false;
+                Event.current.Use();
+            }
         }
 
         private void DrawTabs()
@@ -452,6 +554,59 @@ namespace ColoringPixelsTool
                 Ui.RoundOutline(r, 8f, new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.5f * a), toastBg);
                 Ui.Text(r, _toast, Ui.Bold, new Color(1f, 1f, 1f, a));
             }
+        }
+
+        private void DrawAnnouncement()
+        {
+            Event e = Event.current;
+
+            // 半透明遮罩
+            Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.55f));
+
+            float mw = Mathf.Min(520f, Screen.width - 60f);
+            float mh = Mathf.Min(600f, Screen.height - 80f);
+            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+
+            Ui.Round(win, 16f, Ui.Panel);
+            Ui.RoundOutline(win, 16f, Ui.CardEdge, new Color(0f, 0f, 0f, 0f), 1.5f);
+
+            // 标题
+            Ui.Text(new Rect(win.x + 20f, win.y + 16f, win.width - 40f, 28f),
+                "V" + Changelog.CurrentVersion + " 更新公告", Ui.Title);
+            Ui.Fill(new Rect(win.x + 20f, win.y + 48f, win.width - 40f, 1f), Ui.Line);
+
+            // 滚动文本
+            var textR = new Rect(win.x + 20f, win.y + 58f, win.width - 40f, win.height - 120f);
+            GUI.BeginClip(textR);
+            var style = new GUIStyle(Ui.Label)
+            {
+                wordWrap = true,
+                padding = new RectOffset(0, 6, 0, 0)
+            };
+            var content = new GUIContent(Changelog.Body);
+            float textH = style.CalcHeight(content, textR.width);
+            _announceScroll.y += e.type == EventType.ScrollWheel && textR.Contains(Ui.Mouse) ? e.delta.y * 28f : 0f;
+            _announceScroll.y = Mathf.Clamp(_announceScroll.y, 0f, Mathf.Max(0f, textH - textR.height));
+
+            GUI.Label(new Rect(0f, -_announceScroll.y, textR.width, textH), Changelog.Body, style);
+            GUI.EndClip();
+
+            // 滚动条
+            if (textH > textR.height)
+            {
+                float ratio = textR.height / textH;
+                float barH = Mathf.Max(30f, textR.height * ratio);
+                float p = _announceScroll.y / Mathf.Max(1f, textH - textR.height);
+                var track = new Rect(textR.xMax + 6f, textR.y, 4f, textR.height);
+                var thumb = new Rect(track.x, textR.y + (textR.height - barH) * p, 4f, barH);
+                Ui.Round(track, 2f, new Color(1f, 1f, 1f, 0.06f));
+                Ui.Round(thumb, 2f, Ui.Alpha(Ui.Accent, 0.85f));
+            }
+
+            // 关闭按钮
+            var btn = new Rect(win.x + 40f, win.y + win.height - 48f, win.width - 80f, 36f);
+            if (Ui.Button(btn, "我知道了，快去涂色！", Ui.Good, true))
+                _showAnnouncement = false;
         }
 
         // ============================================================ 页：首页
@@ -1007,6 +1162,75 @@ namespace ColoringPixelsTool
 
         private void TabSettings(float w, ref float y)
         {
+            Section(w, ref y, "用户资料");
+
+            if (!_profileInit)
+            {
+                _usernameDraft = UserProfile.Username;
+                _avatarDraft = UserProfile.AvatarPath;
+                _backgroundDraft = UserProfile.BackgroundPath;
+                _profileInit = true;
+            }
+
+            Ui.Text(new Rect(0f, y, w, 18f), "用户名", Ui.MutedSmall);
+            y += 18f;
+            var nameR = new Rect(0f, y, w, 34f);
+            Ui.Round(nameR, 8f, Ui.Card);
+            GUI.SetNextControlName("cpt_username");
+            _usernameDraft = GUI.TextField(new Rect(nameR.x + 10f, nameR.y + 7f, nameR.width - 20f, 20f),
+                _usernameDraft, Ui.Label);
+            y += 42f;
+
+            Ui.Text(new Rect(0f, y, w, 18f), "头像图片路径（JPG/PNG）", Ui.MutedSmall);
+            y += 18f;
+            var avatarR = new Rect(0f, y, w, 34f);
+            Ui.Round(avatarR, 8f, Ui.Card);
+            _avatarDraft = GUI.TextField(new Rect(avatarR.x + 10f, avatarR.y + 7f, avatarR.width - 20f, 20f),
+                _avatarDraft, Ui.Label);
+            y += 42f;
+
+            Ui.Text(new Rect(0f, y, w, 18f), "面板背景图片路径（JPG/PNG，建议暗色）", Ui.MutedSmall);
+            y += 18f;
+            var bgR = new Rect(0f, y, w, 34f);
+            Ui.Round(bgR, 8f, Ui.Card);
+            _backgroundDraft = GUI.TextField(new Rect(bgR.x + 10f, bgR.y + 7f, bgR.width - 20f, 20f),
+                _backgroundDraft, Ui.Label);
+            y += 46f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "保存资料并刷新", Ui.Accent, true))
+            {
+                UserProfile.Username = _usernameDraft.Trim();
+                UserProfile.AvatarPath = _avatarDraft.Trim();
+                UserProfile.BackgroundPath = _backgroundDraft.Trim();
+                _avatarPathCached = null;
+                _bgPathCached = null;
+                UserProfile.Save();
+                Toast("资料已保存");
+            }
+            y += 44f;
+
+            float half = (w - 8f) * 0.5f;
+            if (Ui.Button(new Rect(0f, y, half, 36f), "打开配置文件夹", Ui.Accent2, false))
+                OpenConfigFolder();
+            if (Ui.Button(new Rect(half + 8f, y, half, 36f), "清除背景", Ui.Bad, false))
+            {
+                _backgroundDraft = "";
+                UserProfile.BackgroundPath = "";
+                _bgPathCached = null;
+                UserProfile.Save();
+                Toast("背景已清除");
+            }
+            y += 48f;
+
+            Card(w, ref y, 54f, top =>
+            {
+                Ui.Text(new Rect(Pad, top + 8f, w - Pad * 2f, 18f),
+                    $"当前等级  Lv.{UserProfile.Level}  ·  总经验 {UserProfile.Xp} XP", Ui.Label);
+                Ui.Text(new Rect(Pad, top + 28f, w - Pad * 2f, 18f),
+                    $"在线 {FormatDuration(UserProfile.TotalSeconds)}  ·  涂色 {UserProfile.PixelsPainted} 格  ·  完成 {UserProfile.ImagesCompleted} 张图", Ui.MutedSmall);
+            });
+
+            y += 6f;
             Section(w, ref y, "面板外观");
 
             Plugin.PanelOpacity.Value = Slider(w, ref y, "panelopacity", Plugin.PanelOpacity.Value, 0.5f, 1f,
@@ -1418,6 +1642,58 @@ namespace ColoringPixelsTool
         {
             if (!show || k == KeyCode.None) return "";
             return $"   [{k}]";
+        }
+
+        // ============================================================ 用户资料 / 背景 纹理
+
+        private void EnsureAvatarTexture()
+        {
+            if (_avatarPathCached == UserProfile.AvatarPath && _avatarTex != null) return;
+            _avatarPathCached = UserProfile.AvatarPath;
+            _avatarTex = LoadTexture(_avatarPathCached);
+        }
+
+        private void EnsureBackgroundTexture()
+        {
+            if (_bgPathCached == UserProfile.BackgroundPath && _bgTex != null) return;
+            _bgPathCached = UserProfile.BackgroundPath;
+            _bgTex = LoadTexture(_bgPathCached);
+        }
+
+        private static Texture2D LoadTexture(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+            try
+            {
+                byte[] data = File.ReadAllBytes(path);
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (tex.LoadImage(data))
+                {
+                    tex.hideFlags = HideFlags.HideAndDontSave;
+                    tex.filterMode = FilterMode.Bilinear;
+                    return tex;
+                }
+                UnityEngine.Object.Destroy(tex);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("加载图片失败：" + e.Message);
+            }
+            return null;
+        }
+
+        private static void OpenConfigFolder()
+        {
+            try
+            {
+                string dir = GameLocalizer.ConfigDirectory();
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start(dir);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("打开配置文件夹失败：" + e.Message);
+            }
         }
     }
 }

@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "1.3.2";
+        public const string Version = "2.0.0";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -100,6 +100,14 @@ namespace ColoringPixelsTool
             Log.Bind(Logger);
 
             BindConfig();
+
+            UserProfile.Load();
+            if (UserProfile.LastVersion != Version)
+            {
+                CheatPanel.PendingAnnouncement = true;
+                UserProfile.LastVersion = Version;
+                UserProfile.Save();
+            }
 
             Unlocker.ForceDlcOwned = UnlockAllDlc.Value;
 
