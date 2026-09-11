@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.3.4";
+        public const string Version = "2.3.5";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -141,12 +141,24 @@ namespace ColoringPixelsTool
 
             UserProfile.Load();
             PaintTimer.Load();
-            if (UserProfile.LastVersion != Version)
+
+            // 卸载后重装 = 新用户：安装器卸载时在漫游目录留了标记，这里消费一次。
+            // 覆盖安装（没卸载过）不写标记，于是维持原状。
+            // 注意等级 / 经验不受影响 —— 只把「上锁 / 新手指引 / 公告」这些状态恢复出厂。
+            bool freshInstall = UserProfile.ConsumeFreshInstallFlag();
+            if (freshInstall)
+            {
+                if (AutoUnlocked != null) AutoUnlocked.Value = false;
+                if (GuideShown != null) GuideShown.Value = false;
+            }
+
+            if (freshInstall || UserProfile.LastVersion != Version)
             {
                 // 第一次用这个工具的人弹「功能总览」，老用户升级只看「这版改了什么」。
                 // LastVersion 为空 = 从没用过（存档刚建好），这一刻问最准，下面就会被覆盖掉。
                 CheatPanel.PendingAnnouncement = true;
-                CheatPanel.PendingAnnouncementIsFirstRun = string.IsNullOrEmpty(UserProfile.LastVersion);
+                CheatPanel.PendingAnnouncementIsFirstRun =
+                    freshInstall || string.IsNullOrEmpty(UserProfile.LastVersion);
                 UserProfile.LastVersion = Version;
                 UserProfile.Save();
             }

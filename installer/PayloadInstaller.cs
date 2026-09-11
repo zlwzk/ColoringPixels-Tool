@@ -375,8 +375,50 @@ namespace ColoringPixelsTool.Installer
                 DeleteFile(Path.Combine(root, AppInfo.DoorstopMarkerFile), report);
             }
 
+            // 卸载重装要当成新用户：留个标记，插件下次启动消费它（重新上锁 / 重新弹功能总览）。
+            MarkFreshInstallPending(report);
+
             Report(progress, 100, "卸载完成：移除 " + report.Removed + " 项");
             return report;
+        }
+
+        /// <summary>
+        /// 在用户数据目录写一个「卸载后重装」标记，插件下次启动消费一次：
+        /// 这次启动当作新用户 —— 重新上锁、重新走新手指引、重新弹完整功能总览。
+        ///
+        /// 为什么不能靠删游戏目录里的东西就完事：等级存档刻意放在 %APPDATA% 里（卸载不动它），
+        /// 插件因此无法自己分辨「老用户升级」和「卸载后又装回来」。覆盖安装不走这里，
+        /// 所以老用户升级依旧只看到当版更新公告。
+        ///
+        /// 标记只影响上锁 / 指引 / 公告这类状态，**不动等级与经验**。
+        /// </summary>
+        private static void MarkFreshInstallPending(DeployReport report)
+        {
+            try
+            {
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (string.IsNullOrEmpty(appData))
+                {
+                    Log.Warn("拿不到漫游目录，跳过「卸载后重装 = 新用户」标记");
+                    return;
+                }
+
+                string dir = Path.Combine(appData, AppInfo.UserDataFolderName);
+                Directory.CreateDirectory(dir);
+
+                File.WriteAllText(
+                    Path.Combine(dir, AppInfo.FreshInstallFlagName),
+                    "uninstalled at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                        + Environment.NewLine,
+                    new UTF8Encoding(false));
+
+                Log.Info("已记录「卸载后重装」标记：下次装回来会当作新用户（重新上锁 / 重新弹功能总览）");
+            }
+            catch (Exception ex)
+            {
+                report.Warnings.Add("「卸载后重装 = 新用户」标记写入失败：" + ex.Message);
+                Log.Warn("标记「卸载后重装」失败（不影响卸载）：" + ex.Message);
+            }
         }
 
         public static bool IsInstalled(string gameDir)

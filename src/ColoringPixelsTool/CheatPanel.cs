@@ -93,7 +93,10 @@ namespace ColoringPixelsTool
         {
             Instance = this;
             _showAnnouncement = PendingAnnouncement;
+            // 这次弹的到底是「功能总览」还是「更新公告」，由 Plugin 启动时问出来的结果决定。
+            _announcementIsGuide = PendingAnnouncementIsFirstRun;
             PendingAnnouncement = false;
+            PendingAnnouncementIsFirstRun = false;
             UiScale = ComputeScale();
 
             // 第一次用这个工具时弹一次新手指引。

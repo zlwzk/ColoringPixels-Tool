@@ -80,6 +80,12 @@ namespace ColoringPixelsTool
         private const string UserDataFolderName = "ColoringPixelsTool";
 
         /// <summary>
+        /// 「卸载后重装」标记文件名（放在用户数据目录里，安装器卸载时写入、插件启动时消费一次）。
+        /// 与 installer\AppInfo.FreshInstallFlagName 必须保持一致。
+        /// </summary>
+        public const string FreshInstallFlagName = "fresh-install.flag";
+
+        /// <summary>
         /// 镜像目录：插件端指向游戏目录里的 BepInEx\config（%APPDATA% 被清理时还能捞回来），
         /// 独立助手端留空则退回本机 LocalAppData。留空也不会丢等级，只是个额外副本。
         /// </summary>
@@ -196,6 +202,33 @@ namespace ColoringPixelsTool
             {
             }
             return dir;
+        }
+
+        /// <summary>
+        /// 消费「卸载后重装」标记：读到就删掉并返回 true。
+        ///
+        /// 为什么需要这个标记：等级存档刻意放在 %APPDATA% 里，好让「覆盖安装 / 卸载重装」都不丢进度 ——
+        /// 但也正因为如此，插件无法自己分辨「老用户升级」和「卸载后又装回来」。安装器卸载时会留下这个标记，
+        /// 插件启动时消费一次，就能把这次启动当成新用户（重新上锁、重新走新手指引、重新弹完整功能总览）；
+        /// 而覆盖安装不写标记，于是维持原状。
+        ///
+        /// 标记刻意不放游戏目录（会被卸载一起清掉，插件就看不到了），也不写进存档里（那里要保住进度）。
+        /// </summary>
+        public static bool ConsumeFreshInstallFlag()
+        {
+            try
+            {
+                string path = Path.Combine(UserDataDirectory(), FreshInstallFlagName);
+                if (!File.Exists(path)) return false;
+
+                try { File.Delete(path); }
+                catch (Exception) { /* 删不掉也别卡住启动，下次启动会再消费一次 */ }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>正式存档路径（漫游目录）。</summary>

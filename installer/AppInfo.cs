@@ -47,6 +47,16 @@ namespace ColoringPixelsTool.Installer
         public const string PluginDllName = "ColoringPixelsTool.dll";
         public const string PluginConfigName = "coloringpixels.cheatsuite.cfg";
 
+        /// <summary>用户数据目录名（%APPDATA% 下）。与插件 UserProfile.UserDataFolderName 保持一致。</summary>
+        public const string UserDataFolderName = "ColoringPixelsTool";
+
+        /// <summary>
+        /// 「卸载后重装」标记文件名。与插件 UserProfile.FreshInstallFlagName 保持一致。
+        /// 卸载时写进用户数据目录，插件下次启动消费它 —— 这样卸载重装 = 新用户，
+        /// 而覆盖安装（没卸载过）维持原状。
+        /// </summary>
+        public const string FreshInstallFlagName = "fresh-install.flag";
+
         /// <summary>旧版本（ColoringPixelsCheat 时期）的插件文件名。安装 / 卸载时会一并清理，
         /// 否则同一 GUID 的旧插件会与新插件被 BepInEx 同时加载。</summary>
         public static readonly string[] LegacyPluginDllNames = new string[] { "ColoringPixelsCheat.dll" };
@@ -78,7 +88,7 @@ namespace ColoringPixelsTool.Installer
         {
             Key = "cp",
             DisplayName = "Coloring Pixels",
-            TipText = "进入任意关卡后按 F1 打开作弊面板。",
+            TipText = "进入任意关卡后按 F1 打开作弊面板；游戏可能会二次打开，请按照流程正常打开游戏即可。",
             ExeName = GameExeName,
             DataFolderName = GameDataFolderName,
             ManagedAssembly = GameAssemblyName,
