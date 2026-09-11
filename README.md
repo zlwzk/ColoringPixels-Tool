@@ -9,7 +9,7 @@
 
 [![Release](https://img.shields.io/github/v/release/zlwzk/ColoringPixels-Tool?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=5682ff)](https://github.com/zlwzk/ColoringPixels-Tool/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20x86-0078d4.svg)](#系统要求)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x86%20%2F%20x64-0078d4.svg)](#系统要求)
 [![Build](https://img.shields.io/github/actions/workflow/status/zlwzk/ColoringPixels-Tool/build.yml?label=build)](https://github.com/zlwzk/ColoringPixels-Tool/actions)
 
 </div>
@@ -81,9 +81,10 @@
 ### 卸载
 
 - 重新运行安装器，点击「**卸载**」；
-- 或在「卸载」弹窗中勾选「同时移除 BepInEx 本体」以彻底清理。
+- 或在「卸载」弹窗中勾选「同时移除 BepInEx 本体」以彻底清理（仅《Coloring Pixels》）；
+- 《涂色大师：像素梦想家》的卸载只会删除游戏目录下的 `PixelAssist\`，**不会**动 `%APPDATA%\PixelAssist` 里的区域与参数预设。
 
-卸载只会移除本插件与（可选的）BepInEx 本体，不会触碰游戏存档。
+卸载只会移除工具文件与（可选的）BepInEx 本体，不会触碰游戏存档。
 
 ## 使用说明
 
@@ -311,7 +312,7 @@ CheatTools/
 
 - 本项目仅供**学习、交流与单机娱乐**使用，请勿用于任何商业或非法用途。
 - 请在下载后 **24 小时内**自行删除相关内容；因使用本工具产生的一切后果由使用者自负。
-- 本项目与《Coloring Pixels》的开发商、发行商及 Steam 无关，游戏相关的全部权利归其各自所有者所有。
+- 本项目与《Coloring Pixels》《涂色大师：像素梦想家》的开发商、发行商及 Steam 无关，游戏相关的全部权利归其各自所有者所有。
 - 请支持正版游戏。
 
 ## 许可证
