@@ -228,10 +228,17 @@ namespace ColoringPixelsTool
             var painter = AutoPainter.Instance;
             if (painter != null)
             {
-                painter.CellsPerSecond = Plugin.AutoSpeed.Value;
+                // 速度三件套要分场合：自动化会话进行中时听自动化页签的（预设 / 自定义参数），
+                // 其余时间才听「拟人涂色」页签的。以前这里无条件覆盖，导致自动化页签里
+                // 选什么速度都是白选——刚设好就被下一帧冲掉了。
+                var sched = AutoScheduler.Instance;
+                bool autoSpeed = sched != null && sched.Running && sched.SpeedOverrideActive;
+
+                painter.CellsPerSecond = autoSpeed ? sched.SpeedCellsPerSecond : Plugin.AutoSpeed.Value;
+                painter.StrokeLength = autoSpeed ? sched.SpeedStrokeLength : Plugin.AutoStroke.Value;
+                painter.PauseChance = autoSpeed ? sched.SpeedPauseChance : Plugin.AutoPause.Value;
+
                 painter.BlockSize = Plugin.AutoBlock.Value;
-                painter.StrokeLength = Plugin.AutoStroke.Value;
-                painter.PauseChance = Plugin.AutoPause.Value;
                 painter.MistakeChance = Plugin.AutoMistake.Value;
                 painter.LargestColourFirst = Plugin.AutoLargestFirst.Value;
                 painter.HighlightColour = Plugin.AutoHighlight.Value;
@@ -1255,6 +1262,16 @@ namespace ColoringPixelsTool
             y += 6f;
             Section(w, ref y, "节奏参数");
 
+            // 自动化跑着的时候速度归「自动化」页签管，这里先说清楚，免得改了没反应以为坏了。
+            var sched = AutoScheduler.Instance;
+            if (sched != null && sched.Running)
+            {
+                Ui.Text(new Rect(0f, y, w, 18f),
+                    "自动化正在运行：当前速度由「自动化」页签的预设 / 自定义参数决定，这里的改动等它结束再生效",
+                    Ui.MutedSmall, Ui.Warn);
+                y += 24f;
+            }
+
             Plugin.AutoSpeed.Value = (int)Slider(w, ref y, "speed", Plugin.AutoSpeed.Value, 5f, 220f,
                 "手速", $"{Plugin.AutoSpeed.Value} 格/秒", true);
             Plugin.AutoStroke.Value = (int)Slider(w, ref y, "stroke", Plugin.AutoStroke.Value, 5f, 150f,
@@ -1301,7 +1318,7 @@ namespace ColoringPixelsTool
             }
             y += 54f;
 
-            Card(w, ref y, running ? 132f : 90f, top =>
+            Card(w, ref y, running ? 154f : 90f, top =>
             {
                 if (running)
                 {
@@ -1314,6 +1331,9 @@ namespace ColoringPixelsTool
                         $"{scheduler.ImagesCompleted} 张", Ui.TextCol);
                     Ui.InfoRow(new Rect(Pad, top + 96f, w - Pad * 2f, 20f), "目标总时长",
                         $"{Plugin.AutoTotalMinutes.Value:F1} 分钟", Ui.Muted);
+                    // 把「这次到底跑多快」摆出来，选完预设心里有数。
+                    Ui.InfoRow(new Rect(Pad, top + 118f, w - Pad * 2f, 20f), "涂色速度",
+                        SpeedSummary(scheduler), Ui.Accent2);
                 }
                 else
                 {
@@ -1338,11 +1358,66 @@ namespace ColoringPixelsTool
                 "连续涂图", "当前图片完成后自动尝试打开下一张（找不到则暂停等待）");
 
             y += 6f;
-            Section(w, ref y, "速度预设");
-            Ui.Text(new Rect(0f, y, w, 18f), "自动化启动时使用的涂色速度", Ui.MutedSmall);
+            Section(w, ref y, "涂色速度");
+            Ui.Text(new Rect(0f, y, w, 18f),
+                "自动化期间使用的速度（会临时盖过「拟人涂色」页签，结束即恢复）", Ui.MutedSmall);
             y += 22f;
             Plugin.AutoDrawingSpeedPreset.Value = Segmented(w, ref y, Plugin.AutoDrawingSpeedPreset.Value,
                 new[] { "自定义", "慢", "中", "快" });
+
+            y += 6f;
+            if (Plugin.AutoDrawingSpeedPreset.Value == 0)
+            {
+                Ui.Text(new Rect(0f, y, w, 34f),
+                    "下面三项只属于自动化，不会动到「拟人涂色」页签。\n" +
+                    "注意实际速度还受帧率限制（60 帧时大概 60 格/秒封顶），填更高也只是「尽力而为」。",
+                    Ui.MutedSmall);
+                y += 40f;
+
+                Plugin.AutoCustomSpeed.Value = (int)Slider(w, ref y, "autocspeed",
+                    Plugin.AutoCustomSpeed.Value, 5f, 400f,
+                    "手速", $"{Plugin.AutoCustomSpeed.Value} 格/秒", true);
+                Plugin.AutoCustomStroke.Value = (int)Slider(w, ref y, "autocstroke",
+                    Plugin.AutoCustomStroke.Value, 1f, 200f,
+                    "笔触长度", $"{Plugin.AutoCustomStroke.Value} 格/笔", true);
+                Plugin.AutoCustomPause.Value = Slider(w, ref y, "autocpause",
+                    Plugin.AutoCustomPause.Value, 0f, 1f,
+                    "停笔概率", $"{Plugin.AutoCustomPause.Value * 100f:0}%", false);
+
+                if (Ui.Button(new Rect(0f, y, w, 32f), "复制「拟人涂色」页签的参数", Ui.Accent2, false))
+                {
+                    Plugin.AutoCustomSpeed.Value = Plugin.AutoSpeed.Value;
+                    Plugin.AutoCustomStroke.Value = Plugin.AutoStroke.Value;
+                    Plugin.AutoCustomPause.Value = Plugin.AutoPause.Value;
+                    Toast("已复制「拟人涂色」页签的速度参数");
+                }
+                y += 40f;
+            }
+            else
+            {
+                Ui.Text(new Rect(0f, y, w, 18f), PresetSpeedText(Plugin.AutoDrawingSpeedPreset.Value), Ui.MutedSmall);
+                y += 22f;
+            }
+        }
+
+        /// <summary>本次自动化会话实际的涂色速度。</summary>
+        private static string SpeedSummary(AutoScheduler s)
+        {
+            if (s == null || !s.SpeedOverrideActive) return "--";
+            return string.Format("{0:0} 格/秒 · 笔长 {1} · 停笔 {2:0}%",
+                s.SpeedCellsPerSecond, s.SpeedStrokeLength, s.SpeedPauseChance * 100f);
+        }
+
+        /// <summary>把速度预设翻译成一眼能看懂的数字，免得选完不知道到底多快。</summary>
+        private static string PresetSpeedText(int preset)
+        {
+            switch (preset)
+            {
+                case 1: return "慢：28 格/秒 · 笔长 22 · 停笔 55%";
+                case 2: return "中：55 格/秒 · 笔长 30 · 停笔 38%（日常推荐）";
+                case 3: return "快：110 格/秒 · 笔长 45 · 停笔 18%（上限 220 格/秒）";
+                default: return "";
+            }
         }
 
         // ============================================================ 页：辅助

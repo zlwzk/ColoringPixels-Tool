@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.2.10";
+        public const string Version = "2.2.11";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -99,6 +99,11 @@ namespace ColoringPixelsTool
         internal static ConfigEntry<bool> AutoContinuous;
         internal static ConfigEntry<float> AutoPauseBetweenImages;
         internal static ConfigEntry<int> AutoDrawingSpeedPreset;
+
+        // 「涂色速度预设」= 自定义 时真正生效的三项参数（与「拟人涂色」页签互不影响）
+        internal static ConfigEntry<int> AutoCustomSpeed;
+        internal static ConfigEntry<int> AutoCustomStroke;
+        internal static ConfigEntry<float> AutoCustomPause;
 
         // ---- 面板 ----
         internal static ConfigEntry<float> PanelOpacity;
@@ -235,8 +240,17 @@ namespace ColoringPixelsTool
             AutoPauseBetweenImages = Config.Bind(z, "换图间隔秒", 3f,
                 new ConfigDescription("完成一张图后到切换下一张图的等待时间", new AcceptableValueRange<float>(0.5f, 30f)));
             AutoDrawingSpeedPreset = Config.Bind(z, "涂色速度预设", 1,
-                new ConfigDescription("0 = 使用「拟人涂色」页签里的速度，1 = 慢，2 = 中，3 = 快",
+                new ConfigDescription("0 = 自定义（用下面三项），1 = 慢，2 = 中，3 = 快",
                     new AcceptableValueRange<int>(0, 3)));
+            AutoCustomSpeed = Config.Bind(z, "自定义手速", 60,
+                new ConfigDescription("速度预设选「自定义」时生效：每秒涂多少格",
+                    new AcceptableValueRange<int>(5, 400)));
+            AutoCustomStroke = Config.Bind(z, "自定义笔触长度", 40,
+                new ConfigDescription("速度预设选「自定义」时生效：一笔连续涂多少格后可能停笔",
+                    new AcceptableValueRange<int>(1, 200)));
+            AutoCustomPause = Config.Bind(z, "自定义停笔概率", 0.3f,
+                new ConfigDescription("速度预设选「自定义」时生效：每笔结束后随机停笔的概率",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             var p = "6-面板";
             PanelOpacity = Config.Bind(p, "不透明度", 0.96f,

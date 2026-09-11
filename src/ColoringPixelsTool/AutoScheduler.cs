@@ -25,6 +25,14 @@ namespace ColoringPixelsTool
         public Action<string> OnStatusChanged;
         public Action OnTick;
 
+        // ---- 本次会话的涂色速度（自动化页签的「预设 / 自定义」） ----
+        // 面板每帧都会把「拟人涂色」页签的参数同步给引擎，所以这里必须留一份会话级的
+        // 速度，让面板知道「现在该听谁的」——否则预设刚设好就被下一帧覆盖，等于没设。
+        public bool SpeedOverrideActive { get; private set; }
+        public float SpeedCellsPerSecond { get; private set; }
+        public int SpeedStrokeLength { get; private set; }
+        public float SpeedPauseChance { get; private set; }
+
         private AutoPainter _painter;
         private float _imagePauseTimer;
         private bool _waitingForNextImage;
@@ -60,7 +68,7 @@ namespace ColoringPixelsTool
             _paintedThisLevel = false;
             Running = true;
 
-            ApplySpeedPreset(speedPreset);
+            ResolveSpeed(speedPreset);
 
             SetStatus("自动化已开始");
             StartCoroutine(RunLoop());
@@ -76,29 +84,44 @@ namespace ColoringPixelsTool
             Log.Info("AutoScheduler 停止：" + reason);
         }
 
-        private void ApplySpeedPreset(int preset)
+        /// <summary>把「涂色速度预设」换算成具体参数：0 = 自定义，1-3 = 慢 / 中 / 快。</summary>
+        private void ResolveSpeed(int preset)
         {
-            // 0 = 使用 Auto 页签里的自定义速度，1-3 = 预设
-            if (preset == 0) return;
-
             switch (preset)
             {
                 case 1: // 慢（更拟人，停顿多）
-                    _painter.CellsPerSecond = 28f;
-                    _painter.StrokeLength = 22;
-                    _painter.PauseChance = 0.55f;
+                    SpeedCellsPerSecond = 28f;
+                    SpeedStrokeLength = 22;
+                    SpeedPauseChance = 0.55f;
                     break;
                 case 2: // 中
-                    _painter.CellsPerSecond = 55f;
-                    _painter.StrokeLength = 30;
-                    _painter.PauseChance = 0.38f;
+                    SpeedCellsPerSecond = 55f;
+                    SpeedStrokeLength = 30;
+                    SpeedPauseChance = 0.38f;
                     break;
                 case 3: // 快
-                    _painter.CellsPerSecond = 110f;
-                    _painter.StrokeLength = 45;
-                    _painter.PauseChance = 0.18f;
+                    SpeedCellsPerSecond = 110f;
+                    SpeedStrokeLength = 45;
+                    SpeedPauseChance = 0.18f;
+                    break;
+                default: // 0 = 自定义：用自动化页签里单独设定的三项，不再借「拟人涂色」页签的值
+                    SpeedCellsPerSecond = Plugin.AutoCustomSpeed.Value;
+                    SpeedStrokeLength = Plugin.AutoCustomStroke.Value;
+                    SpeedPauseChance = Plugin.AutoCustomPause.Value;
                     break;
             }
+
+            SpeedOverrideActive = true;
+            ApplySpeed();
+        }
+
+        /// <summary>把会话速度写进引擎（面板关闭时也能立即生效）。</summary>
+        private void ApplySpeed()
+        {
+            if (_painter == null) return;
+            _painter.CellsPerSecond = SpeedCellsPerSecond;
+            _painter.StrokeLength = SpeedStrokeLength;
+            _painter.PauseChance = SpeedPauseChance;
         }
 
         private void SetStatus(string s)

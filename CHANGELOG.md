@@ -3,6 +3,32 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.11] - 2026-09-11
+
+### 修复
+
+- **自动化页签的「涂色速度预设」从来没生效过**：`CheatPanel.Update()` 每帧无条件把「拟人涂色」
+  页签的手速 / 笔触长度 / 停笔概率写进 `AutoPainter`，而 `AutoScheduler` 只在 `StartSession`
+  时设一次预设值，下一帧就被覆盖。慢 / 中 / 快三档因此形同虚设。
+  现在速度分场合：`AutoScheduler` 用 `SpeedOverrideActive` + `SpeedCellsPerSecond /
+  SpeedStrokeLength / SpeedPauseChance` 保存本次会话的参数，面板只在会话未运行时才同步
+  「拟人」页签的数值。
+
+### 新增
+
+- **自动化的「自定义」速度可以自己设定了**：新增 `AutoCustomSpeed`（手速，5–400 格/秒）、
+  `AutoCustomStroke`（笔触长度，1–200）、`AutoCustomPause`（停笔概率，0–1）三项配置，
+  预设选「自定义」（0）时使用；不再借用「拟人」页签的值。
+- 「自动化」页签选「自定义」时直接显示三个滑块，并有「复制『拟人涂色』页签的参数」一键搬运。
+- 自动化运行中的状态卡片新增「涂色速度」一行（`CheatPanel.SpeedSummary`）。
+- 「拟人」页签在自动化运行期间给出提示：当前速度由自动化页签决定，改动结束后才生效。
+- 慢 / 中 / 快三档下方标注各自的真实数值（`CheatPanel.PresetSpeedText`），选完心里有数。
+
+### 文档
+
+- `FEATURES.md`、`README.md`、`docs/USAGE.md` 补充自动化速度的归属规则、三档预设数值、
+  自定义参数与「手速受帧率限制」的说明。
+
 ## [2.2.10] - 2026-09-11
 
 ### 新增
