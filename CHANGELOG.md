@@ -3,6 +3,50 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.5] - 2026-09-11
+
+### 新增
+
+- **一键识别画布与格子**（`AssistAutoDetect.cs` 新增）：用户缩放好画面后点一下按钮，
+  自动贴合整张画布、取画布行数为扫描行数、按格子宽度的 1/2 设定采样步长。
+  做法是读游戏内部的画布几何（正交相机 + Tilemap 的仿射变换，采样 (0,0)/(1,0)/(0,1)
+  三个格子中心反推），不是截图识别，因此对缩放 / 平移 / 画布尺寸完全免疫。
+  - 画布未完整显示、格子小于 2px、未进入关卡等情况都会返回可读的原因，而不是乱给一个区域。
+  - 入口：「人工辅助 → 扫描」「人工辅助 → 区域」两页顶部的「识别画布与格子」，不占热键。
+  - 结果（画布格数 / 每格像素）持久化到 `Assist.settings` 的 `cellw` / `cellh`，
+    并在面板与覆盖层信息牌上显示；手动 <kbd>F12</kbd> 校准也会记录格子大小。
+- **绘图可视框美化**（`AssistOverlay.cs`）：柔光玻璃填充 + 呼吸外发光 + 紫青渐变霓虹描边 +
+  沿边框跑动的光点 + 真实格子网格预览（每 5 条加亮）+ 圆角角点手柄（悬停放大、带柔光）+
+  区域信息牌（画布尺寸 / 格子数 / 每格像素 / 运行状态点）+ 当前扫描行呼吸高亮。
+  手动框选的选框也换成圆角描边 + 四角刻度 + 尺寸胶囊。
+- 覆盖层在「还没有识别区域」时显示一条引导条，说明下一步该做什么。
+
+### 隐私
+
+- **反馈上传脱敏**（`GitHubFeedback.Sanitize`）：日志尾部与正文里出现的
+  `C:\Users\<用户名>\...`、游戏目录、`%APPDATA%`、`%LOCALAPPDATA%`、`%TEMP%`
+  以及机器名，提交前统一替换为占位符（issue 是公开的，不该替用户把这些发出去）；
+  另加一条正则兜底，任何盘符下的 `\Users\<名字>\` 都会被盖掉。
+- **界面上不再出现 Windows 用户名**：`UserProfile.UserDataDirectoryDisplay()` 把面板里的
+  等级存档目录显示成 `%APPDATA%\ColoringPixelsTool\`；安装器日志路径显示成
+  `%USERPROFILE%\...`（`installer\Log.PrettyPath`）。
+- **仓库内不再有开发机绝对路径**：`tools\dump-types.ps1`、`scripts\publish.ps1` 改为自动
+  探测游戏目录（显式参数 → `CPT_GAME_DIR` → 仓库上级 → 各盘 Steam 默认位置），
+  `README.md` / `docs\USAGE.md` / `docs\BUILDING.md` 的示例统一改成 Steam 默认安装位置。
+
+### 修复
+
+- **窗口化下的坐标偏移**（`AssistWin32.TryGetClientOrigin` + `AssistOverlay`）：区域的存储单位
+  统一为桌面坐标（因为最终要移动真实光标），绘制与命中测试再换算回客户区。
+  以前窗口化时游戏内坐标与桌面坐标差一个窗口边框 + 标题栏，框选与扫描会整体偏出去。
+  全屏 / 无边框时偏移为 (0,0)，行为与之前完全一致；只有客户区尺寸与渲染分辨率吻合时才采纳偏移。
+- 「区域」页与文档里「拖每条边的中点可把直边弯成弧线」是**未实现**的功能，文案已改为
+  用下面的弯边滑块（`TabAssistRegion`、`docs/USAGE.md`、`README.md`）。
+
+### 文档
+
+- `README.md`、`docs/USAGE.md`、`RELEASE_NOTES.md` 同步一键识别与可视框的说明，并补充两条常见问题。
+
 ## [2.2.4] - 2026-09-11
 
 ### 修复
@@ -252,6 +296,7 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.2.5]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.5
 [2.2.4]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.4
 [2.2.3]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.3
 [2.2.2]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.2

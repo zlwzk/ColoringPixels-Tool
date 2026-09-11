@@ -336,7 +336,7 @@ namespace ColoringPixelsTool.Installer
         {
             base.OnShown(e);
 
-            Log.Info("安装器已启动。日志文件：" + (Log.LogPath == null ? "（不可用）" : Log.LogPath));
+            Log.Info("安装器已启动。日志文件：" + (Log.LogPath == null ? "（不可用）" : Log.PrettyPath(Log.LogPath)));
             Log.Info("安装包版本：" + AppInfo.AppVersion
                      + (string.IsNullOrEmpty(AppInfo.BuiltAt) ? "" : "  构建于 " + AppInfo.BuiltAt));
 

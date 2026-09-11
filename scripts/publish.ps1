@@ -23,8 +23,9 @@
         .\scripts\publish.ps1 -Message "..." -NoDesktop
             发版但不往桌面同步 exe。
 
-        .\scripts\publish.ps1 -Message "..." -GameDir "D:\Steam\...\Coloring Pixels"
+        .\scripts\publish.ps1 -Message "..." -GameDir "<游戏目录>"
             指定游戏目录，用于发版前重编译插件 DLL（让面板版本跟随安装包版本）。
+            不指定时会依次尝试：$env:CPT_GAME_DIR、仓库上一级、各盘 Steam 默认位置。
 
         .\scripts\publish.ps1 -Message "..." -SkipMod
             跳过插件重编译，直接用仓库里已提交的 artifacts\ColoringPixelsTool.dll。
@@ -175,12 +176,18 @@ function Resolve-GameDir {
     if (-not [string]::IsNullOrWhiteSpace($Explicit)) { [void]$candidates.Add($Explicit) }
     if (-not [string]::IsNullOrWhiteSpace($env:CPT_GAME_DIR)) { [void]$candidates.Add($env:CPT_GAME_DIR) }
     [void]$candidates.Add((Split-Path -Parent $repoRoot))
-    foreach ($c in @(
-            'D:\Steam\steamapps\common\Coloring Pixels',
-            'C:\Program Files (x86)\Steam\steamapps\common\Coloring Pixels',
-            'C:\Program Files\Steam\steamapps\common\Coloring Pixels'
-        )) {
-        [void]$candidates.Add($c)
+    # 常见 Steam 位置 + 所有已就绪盘符下的 Steam 库。
+    # 这里刻意不写死某个盘：开发机的安装位置对别人没有意义，也不该留在仓库里。
+    $rel = 'Steam\steamapps\common\Coloring Pixels'
+    [void]$candidates.Add(('C:\Program Files (x86)\' + $rel))
+    [void]$candidates.Add(('C:\Program Files\' + $rel))
+    try {
+        foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+            if ($drive.IsReady) { [void]$candidates.Add((Join-Path $drive.Name $rel)) }
+        }
+    }
+    catch {
+        # 枚举盘符失败就只用上面的默认位置
     }
 
     foreach ($c in $candidates) {
@@ -342,7 +349,7 @@ else {
 未找到游戏目录，跳过插件重编译。
   这样一来，安装包里的插件仍是上一次编译的版本，面板显示的版本可能落后于安装包。
   如需保证一致，请用 -GameDir "…\Coloring Pixels" 指定游戏目录，或按下面方式重编译：
-      .\scripts\build-mod.ps1 -Backend csc -GameDir "D:\Steam\steamapps\common\Coloring Pixels"
+      .\scripts\build-mod.ps1 -Backend csc -GameDir "<游戏目录>"
 '@
     }
     else {

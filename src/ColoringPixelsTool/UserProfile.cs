@@ -76,6 +76,26 @@ namespace ColoringPixelsTool
             return GameLocalizer.ConfigDirectory();
         }
 
+        /// <summary>
+        /// 面板上显示用的存档目录：把 Windows 用户名换成 %APPDATA% 占位符。
+        /// 面板截图是会被发出去的，没必要顺手把本机用户名一起晒出去；
+        /// 想打开目录有「打开配置文件夹」按钮，占位符也照样能粘进资源管理器。
+        /// </summary>
+        public static string UserDataDirectoryDisplay()
+        {
+            string dir = UserDataDirectory();
+            try
+            {
+                string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (!string.IsNullOrEmpty(roaming) && dir.StartsWith(roaming, StringComparison.OrdinalIgnoreCase))
+                    return "%APPDATA%" + dir.Substring(roaming.Length);
+            }
+            catch (Exception)
+            {
+            }
+            return dir;
+        }
+
         /// <summary>正式存档路径（漫游目录）。</summary>
         public static string FilePath
         {

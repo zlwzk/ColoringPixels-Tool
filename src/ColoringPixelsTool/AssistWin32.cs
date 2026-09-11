@@ -96,6 +96,12 @@ namespace ColoringPixelsTool.Assist
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
 
         [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT r);
+
+        [DllImport("user32.dll")]
+        private static extern bool ClientToScreen(IntPtr hWnd, ref POINT p);
+
+        [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int index);
 
         [DllImport("user32.dll")]
@@ -231,6 +237,43 @@ namespace ColoringPixelsTool.Assist
             right = r.Right;
             bottom = r.Bottom;
             return right > left && bottom > top;
+        }
+
+        /// <summary>
+        /// 前台窗口「客户区」左上角在桌面上的坐标。
+        ///
+        /// 全屏 / 无边框时就是 (0,0)，游戏内的屏幕坐标与桌面坐标重合；
+        /// 窗口化时两者差一个窗口边框 + 标题栏的距离，游戏里的框选要加上这个偏移
+        /// 才是真实光标位置（不然辅助扫描会整体偏出去）。
+        ///
+        /// 只有客户区尺寸与游戏渲染分辨率吻合时才认可这个值 —— 否则说明前台窗口
+        /// 根本不是游戏（比如切到了别处），此时按全屏处理，宁可不换算也不要乱换算。
+        /// </summary>
+        public static bool TryGetClientOrigin(int gameWidth, int gameHeight, out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+            try
+            {
+                IntPtr h = GetForegroundWindow();
+                if (h == IntPtr.Zero) return false;
+
+                RECT c;
+                if (!GetClientRect(h, out c)) return false;
+                if (Math.Abs((c.Right - c.Left) - gameWidth) > 8) return false;
+                if (Math.Abs((c.Bottom - c.Top) - gameHeight) > 8) return false;
+
+                POINT p = new POINT { X = 0, Y = 0 };
+                if (!ClientToScreen(h, ref p)) return false;
+
+                x = p.X;
+                y = p.Y;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
     }
 }

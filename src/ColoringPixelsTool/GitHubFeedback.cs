@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using UnityEngine;
 
@@ -180,6 +181,7 @@ namespace ColoringPixelsTool
             sb.AppendLine("- 系统：" + Safe(SystemInfo.operatingSystem));
             sb.AppendLine("- 分辨率：" + Screen.width + "×" + Screen.height);
             sb.AppendLine("- 面板缩放：" + (Plugin.PanelScale != null ? Plugin.PanelScale.Value.ToString("0.##", CultureInfo.InvariantCulture) : "auto"));
+            sb.AppendLine("- 本机路径已自动脱敏（用户名 / 安装目录替换为占位符）");
             sb.AppendLine("- 是否在关卡内：" + (GameApi.InLevel() ? "是" : "否")
                           + (GameApi.InLevel() ? "（" + GameApi.LevelKey + "）" : ""));
             if (!string.IsNullOrEmpty(contact) && contact.Trim().Length > 0)
@@ -203,7 +205,9 @@ namespace ColoringPixelsTool
                 sb.AppendLine("</details>");
             }
 
-            return Limit(sb.ToString(), MaxBodyChars);
+            // 日志里必然带着 Windows 用户名、游戏安装目录和 AppData 路径，
+            // 而 issue 是公开的：发之前统一脱敏，别替用户把这些一起发出去。
+            return Limit(Sanitize(sb.ToString()), MaxBodyChars);
         }
 
         /// <summary>日志尾部若干行，用于附带现场。</summary>
@@ -222,6 +226,96 @@ namespace ColoringPixelsTool
             catch
             {
                 return "";
+            }
+        }
+
+        /// <summary>
+        /// 本机路径脱敏：issue（以及浏览器预填的新建 issue 页面）都是公开的，
+        /// 而 BepInEx 日志与用户粘贴的内容里几乎必然出现
+        ///   C:\Users\&lt;用户名&gt;\AppData\...
+        ///   D:\...\Steam\steamapps\common\Coloring Pixels\BepInEx\...
+        /// 提交前统一换成占位符，避免顺手泄露用户的用户名与本机目录结构。
+        /// </summary>
+        private static string Sanitize(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text ?? "";
+
+            // 从「最长 / 最具体的路径」开始换，否则先换掉盘符就再也匹配不到细路径了
+            text = MaskPath(text, DirOf(() => BepInEx.Paths.BepInExRootPath), "%GAME%\\BepInEx");
+            text = MaskPath(text, DirOf(() => Path.GetDirectoryName(BepInEx.Paths.BepInExRootPath)), "%GAME%");
+            text = MaskPath(text, Env("LOCALAPPDATA"), "%LOCALAPPDATA%");
+            text = MaskPath(text, Env("APPDATA"), "%APPDATA%");
+            text = MaskPath(text, Env("TEMP"), "%TEMP%");
+            text = MaskPath(text, Env("USERPROFILE"), "%USERPROFILE%");
+            text = MaskPath(text, PathFromSpecialFolder(Environment.SpecialFolder.UserProfile), "%USERPROFILE%");
+
+            // 兜底：任何盘符下的 \Users\<名字>\ 都盖掉（例如日志里出现的其它程序路径）
+            try
+            {
+                text = Regex.Replace(text, @"([A-Za-z]:\\Users\\)[^\\\s""'<>]+",
+                    "${1}<user>", RegexOptions.IgnoreCase);
+            }
+            catch (Exception) { }
+
+            // 机器名
+            try
+            {
+                string pc = Environment.MachineName;
+                if (!string.IsNullOrEmpty(pc) && pc.Length > 2) text = ReplaceNoCase(text, pc, "<PC>");
+            }
+            catch (Exception) { }
+
+            return text;
+        }
+
+        private static string Env(string name)
+        {
+            try { return Environment.GetEnvironmentVariable(name); }
+            catch (Exception) { return null; }
+        }
+
+        private static string PathFromSpecialFolder(Environment.SpecialFolder folder)
+        {
+            try { return Environment.GetFolderPath(folder); }
+            catch (Exception) { return null; }
+        }
+
+        private static string DirOf(Func<string> get)
+        {
+            try { return get(); }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>把一个绝对目录前缀换成占位符（结尾的反斜杠一起换，读起来更自然）。</summary>
+        private static string MaskPath(string text, string dir, string token)
+        {
+            if (string.IsNullOrEmpty(dir) || dir.Length < 4) return text;
+
+            string d = dir.TrimEnd('\\', '/');
+            if (d.Length < 4) return text;
+
+            text = ReplaceNoCase(text, d + "\\", token + "\\");
+            text = ReplaceNoCase(text, d + "/", token + "/");
+            return ReplaceNoCase(text, d, token);
+        }
+
+        private static string ReplaceNoCase(string text, string from, string to)
+        {
+            if (string.IsNullOrEmpty(from)) return text;
+
+            var sb = new StringBuilder(text.Length);
+            int i = 0;
+            while (true)
+            {
+                int j = text.IndexOf(from, i, StringComparison.OrdinalIgnoreCase);
+                if (j < 0)
+                {
+                    sb.Append(text, i, text.Length - i);
+                    return sb.ToString();
+                }
+                sb.Append(text, i, j - i);
+                sb.Append(to);
+                i = j + from.Length;
             }
         }
 

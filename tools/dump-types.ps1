@@ -1,9 +1,13 @@
 #Requires -Version 5.1
 # Dev-only helper: dump types/members from Assembly-CSharp.dll via Mono.Cecil.
+#
+# Paths are auto-detected on purpose: a hard-coded developer machine path is
+# both useless for anyone else and a privacy leak in a public repo.
 [CmdletBinding()]
 param(
-    [string]$Assembly = 'D:\Steam\steamapps\common\Coloring Pixels\ColoringPixels_Data\Managed\Assembly-CSharp.dll',
-    [string]$Cecil = 'D:\Steam\steamapps\common\Coloring Pixels\BepInEx\core\Mono.Cecil.dll',
+    [string]$GameDir = '',
+    [string]$Assembly = '',
+    [string]$Cecil = '',
     [string]$Filter = '',
     [string]$Type = '',
     [switch]$Members,
@@ -16,6 +20,55 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Resolve the game folder: explicit -GameDir > CPT_GAME_DIR > repo parent >
+# Steam default locations on every ready drive.
+function Resolve-GameDir {
+    param([string]$Explicit)
+
+    $candidates = New-Object System.Collections.ArrayList
+    if (-not [string]::IsNullOrWhiteSpace($Explicit)) { [void]$candidates.Add($Explicit) }
+    if (-not [string]::IsNullOrWhiteSpace($env:CPT_GAME_DIR)) { [void]$candidates.Add($env:CPT_GAME_DIR) }
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        [void]$candidates.Add((Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    }
+
+    $rel = 'Steam\steamapps\common\Coloring Pixels'
+    [void]$candidates.Add(('C:\Program Files (x86)\' + $rel))
+    [void]$candidates.Add(('C:\Program Files\' + $rel))
+    try {
+        foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+            if ($drive.IsReady) { [void]$candidates.Add((Join-Path $drive.Name $rel)) }
+        }
+    }
+    catch {
+    }
+
+    foreach ($c in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        $path = $null
+        try { $path = (Resolve-Path -LiteralPath $c).Path } catch { continue }
+        if (Test-Path -LiteralPath (Join-Path $path 'ColoringPixels_Data\Managed\Assembly-CSharp.dll')) {
+            return $path
+        }
+    }
+    return $null
+}
+
+if ([string]::IsNullOrWhiteSpace($Assembly) -or [string]::IsNullOrWhiteSpace($Cecil)) {
+    $game = Resolve-GameDir $GameDir
+    if (-not $game) {
+        throw ('Game folder not found. Pass -GameDir "<path to Coloring Pixels>" ' +
+            'or set the CPT_GAME_DIR environment variable.')
+    }
+    if ([string]::IsNullOrWhiteSpace($Assembly)) {
+        $Assembly = Join-Path $game 'ColoringPixels_Data\Managed\Assembly-CSharp.dll'
+    }
+    if ([string]::IsNullOrWhiteSpace($Cecil)) {
+        $Cecil = Join-Path $game 'BepInEx\core\Mono.Cecil.dll'
+    }
+}
+
 Add-Type -Path $Cecil
 $asm = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($Assembly)
 $mod = $asm.MainModule

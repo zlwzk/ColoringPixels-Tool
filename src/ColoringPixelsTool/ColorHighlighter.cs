@@ -109,8 +109,8 @@ namespace ColoringPixelsTool
             }
         }
 
-        /// <summary>取某个格子的屏幕中心（GUI 坐标系：左上为原点）。</summary>
-        private static bool ScreenCenter(ClickTest ct, Camera cam, int x, int y, out Vector2 gui)
+        /// <summary>取某个格子的屏幕中心（GUI 坐标系：左上为原点）。一键识别也用它换算画布四角。</summary>
+        internal static bool ScreenCenter(ClickTest ct, Camera cam, int x, int y, out Vector2 gui)
         {
             Vector3 a = ct.tilemap.CellToWorld(new Vector3Int(x, y, 0));
             Vector3 b = ct.tilemap.CellToWorld(new Vector3Int(x + 1, y + 1, 0));

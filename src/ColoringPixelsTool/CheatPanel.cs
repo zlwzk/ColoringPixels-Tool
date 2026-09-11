@@ -1535,7 +1535,7 @@ namespace ColoringPixelsTool
                     $"手动点击 {UserProfile.ManualClicks} 次  ·  手动 {UserProfile.ManualPixels} 格  ·  涂色率 {UserProfile.PaintingRate:0.00} 格/击", Ui.MutedSmall, Ui.Accent2);
                 // 说明存档位置：等级存在漫游目录，更新 / 重装插件都不会丢
                 Ui.Text(new Rect(Pad, top + 78f, w - Pad * 2f, 14f),
-                    Ellipsize("等级存档 " + UserProfile.UserDataDirectory() + "（更新版本不会丢）",
+                    Ellipsize("等级存档 " + UserProfile.UserDataDirectoryDisplay() + "（更新版本不会丢）",
                         Ui.MutedSmall, w - Pad * 2f), Ui.MutedSmall);
             });
 
@@ -2028,22 +2028,45 @@ namespace ColoringPixelsTool
             y += 40f;
 
             y += 6f;
-            Section(w, ref y, "区域");
+            Section(w, ref y, "区域与格子");
+
+            // 一键识别：把画面缩放到想要的样子，点一下就把区域 / 行数 / 格子大小全部算准
+            if (Ui.Button(new Rect(0f, y, w, 40f), "识别画布与格子", Ui.Accent, true))
+            {
+                if (AssistOverlay.Instance != null) Toast(AssistOverlay.Instance.DetectFromUi());
+            }
+            y += 46f;
 
             if (!eng.Region.HasRegion)
             {
-                InfoCard(w, ref y, 72f, "还没有框选区域",
-                    "按 " + KeyName(AssistOverlay.SelectKey) + " 在屏幕上拖出整个画布区域，然后按 "
-                    + KeyName(AssistOverlay.CalibrateKey) + " 框选其中一个格子自动推算行数与步长。\n" +
-                    "区域框好后还能拖动四角 / 边中点微调。");
+                InfoCard(w, ref y, 88f, "还没有识别区域",
+                    "把画面缩放到想要的样子，让整张画布完整显示在屏幕里。\n"
+                    + "再点「识别画布与格子」，会自动贴合画布、算出行数与格子大小。\n"
+                    + "也可以按 " + KeyName(AssistOverlay.SelectKey) + " 手动框选，或按 "
+                    + KeyName(AssistOverlay.CalibrateKey) + " 框一个格子做校准。");
             }
             else
             {
-                InfoCard(w, ref y, 72f, "区域已就绪",
-                    string.Format("约 {0:0} × {1:0} 像素，共 {2} 行扫描线。\n"
-                                + "{3} 框选一个格子可自动校准「扫描行数 / 采样步长」。",
+                string info;
+                if (eng.S.CellWidth >= 1)
+                {
+                    int cols = Mathf.Max(1,
+                        Mathf.RoundToInt((float)(eng.Region.ApproxWidth() / eng.S.CellWidth)));
+                    info = string.Format("画布 {0} × {1} 格，每格 {2:0.#} × {3:0.#} px\n"
+                                         + "扫描 {4} 行 · 步长 {5:0.#} px · 边距 {6:0.#} px\n"
+                                         + "画面缩放变了就重新点一次识别；也能拖四角手动微调。",
+                        cols, eng.S.Rows, eng.S.CellWidth, eng.S.CellHeight,
+                        eng.S.Rows, eng.S.Step, eng.S.EdgeMargin);
+                }
+                else
+                {
+                    info = string.Format("约 {0:0} × {1:0} px，扫描 {2} 行。\n"
+                                         + "点「识别画布与格子」可自动算出格子大小，\n"
+                                         + "或用 {3} 框一个格子做校准。",
                         eng.Region.ApproxWidth(), eng.Region.ApproxHeight(), eng.S.Rows,
-                        KeyName(AssistOverlay.CalibrateKey)));
+                        KeyName(AssistOverlay.CalibrateKey));
+                }
+                InfoCard(w, ref y, 88f, "区域已就绪", info);
             }
 
             float h2 = (w - 8f) * 0.5f;
@@ -2052,6 +2075,8 @@ namespace ColoringPixelsTool
             if (Ui.Button(new Rect(h2 + 8f, y, h2, 34f), "清除区域", Ui.Bad, false))
             {
                 eng.Region.Clear();
+                eng.S.CellWidth = 0;
+                eng.S.CellHeight = 0;
                 MarkAssistDirty();
             }
             y += 42f;
@@ -2063,19 +2088,24 @@ namespace ColoringPixelsTool
             if (eng == null) { InfoCard(w, ref y, 56f, "覆盖层未就绪", "请确认插件已正确加载。"); return; }
 
             Section(w, ref y, "区域编辑");
-            InfoCard(w, ref y, 74f, "怎么用",
-                KeyName(AssistOverlay.SelectKey) + " 全屏拖拽框选；框好后直接拖动四个白点，可以把矩形调成平行四边形或梯形，\n" +
-                "中间亮起的小圆点是每条边的中点，用来把直边弯成弧线，贴合不规则区域。\n" +
-                KeyName(AssistOverlay.CalibrateKey) + " 再框一个格子就能自动推算行数与步长；"
-                + (AssistOverlay.OverlayKey == KeyCode.None
-                    ? "覆盖层开关可在「设置 → 快捷键」里绑定。"
-                    : KeyName(AssistOverlay.OverlayKey) + " 显示 / 隐藏覆盖层。"));
+
+            // 一键识别：不用手动对准格子，直接按画布真实几何贴合
+            if (Ui.Button(new Rect(0f, y, w, 40f), "识别画布与格子", Ui.Accent, true))
+            {
+                if (AssistOverlay.Instance != null) Toast(AssistOverlay.Instance.DetectFromUi());
+            }
+            y += 46f;
+
+            InfoCard(w, ref y, 88f, "怎么用",
+                "把画面缩放到想要的样子，点「识别画布与格子」，\n"
+                + "会自动贴合整张画布，并算出行数与格子大小。\n"
+                + "也可按 " + KeyName(AssistOverlay.SelectKey) + " 手动框选、拖四角变梯形，弯边用下面滑块微调。");
 
             if (eng.Region.HasRegion)
             {
                 y += 6f;
                 Section(w, ref y, "四个角（屏幕像素）");
-                Card(w, ref y, 92f, top =>
+                Card(w, ref y, 118f, top =>
                 {
                     string[] names = { "左上", "右上", "右下", "左下" };
                     for (int i = 0; i < 4; i++)
@@ -2085,6 +2115,18 @@ namespace ColoringPixelsTool
                         Ui.Text(new Rect(Pad + col * (w * 0.5f), top + 9f + row * 22f, w * 0.5f - Pad, 16f),
                             string.Format("{0}  ({1:0}, {2:0})", names[i], eng.Region.X[i], eng.Region.Y[i]), Ui.MutedSmall);
                     }
+
+                    string cell = eng.S.CellWidth >= 1
+                        ? string.Format("格子 {0:0.#} × {1:0.#} px", eng.S.CellWidth, eng.S.CellHeight)
+                        : "格子大小未识别";
+                    Ui.Text(new Rect(Pad, top + 55f, w - Pad * 2f, 16f),
+                        string.Format("{0}  ·  {1:0} × {2:0} px",
+                            cell, eng.Region.ApproxWidth(), eng.Region.ApproxHeight()),
+                        Ui.MutedSmall, Ui.Accent2);
+                    Ui.Text(new Rect(Pad, top + 74f, w - Pad * 2f, 16f),
+                        string.Format("扫描 {0} 行 · 步长 {1:0.#} px · 边距 {2:0.#} px",
+                            eng.S.Rows, eng.S.Step, eng.S.EdgeMargin),
+                        Ui.MutedSmall);
                 });
 
                 y += 6f;

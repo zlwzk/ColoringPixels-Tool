@@ -72,7 +72,7 @@ cd ColoringPixelsTool
 .\scripts\build-mod.ps1
 
 # 指定游戏目录
-.\scripts\build-mod.ps1 -GameDir "D:\Steam\steamapps\common\Coloring Pixels"
+.\scripts\build-mod.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Coloring Pixels"
 
 # 强制使用某个后端
 .\scripts\build-mod.ps1 -Backend csc      # csc | msbuild | dotnet | auto
@@ -147,7 +147,7 @@ dist\SHA256SUMS.txt            安装器与部署包的 SHA256 校验和
 
 ```powershell
 # 提交 + 推送 + 自动升版本 + 打标签 + 等 CI + 把安装器同步到桌面
-.\scripts\publish.ps1 -Message "feat: ..." -GameDir "D:\Steam\steamapps\common\Coloring Pixels"
+.\scripts\publish.ps1 -Message "feat: ..." -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Coloring Pixels"
 
 # 只提交推送，不发版
 .\scripts\publish.ps1 -Message "docs: ..." -NoRelease

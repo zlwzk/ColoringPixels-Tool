@@ -34,6 +34,11 @@ namespace ColoringPixelsTool.Assist
         public double FailRadius = 90;        // 人工干预判定半径（像素）
         public bool DetectIntervention = true;
 
+        // 下面两项不是「参数」而是「一键识别的测量结果」：画布上每个格子占多少屏幕像素。
+        // 只用来显示（面板 / 覆盖层信息牌）与画格子预览，0 表示还没识别过。
+        public double CellWidth = 0;
+        public double CellHeight = 0;
+
         public void Clamp()
         {
             Rows = ClampInt(Rows, 1, 400);
@@ -46,6 +51,8 @@ namespace ColoringPixelsTool.Assist
             AutoSwitchEveryRows = ClampInt(AutoSwitchEveryRows, 0, 400);
             AutoSwitchWaitMs = ClampInt(AutoSwitchWaitMs, 0, 60000);
             FailRadius = ClampD(FailRadius, 10, 600);
+            CellWidth = ClampD(CellWidth, 0, 4000);
+            CellHeight = ClampD(CellHeight, 0, 4000);
         }
 
         private static int ClampInt(int v, int lo, int hi)
@@ -76,6 +83,8 @@ namespace ColoringPixelsTool.Assist
             sb.AppendLine("switchwait=" + AutoSwitchWaitMs);
             sb.AppendLine("failradius=" + D(FailRadius));
             sb.AppendLine("detect=" + (DetectIntervention ? 1 : 0));
+            sb.AppendLine("cellw=" + D(CellWidth));
+            sb.AppendLine("cellh=" + D(CellHeight));
             return sb.ToString();
         }
 
@@ -108,6 +117,8 @@ namespace ColoringPixelsTool.Assist
                     case "switchwait": s.AutoSwitchWaitMs = I(v, s.AutoSwitchWaitMs); break;
                     case "failradius": s.FailRadius = Dn(v, s.FailRadius); break;
                     case "detect": s.DetectIntervention = v == "1"; break;
+                    case "cellw": s.CellWidth = Dn(v, s.CellWidth); break;
+                    case "cellh": s.CellHeight = Dn(v, s.CellHeight); break;
                 }
             }
 

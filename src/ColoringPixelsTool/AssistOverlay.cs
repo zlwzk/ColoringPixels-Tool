@@ -15,6 +15,9 @@ namespace ColoringPixelsTool
     ///   * F12 框选一个格子，按画布推算扫描行数与采样步长
     ///   * 覆盖层显示 / 隐藏默认不占按键
     ///
+    /// 除了手动框选，面板上还有一个「识别画布」按钮（见 <see cref="DetectFromUi"/>）：
+    /// 按游戏内部的画布几何直接把区域、行数和采样步长一次算准，不用手动对格子。
+    ///
     /// 这一层是独立于主面板的，面板关闭时依然存在（因为要一边涂色一边看区域）。
     /// </summary>
     internal sealed class AssistOverlay : MonoBehaviour
@@ -44,6 +47,13 @@ namespace ColoringPixelsTool
 
         private Texture2D _dim;
 
+        /// <summary>
+        /// 游戏客户区左上角在桌面上的偏移。全屏 / 无边框时是 (0,0)，窗口化时不为 0。
+        /// 区域一律按**桌面坐标**存（因为最终要移动真实光标），绘制时再减掉这个偏移。
+        /// </summary>
+        private float _originX;
+        private float _originY;
+
         public static void Init(BepInEx.Configuration.ConfigFile config)
         {
             try
@@ -70,7 +80,13 @@ namespace ColoringPixelsTool
             if (saved != null && saved.HasRegion) Engine.Region.CopyFrom(saved);
 
             AssistSettings st = AssistStore.LoadSettings();
-            if (st != null) CopySettings(st, Engine.S);
+            if (st != null)
+            {
+                CopySettings(st, Engine.S);
+                // 格子大小是本机的量测结果，单独恢复（不跟预设走）
+                Engine.S.CellWidth = st.CellWidth;
+                Engine.S.CellHeight = st.CellHeight;
+            }
         }
 
         private static void CopySettings(AssistSettings from, AssistSettings to)
@@ -89,6 +105,8 @@ namespace ColoringPixelsTool
             to.AutoSwitchWaitMs = from.AutoSwitchWaitMs;
             to.FailRadius = from.FailRadius;
             to.DetectIntervention = from.DetectIntervention;
+            // 注意：格子大小（CellWidth / CellHeight）是「识别画布」算出来的量测结果，
+            // 跟本机当前缩放绑定，所以不随预设搬运，只在启动时从本机存档恢复。
         }
 
         public void Save()
@@ -131,6 +149,46 @@ namespace ColoringPixelsTool
             BeginSelect(1);
         }
 
+        /// <summary>
+        /// 供面板按钮调用：一键识别画布区域与格子大小。
+        ///
+        /// 用户只要把游戏画面缩放到想用的样子，点一下这里，区域 / 行数 / 采样步长
+        /// 就全部按画布的真实几何自动填好，不需要再手动框选和校准格子。
+        /// 返回一句给用户看的结果说明（成功或失败原因）。
+        /// </summary>
+        public string DetectFromUi()
+        {
+            _showOverlay = true;
+            _selecting = false;
+            _dragCorner = -1;
+
+            var det = AssistAutoDetect.Detect(_originX, _originY);
+            if (!det.Ok) return det.Message;
+
+            var r = Engine.Region;
+            for (int i = 0; i < 4; i++)
+            {
+                r.X[i] = det.X[i];
+                r.Y[i] = det.Y[i];
+                r.Bend[i] = 0;
+            }
+            r.HasRegion = true;
+
+            Engine.S.Rows = det.Rows;
+            // 每个格子采样两次：既保证每格都覆盖到，又不会把路径切得过碎
+            Engine.S.Step = det.CellWidth / 2.0;
+            // 只内缩 1px：识别出来的区域和画布边界完全重合，不缩一点的话每条扫描线的
+            // 起止点正好落在多边形边上，「是否在区域内」的判定会含糊，可能整格漏掉。
+            // 缩太多又会让扫描行偏离格子中线，所以 1px 刚好。
+            Engine.S.EdgeMargin = 1;
+            Engine.S.CellWidth = det.CellWidth;
+            Engine.S.CellHeight = det.CellHeight;
+            Engine.S.Clamp();
+            Save();
+
+            return "已识别画布：" + det.Message;
+        }
+
         /// <summary>供面板按钮调用：等同于按下 F8。</summary>
         public void StopFromUi()
         {
@@ -162,6 +220,8 @@ namespace ColoringPixelsTool
         private void Update()
         {
             float dt = Time.unscaledDeltaTime;
+
+            RefreshClientOrigin();
 
             if (KeyDown(RunKey)) ToggleRun();
             if (KeyDown(SelectKey)) BeginSelect(0);
@@ -267,6 +327,30 @@ namespace ColoringPixelsTool
             return new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
         }
 
+        /// <summary>客户区原点（每帧更新一次，绘制与命中测试共用）。</summary>
+        private void RefreshClientOrigin()
+        {
+            int ox, oy;
+            if (AssistWin32.TryGetClientOrigin(Screen.width, Screen.height, out ox, out oy))
+            {
+                _originX = ox;
+                _originY = oy;
+            }
+            else
+            {
+                // 全屏 / 无边框，或者前台窗口不是游戏：按全屏处理
+                _originX = 0f;
+                _originY = 0f;
+            }
+        }
+
+        /// <summary>游戏内鼠标位置换算成桌面坐标（区域的存储单位）。</summary>
+        private Vector2 DesktopMouse()
+        {
+            Vector2 g = GuiMouse();
+            return new Vector2(g.x + _originX, g.y + _originY);
+        }
+
         private void HandleSelection()
         {
             if (!_selecting) return;
@@ -281,7 +365,8 @@ namespace ColoringPixelsTool
                     if (_selectMode == 1) CalibrateFromCell(r);
                     else
                     {
-                        Engine.Region.SetRect(r.x, r.y, r.width, r.height);
+                        // 选框是在客户区里画的，落到区域里要换算成桌面坐标
+                        Engine.Region.SetRect(r.x + _originX, r.y + _originY, r.width, r.height);
                         Save();
                     }
                 }
@@ -309,6 +394,9 @@ namespace ColoringPixelsTool
 
             Engine.S.Rows = rows;
             Engine.S.Step = (int)Math.Round(stepF);
+            // 手动校准也顺带记下格子大小，覆盖层的格子预览 / 信息牌才有内容
+            Engine.S.CellWidth = cell.width;
+            Engine.S.CellHeight = cell.height;
             Engine.S.Clamp();
 
             Save();
@@ -322,14 +410,16 @@ namespace ColoringPixelsTool
         {
             if (_selecting || !_showOverlay) return;
 
-            var m = GuiMouse();
+            var gm = GuiMouse();
 
             if (Input.GetMouseButtonDown(0))
             {
                 for (int i = 0; i < 4; i++)
                 {
-                    var p = new Vector2((float)Engine.Region.X[i], (float)Engine.Region.Y[i]);
-                    if (Vector2.Distance(p, m) <= 14f)
+                    // 区域存的是桌面坐标，命中测试要换算到客户区
+                    var p = new Vector2((float)Engine.Region.X[i] - _originX,
+                        (float)Engine.Region.Y[i] - _originY);
+                    if (Vector2.Distance(p, gm) <= 16f)
                     {
                         _dragCorner = i;
                         break;
@@ -341,8 +431,9 @@ namespace ColoringPixelsTool
             {
                 if (Input.GetMouseButton(0))
                 {
-                    Engine.Region.X[_dragCorner] = m.x;
-                    Engine.Region.Y[_dragCorner] = m.y;
+                    var dm = DesktopMouse();
+                    Engine.Region.X[_dragCorner] = dm.x;
+                    Engine.Region.Y[_dragCorner] = dm.y;
                     Engine.Region.HasRegion = true;
                 }
                 if (Input.GetMouseButtonUp(0))
@@ -403,52 +494,293 @@ namespace ColoringPixelsTool
         {
             var r = Engine.Region;
 
-            // 四角连线（用细线段拼出来，不受 Ui 圆角影响）
-            int seg = 16;
+            // 区域存的是桌面坐标；这里在游戏客户区里画，所以整体减掉客户区原点
+            var v = new Vector2[4];
+            for (int i = 0; i < 4; i++)
+                v[i] = new Vector2((float)r.X[i] - _originX, (float)r.Y[i] - _originY);
+
+            bool straight = true;
+            for (int i = 0; i < 4; i++)
+                if (Mathf.Abs((float)r.Bend[i]) > 0.001f) straight = false;
+
+            Rect box = Bounds(v);
+            bool axis = straight && TryAxisRect(v, out box);
+            Rect bounds = box;
+
+            if (axis)
+            {
+                DrawAreaFill(box);
+                DrawCellPreview(box);
+                DrawBorder(box);
+            }
+            else
+            {
+                // 弯边 / 斜放画布：填充会很难看，只描一圈发光线
+                DrawEdges(r, Ui.Alpha(Ui.Accent2, 0.16f), 8f);
+                DrawEdges(r, Ui.Accent2, 1.8f);
+            }
+
+            DrawCurrentRow(r, axis ? box : bounds, axis);
+
+            for (int i = 0; i < 4; i++) DrawHandle(v[i], i == _dragCorner);
+
+            DrawRegionBadge(bounds);
+        }
+
+        /// <summary>四角是否构成一个水平的矩形（一键识别出来的区域都是这种）。</summary>
+        private static bool TryAxisRect(Vector2[] v, out Rect box)
+        {
+            box = new Rect();
+            if (Mathf.Abs(v[0].y - v[1].y) > 0.6f) return false;
+            if (Mathf.Abs(v[3].y - v[2].y) > 0.6f) return false;
+            if (Mathf.Abs(v[0].x - v[3].x) > 0.6f) return false;
+            if (Mathf.Abs(v[1].x - v[2].x) > 0.6f) return false;
+
+            float x0 = Mathf.Min(v[0].x, v[1].x);
+            float x1 = Mathf.Max(v[0].x, v[1].x);
+            float y0 = Mathf.Min(v[0].y, v[3].y);
+            float y1 = Mathf.Max(v[0].y, v[3].y);
+            if (x1 - x0 < 2f || y1 - y0 < 2f) return false;
+
+            box = new Rect(x0, y0, x1 - x0, y1 - y0);
+            return true;
+        }
+
+        private static Rect Bounds(Vector2[] v)
+        {
+            float x0 = v[0].x, x1 = v[0].x, y0 = v[0].y, y1 = v[0].y;
+            for (int i = 1; i < v.Length; i++)
+            {
+                x0 = Mathf.Min(x0, v[i].x);
+                x1 = Mathf.Max(x1, v[i].x);
+                y0 = Mathf.Min(y0, v[i].y);
+                y1 = Mathf.Max(y1, v[i].y);
+            }
+            return new Rect(x0, y0, Mathf.Max(0f, x1 - x0), Mathf.Max(0f, y1 - y0));
+        }
+
+        /// <summary>区域内部：一层很淡的主色玻璃罩 + 顶边细高光，能看清范围又不遮住画面。</summary>
+        private static void DrawAreaFill(Rect box)
+        {
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 1.7f);
+            UiFx.Gradient(box,
+                Ui.Alpha(Ui.Accent, 0.075f + 0.020f * pulse),
+                Ui.Alpha(Ui.Accent2, 0.028f));
+
+            if (box.width > 48f)
+                Ui.Fill(new Rect(box.x + 12f, box.y + 1.5f, box.width - 24f, 1f),
+                    new Color(1f, 1f, 1f, 0.09f));
+        }
+
+        /// <summary>
+        /// 格子网格预览：横向是每条扫描行覆盖的格子边界，纵向是真实格子列边界
+        /// （识别到格子大小之后才有）。用户一眼就能看出区域和格子有没有对歪。
+        /// </summary>
+        private void DrawCellPreview(Rect box)
+        {
+            Color faint = new Color(1f, 1f, 1f, 0.05f);
+            Color strong = new Color(1f, 1f, 1f, 0.10f);
+
+            int rows = Mathf.Clamp(Engine.S.Rows, 1, 120);
+            for (int i = 1; i < rows; i++)
+            {
+                float y = box.y + box.height * i / rows;
+                Ui.Fill(new Rect(box.x + 2f, Mathf.Round(y), box.width - 4f, 1f),
+                    i % 5 == 0 ? strong : faint);
+            }
+
+            int cols = ColsOf(box.width);
+            for (int j = 1; j < cols; j++)
+            {
+                float x = box.x + box.width * j / cols;
+                Ui.Fill(new Rect(Mathf.Round(x), box.y + 2f, 1f, box.height - 4f),
+                    j % 5 == 0 ? strong : faint);
+            }
+        }
+
+        /// <summary>按已识别的格子宽度反推有多少列（没识别过就返回 0）。</summary>
+        private int ColsOf(float regionWidth)
+        {
+            double cw = Engine.S.CellWidth;
+            if (cw < 1) return 0;
+            int n = Mathf.RoundToInt(regionWidth / (float)cw);
+            return n > 1 && n <= 200 ? n : 0;
+        }
+
+        /// <summary>矩形区域的描边：外发光 + 一圈从紫到青的霓虹边 + 跑动的光点。</summary>
+        private void DrawBorder(Rect box)
+        {
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 1.7f);
+
+            float[] off = { 2f, 4f, 6.5f };
+            float[] alpha = { 0.15f, 0.08f, 0.038f };
+            for (int k = 0; k < 3; k++)
+            {
+                Color c = Ui.Alpha(Ui.Accent2, alpha[k] * (0.72f + 0.28f * pulse));
+                float o = off[k];
+                Ui.Fill(new Rect(box.x - o, box.y - o, box.width + o * 2f, 1.5f), c);
+                Ui.Fill(new Rect(box.x - o, box.yMax + o - 1.5f, box.width + o * 2f, 1.5f), c);
+                Ui.Fill(new Rect(box.x - o, box.y - o, 1.5f, box.height + o * 2f), c);
+                Ui.Fill(new Rect(box.xMax + o - 1.5f, box.y - o, 1.5f, box.height + o * 2f), c);
+            }
+
+            const float t = 2.4f;
+            GradH(new Rect(box.x, box.y - t * 0.5f, box.width, t), Ui.Accent, Ui.Accent2);
+            GradH(new Rect(box.x, box.yMax - t * 0.5f, box.width, t), Ui.Accent2, Ui.Accent);
+            GradV(new Rect(box.x - t * 0.5f, box.y, t, box.height), Ui.Accent, Ui.Accent2);
+            GradV(new Rect(box.xMax - t * 0.5f, box.y, t, box.height), Ui.Accent2, Ui.Accent);
+
+            if (!Engine.Running)
+                UiFx.BorderBeam(box, Ui.Accent2, 0.16f, 64f, 0.7f);
+        }
+
+        /// <summary>弯边 / 斜放区域：按边采样成折线描边（glow 宽线在下、细亮线在上）。</summary>
+        private void DrawEdges(AssistRegion r, Color color, float width)
+        {
+            const int seg = 14;
             for (int edge = 0; edge < 4; edge++)
             {
-                double lastX = 0, lastY = 0;
+                double lx = 0, ly = 0;
                 for (int i = 0; i <= seg; i++)
                 {
                     double px, py;
                     r.EdgePoint(edge, i / (double)seg, out px, out py);
-                    if (i > 0) Line(lastX, lastY, px, py, Ui.Accent2, 1.6f);
-                    lastX = px;
-                    lastY = py;
+                    if (i > 0)
+                        Line(lx - _originX, ly - _originY, px - _originX, py - _originY, color, width);
+                    lx = px;
+                    ly = py;
                 }
             }
+        }
 
-            // 角点
-            for (int i = 0; i < 4; i++)
+        /// <summary>正在扫描的那一行：一条会呼吸的亮带，让人知道现在扫到哪了。</summary>
+        private void DrawCurrentRow(AssistRegion r, Rect box, bool axis)
+        {
+            if (!Engine.Running) return;
+
+            int rows = Mathf.Max(1, Engine.TotalRows);
+            int row = Mathf.Clamp(Engine.CurrentRow, 0, rows - 1);
+            double v = (row + 0.5) / rows;
+
+            float sweep = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 6f);
+
+            if (axis)
             {
-                var c = new Rect((float)r.X[i] - 6f, (float)r.Y[i] - 6f, 12f, 12f);
-                Ui.RoundOutline(c, 6f, Color.white, Ui.Accent, 2f);
+                float y = box.y + box.height * (float)v;
+                float h = Mathf.Max(2.5f, box.height / rows * 0.9f);
+                Ui.Fill(new Rect(box.x + 1f, y - h * 0.5f, box.width - 2f, h),
+                    Ui.Alpha(Ui.Accent2, 0.12f + 0.10f * sweep));
+                Ui.Fill(new Rect(box.x + 1f, y - 1f, box.width - 2f, 2f), Ui.Alpha(Ui.Accent2, 0.7f));
             }
-
-            // 扫描行预览
-            int rows = Mathf.Clamp(Engine.S.Rows, 1, 200);
-            for (int i = 0; i <= rows; i++)
+            else
             {
-                double v = i / (double)rows;
                 double x0, y0, x1, y1;
                 r.Point(0, v, out x0, out y0);
                 r.Point(1, v, out x1, out y1);
-                Line(x0, y0, x1, y1, new Color(1f, 1f, 1f, 0.10f), 1f);
+                Line(x0 - _originX, y0 - _originY, x1 - _originX, y1 - _originY,
+                    Ui.Alpha(Ui.Accent2, 0.7f), 2.5f);
             }
+        }
+
+        /// <summary>角点手柄：可拖动微调；悬停时变大并透出一圈柔光。</summary>
+        private void DrawHandle(Vector2 p, bool active)
+        {
+            bool hover = Vector2.Distance(p, Ui.Mouse) <= 16f;
+            float k = UiFx.To("assist-handle", hover || active, 22f);
+            float rad = Mathf.Lerp(6f, 9f, k);
+
+            var q = new Rect(p.x - rad, p.y - rad, rad * 2f, rad * 2f);
+            if (k > 0.02f) UiFx.Spotlight(q, p, Ui.Accent2, 0.30f * k, 40f);
+
+            Ui.Round(q, rad, new Color(0.04f, 0.05f, 0.09f, 0.72f));
+            Ui.RoundOutline(q, rad, Color.white, Ui.Alpha(Ui.Accent, 0.72f + 0.28f * k), 1.6f);
+        }
+
+        /// <summary>区域左上角的信息牌：画布尺寸、格子数、格子像素大小。</summary>
+        private void DrawRegionBadge(Rect bounds)
+        {
+            AssistSettings s = Engine.S;
+            int rows = Mathf.Max(1, s.Rows);
+            int cols = ColsOf(bounds.width);
+
+            string l1 = string.Format("画布 {0:0} × {1:0} px", bounds.width, bounds.height);
+            string l2 = s.CellWidth >= 1
+                ? string.Format("{0} × {1} 格 · 格子 {2:0.#} × {3:0.#} px", cols, rows, s.CellWidth, s.CellHeight)
+                : string.Format("扫描 {0} 行 · 格子大小未识别", rows);
+
+            const float w = 244f, h = 46f;
+            var pill = new Rect(bounds.x, bounds.y - h - 8f, w, h);
+            if (pill.y < 6f) pill.y = Mathf.Min(bounds.y + 10f, Screen.height - h - 6f);
+            pill.x = Mathf.Clamp(pill.x, 6f, Mathf.Max(6f, Screen.width - w - 6f));
+
+            Ui.Round(pill, 11f, new Color(0.045f, 0.055f, 0.095f, 0.90f));
+            Ui.RoundOutline(pill, 11f, Ui.Alpha(Ui.Accent2, 0.50f), Ui.Alpha(Ui.Accent2, 0.09f), 1f);
+
+            Ui.StatusDot(new Rect(pill.x + 15f, pill.center.y - 3.5f, 7f, 7f),
+                Engine.Running ? Ui.Good : Ui.Accent2, Engine.Running);
+            Ui.Text(new Rect(pill.x + 30f, pill.y + 7f, w - 42f, 17f), l1, Ui.Bold, Color.white);
+            Ui.Text(new Rect(pill.x + 30f, pill.y + 25f, w - 42f, 15f), l2, Ui.MutedSmall, Ui.Accent2);
+        }
+
+        private static void GradH(Rect r, Color left, Color right)
+        {
+            Color prev = GUI.color;
+            GUI.color = Color.white;
+            GUI.DrawTexture(r, UiFx.GradTex(left, right, false), ScaleMode.StretchToFill, true);
+            GUI.color = prev;
+        }
+
+        private static void GradV(Rect r, Color top, Color bottom)
+        {
+            Color prev = GUI.color;
+            GUI.color = Color.white;
+            GUI.DrawTexture(r, UiFx.GradTex(bottom, top, true), ScaleMode.StretchToFill, true);
+            GUI.color = prev;
         }
 
         private void DrawSelectionBox()
         {
             var r = RectFrom(_selStart, _selNow);
-            Ui.Round(r, 4f, new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.16f));
-            Ui.RoundOutline(r, 4f, Ui.Accent, new Color(0f, 0f, 0f, 0f), 2f);
-            Ui.Text(new Rect(r.x + 8f, r.y + 6f, 320f, 20f),
-                string.Format("{0:0} × {1:0}", r.width, r.height), Ui.Bold, Color.white);
+
+            Ui.Round(r, 5f, new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.14f));
+            Ui.RoundOutline(r, 5f, Color.white, Color.clear, 1.5f);
+
+            // 四角小刻度，让选框看起来是「对齐」的
+            const float tick = 14f;
+            foreach (var c in new[]
+            {
+                new Vector2(r.x, r.y), new Vector2(r.xMax, r.y),
+                new Vector2(r.xMax, r.yMax), new Vector2(r.x, r.yMax)
+            })
+            {
+                Ui.Fill(new Rect(c.x - 1.5f, c.y - tick * 0.5f, 3f, tick), Ui.Accent2);
+                Ui.Fill(new Rect(c.x - tick * 0.5f, c.y - 1.5f, tick, 3f), Ui.Accent2);
+            }
+
+            string text = _selectMode == 1
+                ? string.Format("框住一个格子    {0:0} × {1:0} px", r.width, r.height)
+                : string.Format("{0:0} × {1:0} px", r.width, r.height);
+
+            const float pw = 260f, ph = 30f;
+            var pill = new Rect(r.center.x - pw * 0.5f, r.yMax + 10f, pw, ph);
+            pill.x = Mathf.Clamp(pill.x, 6f, Mathf.Max(6f, Screen.width - pw - 6f));
+            pill.y = Mathf.Clamp(pill.y, 6f, Mathf.Max(6f, Screen.height - ph - 6f));
+
+            Ui.Round(pill, ph * 0.5f, new Color(0.045f, 0.055f, 0.095f, 0.92f));
+            Ui.RoundOutline(pill, ph * 0.5f, Ui.Alpha(Ui.Accent2, 0.6f), Ui.Alpha(Ui.Accent2, 0.10f), 1f);
+            Ui.Text(pill, text, Ui.Center, Color.white);
         }
 
         private void DrawHud()
         {
             if (Engine == null) return;
+
+            // 还没区域、也没有任何提示时，给一句「下一步做什么」，省得对着空屏幕发呆
+            if (!Engine.Region.HasRegion && string.IsNullOrEmpty(Engine.Message))
+            {
+                DrawNoRegionHint();
+                return;
+            }
 
             bool active = Engine.Running || Engine.State == AssistState.Done || !string.IsNullOrEmpty(Engine.Message);
             bool timerOnly = !active
@@ -492,6 +824,20 @@ namespace ColoringPixelsTool
         private static string VoiceStatusText()
         {
             return string.IsNullOrEmpty(VoiceColor.LastAction) ? "待命" : VoiceColor.LastAction;
+        }
+
+        /// <summary>还没区域时的引导条：「先缩放好画面，再去面板点识别」。</summary>
+        private void DrawNoRegionHint()
+        {
+            const float w = 560f, h = 40f;
+            var box = new Rect((Screen.width - w) * 0.5f, 16f, w, h);
+
+            Ui.Round(box, 12f, new Color(0.055f, 0.065f, 0.105f, 0.88f));
+            Ui.RoundOutline(box, 12f, Ui.Alpha(Ui.Accent2, 0.45f), Ui.Alpha(Ui.Accent2, 0.08f), 1f);
+
+            Ui.Text(new Rect(box.x + 16f, box.y, w - 32f, h),
+                string.Format("人工辅助 · 缩放好画布后，在面板「人工辅助」里点「识别画布」自动贴合；也可按 {0} 手动框选",
+                    KeyLabel(SelectKey)), Ui.Small, Ui.TextCol);
         }
 
         private static string KeyLabel(KeyCode key)

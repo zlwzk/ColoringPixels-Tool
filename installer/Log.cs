@@ -43,7 +43,27 @@ namespace ColoringPixelsTool.Installer
             Write("==== " + AppInfo.ProductName + " " + AppInfo.AppVersion
                   + "  |  " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====");
             if (string.IsNullOrEmpty(_path)) return;
-            Write("日志文件：" + _path);
+            Write("日志文件：" + PrettyPath(_path));
+        }
+
+        /// <summary>
+        /// 给人看的路径：把 Windows 用户名换成 %USERPROFILE% 占位符。
+        /// 日志默认落在 %TEMP% 下，那串路径里带着用户名；日志又常被贴出来求助，
+        /// 没必要顺手把用户名一起暴露了。游戏目录本身照旧显示（那是排错要用的信息）。
+        /// </summary>
+        public static string PrettyPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            try
+            {
+                string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrEmpty(profile) && path.StartsWith(profile, StringComparison.OrdinalIgnoreCase))
+                    return "%USERPROFILE%" + path.Substring(profile.Length);
+            }
+            catch (Exception)
+            {
+            }
+            return path;
         }
 
         public static void Info(string message)

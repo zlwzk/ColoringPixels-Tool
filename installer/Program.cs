@@ -39,7 +39,7 @@ namespace ColoringPixelsTool.Installer
             {
                 Log.Error("界面初始化失败：" + ex.Message);
                 Log.Raw(ex.ToString());
-                MessageBox.Show("安装器启动失败：\n" + ex.Message + "\n\n详细日志：" + Log.LogPath,
+                MessageBox.Show("安装器启动失败：\n" + ex.Message + "\n\n详细日志：" + Log.PrettyPath(Log.LogPath),
                     AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
