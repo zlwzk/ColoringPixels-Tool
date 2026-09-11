@@ -432,15 +432,40 @@ namespace ColoringPixelsTool.Installer
 
         public static Process LaunchGame(string gameDir, out string error)
         {
-            return LaunchGame(gameDir, AppInfo.ColoringPixels, out error);
+            bool alreadyRunning;
+            return LaunchGame(gameDir, AppInfo.ColoringPixels, out alreadyRunning, out error);
         }
 
         public static Process LaunchGame(string gameDir, GameDescriptor game, out string error)
         {
+            bool alreadyRunning;
+            return LaunchGame(gameDir, game, out alreadyRunning, out error);
+        }
+
+        /// <summary>
+        /// 启动游戏。<paramref name="alreadyRunning"/> 为 true 表示游戏本来就在跑，
+        /// 返回的是那个已经在运行的进程，没有重复启动。
+        ///
+        /// 为什么要先看一眼：Unity 游戏不拦多开，重复 Process.Start 只会多出
+        /// 一个游戏窗口。用户点「一键安装」（勾了安装后自动启动）之后再顺手点
+        /// 「启动游戏」，就会出现「装一次游戏画面冒出好几遍」的现象。
+        /// </summary>
+        public static Process LaunchGame(string gameDir, GameDescriptor game,
+            out bool alreadyRunning, out string error)
+        {
             error = null;
+            alreadyRunning = false;
             if (game == null) game = AppInfo.Games[0];
+
             try
             {
+                Process running = GameLocator.GetRunningGame(game);
+                if (running != null)
+                {
+                    alreadyRunning = true;
+                    return running;
+                }
+
                 string exe = Path.Combine(gameDir, game.ExeName);
                 if (!File.Exists(exe))
                 {
@@ -464,7 +489,15 @@ namespace ColoringPixelsTool.Installer
         /// <summary>启动独立助手（只有非注入式游戏才有）。</summary>
         public static Process LaunchAssist(string gameDir, GameDescriptor game, out string error)
         {
+            bool alreadyRunning;
+            return LaunchAssist(gameDir, game, out alreadyRunning, out error);
+        }
+
+        public static Process LaunchAssist(string gameDir, GameDescriptor game,
+            out bool alreadyRunning, out string error)
+        {
             error = null;
+            alreadyRunning = false;
             if (game == null || string.IsNullOrEmpty(game.AssistExeRelativePath))
             {
                 error = "该游戏没有配套的独立助手";
@@ -473,6 +506,15 @@ namespace ColoringPixelsTool.Installer
 
             try
             {
+                // 助手自己有单实例保护，再启动一次也只会弹一句「已经在运行」，
+                // 这里先查一下，省得给用户弹那个没用的框。
+                Process running = FindByProcessName(Path.GetFileNameWithoutExtension(AppInfo.AssistExeName));
+                if (running != null)
+                {
+                    alreadyRunning = true;
+                    return running;
+                }
+
                 string exe = Path.Combine(gameDir, game.AssistExeRelativePath);
                 if (!File.Exists(exe))
                 {
@@ -491,6 +533,21 @@ namespace ColoringPixelsTool.Installer
                 error = ex.Message;
                 return null;
             }
+        }
+
+        /// <summary>按进程名找一个正在运行的进程（找不到返回 null）。</summary>
+        private static Process FindByProcessName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            try
+            {
+                Process[] list = Process.GetProcessesByName(name);
+                if (list != null && list.Length > 0) return list[0];
+            }
+            catch (Exception)
+            {
+            }
+            return null;
         }
 
         // ============================================================ 内部工具

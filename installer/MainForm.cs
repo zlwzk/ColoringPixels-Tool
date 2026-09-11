@@ -431,6 +431,17 @@ namespace ColoringPixelsTool.Installer
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        private const int SW_RESTORE = 9;
+
         private const int WM_NCLBUTTONDOWN = 0x00A1;
         private const int HTCAPTION = 0x0002;
 
@@ -881,24 +892,74 @@ namespace ColoringPixelsTool.Installer
         private void Launch(string dir, GameDescriptor game)
         {
             string error;
-            Process p = PayloadInstaller.LaunchGame(dir, game, out error);
+            bool alreadyRunning;
+            Process p = PayloadInstaller.LaunchGame(dir, game, out alreadyRunning, out error);
             if (p == null)
             {
                 Log.Error("启动游戏失败：" + error);
                 return;
             }
+
+            if (alreadyRunning)
+            {
+                // 已经在跑就只把窗口切到前台。Unity 游戏不拦多开，再启动一次
+                // 只会多出一个游戏窗口 —— 用户看到的就是「游戏画面冒出来好几遍」。
+                Log.Warn("游戏已经在运行（PID " + p.Id + "），不再重复启动，已把窗口切到前台。");
+                FocusWindow(p);
+                MarkGameRunning();
+                WatchGameAndAutoClose(p);
+                return;
+            }
+
             Log.Ok("已启动游戏（PID " + p.Id + "）");
+            MarkGameRunning();
 
             // 非注入式游戏还得把配套的独立助手拉起来。
             if (!string.IsNullOrEmpty(game.AssistExeRelativePath))
             {
-                Process a = PayloadInstaller.LaunchAssist(dir, game, out error);
+                bool assistRunning;
+                Process a = PayloadInstaller.LaunchAssist(dir, game, out assistRunning, out error);
                 if (a == null) Log.Warn("启动独立助手失败：" + error);
+                else if (assistRunning) Log.Info("独立助手已经在运行（PID " + a.Id + "），跳过重复启动。");
                 else Log.Ok("已启动独立助手 " + AppInfo.AssistExeName + "（PID " + a.Id + "）");
             }
 
             Log.Info(game.TipText);
             WatchGameAndAutoClose(p);
+        }
+
+        /// <summary>
+        /// 游戏起来之后把「启动游戏」按钮改成运行状态：
+        /// 用户看游戏迟迟没出现时最常做的就是再点一次这个按钮，
+        /// 而它正是「多开好几个游戏窗口」最常见的来源。
+        /// 按钮仍然可点 —— 再点只会把已有窗口切到前台，不会再开一个进程。
+        /// </summary>
+        private void MarkGameRunning()
+        {
+            if (_btnLaunch == null) return;
+            try
+            {
+                _btnLaunch.Text = "游戏运行中";
+                _btnLaunch.Enabled = true;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>把已经在运行的游戏窗口切到前台。</summary>
+        private void FocusWindow(Process p)
+        {
+            try
+            {
+                IntPtr h = p.MainWindowHandle;
+                if (h == IntPtr.Zero) return;
+                if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+                SetForegroundWindow(h);
+            }
+            catch (Exception)
+            {
+            }
         }
 
         /// <summary>
@@ -968,6 +1029,9 @@ namespace ColoringPixelsTool.Installer
 
         private void OnLaunchClick(object sender, EventArgs e)
         {
+            // 安装/更新途中不要插一脚：文件正在被替换，这时候启动游戏容易出事
+            if (_busy) return;
+
             GameInfo info = GameLocator.Inspect(_txtDir.Text, _game);
             if (!info.Usable) return;
             Launch(info.Directory, _game);

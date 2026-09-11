@@ -2168,7 +2168,7 @@ namespace ColoringPixelsTool
             Section(w, ref y, "安全与自动化");
             changed |= ApplySliderI(w, ref y, "a-delay", ref s.StartDelayMs, 0f, 6000f, "开始倒计时", " ms");
             changed |= ApplyToggle(w, ref y, ref s.HoldButton, "按住鼠标左键", "扫描时保持左键按住，一路涂过去。");
-            changed |= ApplyToggle(w, ref y, ref s.DetectIntervention, "人工干预检测", "鼠标被抢走时自动暂停，避免乱涂。");
+            changed |= ApplyToggle(w, ref y, ref s.DetectIntervention, "人工干预检测", "只有你自己拖动鼠标才暂停；刚点开始/继续时鼠标停在哪都不会误判。");
             changed |= ApplySliderD(w, ref y, "a-fail", ref s.FailRadius, 20f, 400f, "干预判定半径", " px");
             changed |= ApplyStepper(w, ref y, "自动停止", ref s.AutoStopMinutes, 1, 0, 600, " 分钟");
 

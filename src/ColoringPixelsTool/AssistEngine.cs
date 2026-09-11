@@ -165,6 +165,16 @@ namespace ColoringPixelsTool.Assist
         private bool _buttonHeld;
         public int VkEscape = 0x1B;
 
+        // 人工干预判定用的基准：引擎上一帧把光标命令到了哪里。
+        // 刻意记「命令位置」而不是读 GetCursorPos —— SendInput 是异步入队的，
+        // 刚发完指令就读光标，拿到的往往是上一帧的位置。
+        private int _cmdX;
+        private int _cmdY;
+        private bool _cmdKnown;
+
+        // 上一帧的像素预算：用来区分「引擎自己在滑动」和「用户把鼠标拽走了」
+        private double _stepBudget;
+
         public bool Running
         {
             get { return State == AssistState.Scanning || State == AssistState.RowPause || State == AssistState.WaitingColour || State == AssistState.Countdown; }
@@ -196,6 +206,7 @@ namespace ColoringPixelsTool.Assist
             _cursor = 0;
             Progress = 0;
             _lastRow = -1;
+            _cmdKnown = false;
         }
 
         public void Pause()
@@ -207,16 +218,12 @@ namespace ColoringPixelsTool.Assist
 
         public void Resume()
         {
-            if (State == AssistState.Paused)
-            {
-                if (S.HoldButton) PressButton();
-                State = AssistState.Scanning;
-            }
-            else if (State == AssistState.WaitingColour)
-            {
-                if (S.HoldButton) PressButton();
-                State = AssistState.Scanning;
-            }
+            if (State != AssistState.Paused && State != AssistState.WaitingColour) return;
+
+            // 用户是拿鼠标去点的「继续」，所以这里必须重新认一次光标位置，
+            // 否则下一帧就会把「鼠标还停在按钮上」判成人工干预而立刻又暂停。
+            _cmdKnown = false;
+            State = AssistState.Scanning;
         }
 
         public void Start()
@@ -246,6 +253,11 @@ namespace ColoringPixelsTool.Assist
             CurrentRow = 0;
             TotalRows = S.Rows;
 
+            // 光标此刻多半还停在「开始」按钮上，先把它当成基准，
+            // 这样倒计时结束后不会立刻被误判成人工干预。
+            _cmdKnown = false;
+            _stepBudget = 0;
+
             if (S.StartDelayMs > 0)
             {
                 State = AssistState.Countdown;
@@ -254,7 +266,8 @@ namespace ColoringPixelsTool.Assist
             }
             else
             {
-                if (S.HoldButton) PressButton();
+                // 这里不按左键：要等光标真正滑到第一个扫描点再按，
+                // 否则「从鼠标当前位置一路滑到画布」的这段路会画出一道多余的线。
                 State = AssistState.Scanning;
             }
         }
@@ -277,8 +290,8 @@ namespace ColoringPixelsTool.Assist
 
             _cursor = idx;
             _lastRow = row;
+            _cmdKnown = false;
             State = AssistState.Scanning;
-            if (S.HoldButton) PressButton();
         }
 
         // ---------------------------------------------------------------- 内部
@@ -378,7 +391,8 @@ namespace ColoringPixelsTool.Assist
                     _timer -= dt;
                     if (_timer <= 0)
                     {
-                        if (S.HoldButton) PressButton();
+                        // 不在这里按左键：等光标滑到第一个扫描点再按（见 Step）
+                        _cmdKnown = false;
                         State = AssistState.Scanning;
                         Message = null;
                     }
@@ -388,7 +402,8 @@ namespace ColoringPixelsTool.Assist
                     _rowPauseLeft -= dt;
                     if (_rowPauseLeft <= 0)
                     {
-                        if (S.HoldButton) PressButton();
+                        // 停顿期间用户可能动过鼠标，重新认一次基准再继续
+                        _cmdKnown = false;
                         State = AssistState.Scanning;
                     }
                     break;
@@ -399,7 +414,8 @@ namespace ColoringPixelsTool.Assist
                         _switchWaitLeft -= dt;
                         if (_switchWaitLeft <= 0)
                         {
-                            if (S.HoldButton) PressButton();
+                            // 换色时鼠标早就被挪走了，重新认基准
+                            _cmdKnown = false;
                             State = AssistState.Scanning;
                         }
                     }
@@ -413,76 +429,147 @@ namespace ColoringPixelsTool.Assist
 
         private void Step(double dt)
         {
-            if (_cursor >= _px.Count)
+            // 一帧能走多少像素。旧实现一帧只推进「一个采样点」，步长 4px、60fps 时
+            // 实际速度被死死卡在 240px/s，跟面板上设的 1400px/s 完全对不上；
+            // 现在按像素预算在一帧里连续吃掉多个点，速度才真是设的那个值。
+            double budget = Math.Max(1.0, S.Speed * dt);
+            _stepBudget = budget;
+
+            // 一帧判一次人工干预就够（基准是引擎上一帧的命令位置）
+            if (S.DetectIntervention && DetectUserDrag())
             {
-                ReleaseButton();
-                State = AssistState.Done;
-                Progress = 1f;
-                Message = "扫描完成";
+                Pause();
+                Message = "检测到鼠标被拖动，已暂停（点「继续」接着涂）";
                 return;
             }
 
-            // 自动停止
-            if (S.AutoStopMinutes > 0 && _totalSeconds > S.AutoStopMinutes * 60.0)
+            while (budget > 0.5)
             {
-                Stop();
-                Message = "已到自动停止时间";
-                return;
-            }
-
-            int row = _row[_cursor];
-
-            // 行边界处理
-            if (row != _lastRow)
-            {
-                if (_lastRow >= 0)
+                if (_cursor >= _px.Count)
                 {
-                    // 换色检查
-                    if (S.AutoSwitchEveryRows > 0 && row > 0 && row % S.AutoSwitchEveryRows == 0)
-                    {
-                        ReleaseButton();
-                        if (S.AutoSwitchKeyVk > 0) AssistWin32.KeyPress((ushort)S.AutoSwitchKeyVk);
-                        State = AssistState.WaitingColour;
-                        _switchWaitLeft = S.AutoSwitchWaitMs / 1000.0;
-                        Message = "请换好颜色后点「继续」（或自动等待）";
-                        _lastRow = row;
-                        return;
-                    }
-
-                    if (S.RowPauseMs > 0)
-                    {
-                        ReleaseButton();
-                        State = AssistState.RowPause;
-                        _rowPauseLeft = S.RowPauseMs / 1000.0;
-                        _lastRow = row;
-                        return;
-                    }
-                }
-                CurrentRow = row;
-                _lastRow = row;
-            }
-
-            int targetX = (int)Math.Round(_px[_cursor]);
-            int targetY = (int)Math.Round(_py[_cursor]);
-
-            // 人工干预检测：鼠标实际位置和目标差距过大
-            if (S.DetectIntervention)
-            {
-                int cx, cy;
-                AssistWin32.GetCursor(out cx, out cy);
-                double d = Math.Sqrt((cx - targetX) * (cx - targetX) + (cy - targetY) * (cy - targetY));
-                if (d > S.FailRadius)
-                {
-                    Pause();
-                    Message = "检测到人工操作，已暂停";
+                    ReleaseButton();
+                    State = AssistState.Done;
+                    Progress = 1f;
+                    Message = "扫描完成";
                     return;
                 }
+
+                // 自动停止
+                if (S.AutoStopMinutes > 0 && _totalSeconds > S.AutoStopMinutes * 60.0)
+                {
+                    Stop();
+                    Message = "已到自动停止时间";
+                    return;
+                }
+
+                int row = _row[_cursor];
+
+                // 行边界处理
+                if (row != _lastRow)
+                {
+                    if (_lastRow >= 0)
+                    {
+                        // 换行先松手：下一行起点常常离得很远（非蛇形时横跨整个画布），
+                        // 按着左键滑过去会多划一道线。到了新行第一个点会自动重新按住。
+                        ReleaseButton();
+
+                        // 换色检查
+                        if (S.AutoSwitchEveryRows > 0 && row > 0 && row % S.AutoSwitchEveryRows == 0)
+                        {
+                            if (S.AutoSwitchKeyVk > 0) AssistWin32.KeyPress((ushort)S.AutoSwitchKeyVk);
+                            CurrentRow = row;
+                            _lastRow = row;
+                            State = AssistState.WaitingColour;
+                            _switchWaitLeft = S.AutoSwitchWaitMs / 1000.0;
+                            Message = "请换好颜色后点「继续」（或自动等待）";
+                            return;
+                        }
+
+                        if (S.RowPauseMs > 0)
+                        {
+                            CurrentRow = row;
+                            _lastRow = row;
+                            State = AssistState.RowPause;
+                            _rowPauseLeft = S.RowPauseMs / 1000.0;
+                            return;
+                        }
+                    }
+                    CurrentRow = row;
+                    _lastRow = row;
+                }
+
+                int targetX = (int)Math.Round(_px[_cursor]);
+                int targetY = (int)Math.Round(_py[_cursor]);
+
+                int cx, cy;
+                AssistWin32.GetCursor(out cx, out cy);
+                double dx = targetX - cx;
+                double dy = targetY - cy;
+                double d = Math.Sqrt(dx * dx + dy * dy);
+
+                if (d > budget)
+                {
+                    // 这一帧走不到目标点：按预算朝它滑一段，剩下的留给下一帧
+                    double k = budget / d;
+                    int mx = (int)Math.Round(cx + dx * k);
+                    int my = (int)Math.Round(cy + dy * k);
+                    AssistWin32.MoveTo(mx, my);
+                    RememberCursor(mx, my);
+                    budget = 0;
+                    continue;
+                }
+
+                // 到达（或本来就在）这个点上：到点才按住左键 ——
+                // 从鼠标原来位置滑到画布起点的这段路不能带按键。
+                AssistWin32.MoveTo(targetX, targetY);
+                RememberCursor(targetX, targetY);
+                if (S.HoldButton) PressButton();
+
+                _cursor++;
+                budget -= Math.Max(d, 1.0);
             }
 
-            bool moving = AssistWin32.GlideTo(targetX, targetY, S.Speed, dt);
-            if (!moving) _cursor++;
-
             Progress = _px.Count <= 1 ? 1f : (float)(_cursor / (double)_px.Count);
+        }
+
+        /// <summary>记住引擎把光标命令到了哪里，作为下一帧人工干预判定的基准。</summary>
+        private void RememberCursor(int x, int y)
+        {
+            _cmdX = x;
+            _cmdY = y;
+            _cmdKnown = true;
+        }
+
+        /// <summary>
+        /// 人工干预检测：光标本该老老实实待在「引擎上一帧命令它去的位置」上
+        /// （SendInput 是异步入队的，所以基准用命令位置，误差只有一两像素）。
+        /// 偏出 FailRadius 才说明是用户自己把鼠标拽走了。
+        ///
+        /// 旧实现是拿「下一个目标点」当基准比距离，于是每次换行、以及刚点开始
+        /// （鼠标还停在「开始」按钮上）都会被判成人工介入 —— 用户明明没碰鼠标，
+        /// 面板却一直跳「检测到人工操作，已暂停」。
+        /// </summary>
+        private bool DetectUserDrag()
+        {
+            int cx, cy;
+            AssistWin32.GetCursor(out cx, out cy);
+
+            if (!_cmdKnown)
+            {
+                // 刚开始 / 刚继续 / 刚测单行：先把当前光标认作基准
+                _cmdX = cx;
+                _cmdY = cy;
+                _cmdKnown = true;
+                return false;
+            }
+
+            double dx = cx - _cmdX;
+            double dy = cy - _cmdY;
+
+            // 阈值至少留出一帧的行程：帧率抖动或有别的程序在动鼠标时，
+            // 命令位置和实际位置本来就允许差一帧的距离。
+            double limit = Math.Max(S.FailRadius, _stepBudget * 1.6);
+            return dx * dx + dy * dy > limit * limit;
         }
 
         private double _totalSeconds;

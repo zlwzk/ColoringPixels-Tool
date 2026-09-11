@@ -154,13 +154,17 @@ namespace ColoringPixelsTool.Installer
             if (!options.NoLaunch)
             {
                 string error;
-                System.Diagnostics.Process p = PayloadInstaller.LaunchGame(dir, game, out error);
+                bool alreadyRunning;
+                System.Diagnostics.Process p = PayloadInstaller.LaunchGame(dir, game, out alreadyRunning, out error);
                 if (p == null) Log.Warn("启动游戏失败：" + error);
+                else if (alreadyRunning) Log.Info("游戏已经在运行（PID " + p.Id + "），不再重复启动。");
 
                 if (game.AssistExeRelativePath != null)
                 {
-                    System.Diagnostics.Process a = PayloadInstaller.LaunchAssist(dir, game, out error);
+                    bool assistRunning;
+                    System.Diagnostics.Process a = PayloadInstaller.LaunchAssist(dir, game, out assistRunning, out error);
                     if (a == null) Log.Warn("启动独立助手失败：" + error);
+                    else if (assistRunning) Log.Info("独立助手已经在运行（PID " + a.Id + "），跳过重复启动。");
                 }
 
                 Log.Info(game.TipText);
