@@ -17,16 +17,19 @@ namespace PixelAssist
     /// </summary>
     internal static class Ui
     {
-        public static readonly Color Bg = Color.FromArgb(0x0D, 0x10, 0x17);
-        public static readonly Color Bg2 = Color.FromArgb(0x11, 0x16, 0x21);
-        public static readonly Color Card = Color.FromArgb(0x16, 0x1B, 0x26);
-        public static readonly Color CardHi = Color.FromArgb(0x1C, 0x23, 0x31);
-        public static readonly Color Line = Color.FromArgb(0x2A, 0x33, 0x45);
-        public static readonly Color Accent = Color.FromArgb(0x5B, 0x8C, 0xFF);
-        public static readonly Color Accent2 = Color.FromArgb(0x2F, 0xD4, 0xC8);
-        public static readonly Color Danger = Color.FromArgb(0xE5, 0x5A, 0x6B);
-        public static readonly Color Text = Color.FromArgb(0xE8, 0xEE, 0xF9);
-        public static readonly Color Muted = Color.FromArgb(0x8B, 0x9A, 0xB5);
+        // 与游戏内插件面板（ColoringPixelsTool.Ui）完全一致：深靛蓝底 + 青紫霓虹强调。
+        public static readonly Color Bg = Color.FromArgb(0x0A, 0x0C, 0x13);
+        public static readonly Color Bg2 = Color.FromArgb(0x10, 0x13, 0x1D);
+        public static readonly Color Card = Color.FromArgb(0x17, 0x1B, 0x27);
+        public static readonly Color CardHi = Color.FromArgb(0x20, 0x26, 0x36);
+        public static readonly Color CardEdge = Color.FromArgb(0x27, 0x2E, 0x40);
+        public static readonly Color Line = Color.FromArgb(0x22, 0x28, 0x38);
+        public static readonly Color Track = Color.FromArgb(0x0C, 0x0F, 0x17);
+        public static readonly Color Accent = Color.FromArgb(0x8B, 0x5C, 0xFF);
+        public static readonly Color Accent2 = Color.FromArgb(0x2B, 0xDD, 0xF5);
+        public static readonly Color Danger = Color.FromArgb(0xF6, 0x5E, 0x6E);
+        public static readonly Color Text = Color.FromArgb(0xEC, 0xEF, 0xF7);
+        public static readonly Color Muted = Color.FromArgb(0x7C, 0x86, 0x9E);
 
         public static GraphicsPath Rounded(Rectangle r, int radius)
         {

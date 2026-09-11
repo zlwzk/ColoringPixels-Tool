@@ -38,11 +38,9 @@ namespace PixelAssist
         }
     }
 
-    /// <summary>玻璃质感卡片：圆角 + 竖向渐变 + 顶部品牌光条 + 细描边。</summary>
+    /// <summary>与游戏内面板一致的玻璃卡片：圆角 + 卡片底色 + 顶部微高光 + 底部压暗，无描边。</summary>
     internal sealed class AssistCard : Panel
     {
-        public bool AccentTop = true;
-
         public AssistCard()
         {
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
@@ -60,44 +58,22 @@ namespace PixelAssist
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
             Rectangle box = new Rectangle(0, 0, r.Width - 1, r.Height - 1);
-            using (GraphicsPath path = Ui.Rounded(box, 10))
+            int radius = 11;
+            using (GraphicsPath path = Ui.Rounded(box, radius))
             {
-                using (LinearGradientBrush br = new LinearGradientBrush(
-                    new Rectangle(0, 0, Math.Max(2, r.Width), Math.Max(2, r.Height)),
-                    Ui.CardHi, Ui.Card, LinearGradientMode.Vertical))
+                using (SolidBrush br = new SolidBrush(Ui.Card))
                     g.FillPath(br, path);
 
-                // 顶部的品牌渐隐光条（Aceternity 的 Border Beam 静态版）
-                if (AccentTop)
+                float inset = radius * 0.7f;
+                if (inset > 0f && box.Width > inset * 2f)
                 {
-                    GraphicsState st = g.Save();
-                    try
-                    {
-                        g.SetClip(path, CombineMode.Replace);
-                        Rectangle bar = new Rectangle(0, 0, r.Width, 2);
-                        using (LinearGradientBrush br = new LinearGradientBrush(
-                            new Rectangle(0, 0, Math.Max(2, r.Width), 2),
-                            Color.FromArgb(0, Ui.Accent), Color.FromArgb(150, Ui.Accent2), LinearGradientMode.Horizontal))
-                        {
-                            ColorBlend blend = new ColorBlend(3);
-                            blend.Colors = new Color[]
-                            {
-                                Color.FromArgb(0, Ui.Accent), Color.FromArgb(170, Ui.Accent),
-                                Color.FromArgb(0, Ui.Accent2)
-                            };
-                            blend.Positions = new float[] { 0f, 0.5f, 1f };
-                            br.InterpolationColors = blend;
-                            g.FillRectangle(br, bar);
-                        }
-                    }
-                    finally
-                    {
-                        g.Restore(st);
-                    }
-                }
+                    using (SolidBrush br = new SolidBrush(Color.FromArgb(12, 255, 255, 255)))
+                        g.FillRectangle(br, box.X + inset, box.Y + 1.5f, box.Width - inset * 2f, 1f);
 
-                using (Pen pen = new Pen(Ui.Alpha(Ui.Line, 0.9f), 1f))
-                    g.DrawPath(pen, path);
+                    if (box.Height > radius * 2f)
+                        using (SolidBrush br = new SolidBrush(Color.FromArgb(56, 0, 0, 0)))
+                            g.FillRectangle(br, box.X + inset, box.Bottom - 2.5f, box.Width - inset * 2f, 1.5f);
+                }
             }
         }
     }
@@ -181,37 +157,69 @@ namespace PixelAssist
             int radius = Math.Min(9, Height / 2);
             float lift = _press * 1.5f;
 
-            Color baseCol = _primary ? _tint : Ui.Mix(Ui.Card, _tint, 0.14f);
-            Color top = Ui.Mix(baseCol, Color.White, 0.16f + 0.10f * _hover);
-            Color bottom = Ui.Mix(baseCol, Color.Black, 0.22f + 0.10f * _press);
-
-            if (!Enabled)
+            if (_primary)
             {
-                top = Ui.Mix(Ui.Card, Color.White, 0.05f);
-                bottom = Ui.Mix(Ui.Card, Color.Black, 0.10f);
+                Color baseCol = _tint;
+                Color top = Ui.Mix(baseCol, Color.White, 0.16f + 0.10f * _hover);
+                Color bottom = Ui.Mix(baseCol, Color.Black, 0.22f + 0.10f * _press);
+
+                if (!Enabled)
+                {
+                    top = Ui.Mix(Ui.Card, Color.White, 0.05f);
+                    bottom = Ui.Mix(Ui.Card, Color.Black, 0.10f);
+                }
+
+                using (GraphicsPath path = Ui.Rounded(box, radius))
+                {
+                    if (_hover > 0.02f && Enabled)
+                        Fx.Blob(g, new PointF(Width * 0.5f, Height * 0.5f), Width * 1.05f, baseCol, 0.26f * _hover);
+
+                    using (LinearGradientBrush br = new LinearGradientBrush(
+                        new Rectangle(0, 0, Math.Max(2, Width), Math.Max(2, Height)),
+                        top, bottom, LinearGradientMode.Vertical))
+                        g.FillPath(br, path);
+
+                    if (Enabled)
+                        Fx.Shimmer(g, box, radius, 2.6f, Color.White, 0.30f, 0.22f);
+
+                    if (Enabled)
+                        Fx.Glare(g, box, radius, _hover, Color.White, 0.22f);
+
+                    using (Pen pen = new Pen(Ui.Alpha(Color.White, 0.16f + 0.16f * _hover), 1f))
+                        g.DrawPath(pen, path);
+                }
             }
-
-            using (GraphicsPath path = Ui.Rounded(box, radius))
+            else
             {
-                // 悬停时的背光（magicui Backlight 的简化版）
-                if (_hover > 0.02f && Enabled)
-                    Fx.Blob(g, new PointF(Width * 0.5f, Height * 0.5f), Width * 1.05f, baseCol, 0.26f * _hover);
+                // 次级按钮用与游戏内面板一致的 Surface：卡片底色 + 微高光 + 底部压暗，无描边
+                bool selected = _tint != Ui.Card;
+                Color baseCol = !Enabled ? Ui.Card
+                    : (selected ? Ui.Mix(Ui.Card, _tint, 0.14f + _hover * 0.10f)
+                                : Ui.Mix(Ui.Card, Ui.CardHi, _hover * 0.35f));
 
-                using (LinearGradientBrush br = new LinearGradientBrush(
-                    new Rectangle(0, 0, Math.Max(2, Width), Math.Max(2, Height)),
-                    top, bottom, LinearGradientMode.Vertical))
-                    g.FillPath(br, path);
+                using (GraphicsPath path = Ui.Rounded(box, radius))
+                {
+                    using (SolidBrush br = new SolidBrush(baseCol))
+                        g.FillPath(br, path);
 
-                if (_primary && Enabled)
-                    Fx.Shimmer(g, box, radius, 2.6f, Color.White, 0.30f, 0.22f);
+                    float inset = radius * 0.7f;
+                    if (inset > 0f && box.Width > inset * 2f)
+                    {
+                        using (SolidBrush br = new SolidBrush(Color.FromArgb(12, 255, 255, 255)))
+                            g.FillRectangle(br, box.X + inset, box.Y + 1.5f, box.Width - inset * 2f, 1f);
 
-                if (Enabled)
-                    Fx.Glare(g, box, radius, _hover, Color.White, 0.22f);
+                        if (box.Height > radius * 2f)
+                            using (SolidBrush br = new SolidBrush(Color.FromArgb(56, 0, 0, 0)))
+                                g.FillRectangle(br, box.X + inset, box.Bottom - 2.5f, box.Width - inset * 2f, 1.5f);
+                    }
 
-                using (Pen pen = new Pen(_primary && Enabled
-                    ? Ui.Alpha(Color.White, 0.16f + 0.16f * _hover)
-                    : Ui.Alpha(Ui.Line, 1f), 1f))
-                    g.DrawPath(pen, path);
+                    // 选中状态底部加一道强调色细线（类似游戏内面板的滑动指示条）
+                    if (selected && Enabled)
+                    {
+                        using (SolidBrush br = new SolidBrush(_tint))
+                            g.FillRectangle(br, box.X + inset, box.Bottom - 3f, box.Width - inset * 2f, 2.5f);
+                    }
+                }
             }
 
             Rectangle textBox = new Rectangle(0, (int)Math.Round(lift), Width, Height);
@@ -262,7 +270,7 @@ namespace PixelAssist
             _vis = Fx.Smooth("pv:" + Handle, _value / 100f, 0.22f);
 
             using (GraphicsPath track = Ui.Rounded(box, radius))
-            using (SolidBrush br = new SolidBrush(Ui.Alpha(Ui.Line, 0.75f)))
+            using (SolidBrush br = new SolidBrush(Ui.Track))
                 g.FillPath(br, track);
 
             int fillW = (int)Math.Round(box.Width * Math.Max(0f, Math.Min(1f, _vis)));
@@ -282,6 +290,14 @@ namespace PixelAssist
 
                     Fx.Shimmer(g, fill, 0, 2.0f, Color.White, 0.34f, 0.35f);
 
+                    // 顶部微高光，与游戏内面板进度条一致
+                    if (fillW > 8)
+                    {
+                        using (SolidBrush br = new SolidBrush(Color.FromArgb(56, 255, 255, 255)))
+                            g.FillRectangle(br, fill.X + 4, fill.Y + Math.Max(1, box.Height / 6),
+                                fillW - 8, Math.Max(1, box.Height / 4));
+                    }
+
                     // 前沿的呼吸光点
                     float pulse = Fx.Pulse(3.4f, 0f);
                     Fx.Blob(g, new PointF(fillW, box.Height * 0.5f),
@@ -294,10 +310,6 @@ namespace PixelAssist
                     g.Restore(st);
                 }
             }
-
-            using (GraphicsPath outline = Ui.Rounded(box, radius))
-            using (Pen pen = new Pen(Ui.Alpha(Ui.Line, 0.9f), 1f))
-                g.DrawPath(pen, outline);
         }
     }
 
