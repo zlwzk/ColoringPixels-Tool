@@ -209,7 +209,7 @@
 
 | 分区 | 内容 |
 | --- | --- |
-| 用户资料 | 用户名、头像图片、面板背景图片；「保存资料并刷新」「打开配置文件夹」「清除背景」 |
+| 用户资料 | 用户名、头像图片、面板背景图片；「保存资料并刷新」「打开配置文件夹」「清除背景」（卡片底部会显示等级存档所在目录，见 [6.3](#63-等级与用户资料存档)） |
 | 面板外观 | 面板不透明度、面板缩放（0 = 自适应） |
 | 悬浮 HUD | 显示 HUD、颜色明细、本图用时、不透明度、屏幕坐标 |
 | 快捷键 | 全部热键的查看与修改（含人工辅助 F7–F12） |
@@ -388,6 +388,23 @@
 | 插件内人工辅助的区域与参数 | `BepInEx\config\ColoringPixelsTool.Assist\` |
 | 单图用时记录 | `BepInEx\config\ColoringPixelsTool.Times.txt` |
 | 独立助手的区域 / 参数 / 预设 | `%APPDATA%\PixelAssist\` |
+
+### 6.3 等级与用户资料存档
+
+等级、经验值与各项统计存在**漫游目录**，不放在游戏目录里：
+
+```
+%APPDATA%\ColoringPixelsTool\ColoringPixelsTool.Profile.json
+```
+
+之所以不放游戏目录，是因为 `BepInEx\config` 会随「覆盖安装 / 卸载插件 / 验证游戏文件完整性 /
+重装游戏」一起消失，放在那儿就会出现「更新一次版本，等级从头再来」。
+
+- 升级到本版本后，会自动把旧位置（`BepInEx\config\ColoringPixelsTool.Profile.json`）的进度迁移过来，
+  并继续在旧位置留一份镜像副本作为备份。
+- 同一目录下还有 `ColoringPixelsTool.Profile.json.bak`（上一份存档）与
+  `ColoringPixelsTool.Profile.json.corrupt-*`（读出来怀疑损坏的存档，不会被直接删掉）。
+- 只要经验值还在，等级就能反推还原：存档里 `level` 字段丢了也不会掉级。
 
 ---
 

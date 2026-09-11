@@ -3,6 +3,28 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 版本号唯一来源是仓库根目录的 [`VERSION`](VERSION) 文件。
 
+## [2.2.4] - 2026-09-11
+
+### 修复
+
+- **等级 / 经验值不再随版本更新重置**（`UserProfile.cs`）：
+  - 存档从游戏目录 `BepInEx\config\ColoringPixelsTool.Profile.json` 移到漫游目录
+    `%APPDATA%\ColoringPixelsTool\ColoringPixelsTool.Profile.json`。
+    前者会随「覆盖安装 / 卸载插件 / 卸载时移除 BepInEx / 验证游戏文件完整性 / 重装游戏」一并消失，
+    这正是「更新一次版本，等级从头再来」的直接原因。
+  - `Save()` 改为**原子写入**（先写 `.tmp` 再替换）：原先的 `File.WriteAllText` 会先截断原文件，
+    中途崩溃 / 断电会留下半截 JSON，导致下次加载解析失败、等级回到 1 级。
+  - `Load()` 在「正式存档 / `.bak` 备份 / 旧位置镜像」三份里挑进度最多的一份，
+    并在来源不是正式位置时自动迁移回写。
+  - 疑似损坏的存档重命名为 `.corrupt-<时间戳>` 留存，不再被静默覆盖。
+  - 新增 `LevelFromXp()`：等级可由累计 XP 反推还原（只升不降），存档丢失 `level` 字段也不会掉级。
+  - 存档 JSON 增加 `schema` / `savedAt` 字段，便于日后排查。
+- 「设置 → 用户资料」卡片底部新增一行，显示等级存档所在目录。
+
+### 文档
+
+- `README.md`、`docs/USAGE.md` 增加等级存档位置与自动迁移说明（新增 `USAGE.md` 6.3 小节）。
+
 ## [2.2.3] - 2026-09-11
 
 ### 修复
@@ -230,6 +252,7 @@
 - 版本号单点维护：根目录 `VERSION` 被 `Directory.Build.props` 与全部构建脚本读取
 - 通过 GitHub Actions 在 `windows-latest` 上自动构建并发布 Release
 
+[2.2.4]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.4
 [2.2.3]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.3
 [2.2.2]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.2
 [2.2.1]: https://github.com/zlwzk/ColoringPixels-Tool/releases/tag/v2.2.1

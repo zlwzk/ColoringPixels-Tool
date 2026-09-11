@@ -1523,7 +1523,7 @@ namespace ColoringPixelsTool
             }
             y += 48f;
 
-            Card(w, ref y, 76f, top =>
+            Card(w, ref y, 94f, top =>
             {
                 Ui.Text(new Rect(Pad, top + 8f, w - Pad * 2f, 18f),
                     $"当前等级  Lv.{UserProfile.Level}  ·  {UserProfile.CurrentTitle}", Ui.Label);
@@ -1533,6 +1533,10 @@ namespace ColoringPixelsTool
                     $"在线 {FormatDuration(UserProfile.TotalSeconds)}  ·  涂色 {UserProfile.PixelsPainted} 格  ·  完成 {UserProfile.ImagesCompleted} 张图", Ui.MutedSmall);
                 Ui.Text(new Rect(Pad, top + 61f, w - Pad * 2f, 16f),
                     $"手动点击 {UserProfile.ManualClicks} 次  ·  手动 {UserProfile.ManualPixels} 格  ·  涂色率 {UserProfile.PaintingRate:0.00} 格/击", Ui.MutedSmall, Ui.Accent2);
+                // 说明存档位置：等级存在漫游目录，更新 / 重装插件都不会丢
+                Ui.Text(new Rect(Pad, top + 78f, w - Pad * 2f, 14f),
+                    Ellipsize("等级存档 " + UserProfile.UserDataDirectory() + "（更新版本不会丢）",
+                        Ui.MutedSmall, w - Pad * 2f), Ui.MutedSmall);
             });
 
             y += 6f;

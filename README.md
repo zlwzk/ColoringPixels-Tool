@@ -163,6 +163,15 @@
 
 插件内的人工辅助区域与参数则存在 `BepInEx\config\ColoringPixelsTool.Assist\`，两者互不影响。
 
+**等级与用户资料存档**（等级、经验值、各项统计）刻意存在漫游目录，不随游戏目录一起被清理：
+
+```
+%APPDATA%\ColoringPixelsTool\ColoringPixelsTool.Profile.json
+```
+
+`BepInEx\config` 会随「覆盖安装 / 卸载插件 / 验证游戏文件完整性 / 重装游戏」一起消失，
+所以等级存档不放在那里，更新版本不会重置进度。升级后会自动迁移旧位置的存档，并在旧位置留一份镜像备份。
+
 ## 命令行参数
 
 安装器同时支持无人值守模式，便于脚本批量部署：

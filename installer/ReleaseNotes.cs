@@ -7,48 +7,56 @@ namespace ColoringPixelsTool.Installer
     /// <summary>安装完成后弹窗的更新公告文本（来源：RELEASE_NOTES.md / VERSION）。</summary>
     internal static class ReleaseNotes
     {
-        public const string Version = "2.2.3";
+        public const string Version = "2.2.4";
 
         public const string Body =
-"欢迎来到 Coloring Pixels Tool V2.2.3！\r\n" +
+"欢迎来到 Coloring Pixels Tool V2.2.4！\r\n" +
 "\r\n" +
-"这一版没有加功能，专门把「更新公告」这条线理顺：以后不会再有「安装包已经更新、面板公告却还停在旧版本」的情况。\r\n" +
+"这一版专门修一个挺让人受伤的问题：等级和经验值会在更新版本后归零。现在修好了，并且加了多重保险。\r\n" +
 "\r\n" +
 "🐛 本次修复\r\n" +
 "\r\n" +
-"1. 面板与安装器的更新公告会自动跟版本走\r\n" +
+"1. 等级 / 经验值不再随版本更新重置（本次重点）\r\n" +
 "\r\n" +
-"公告此前散在三处、各写各的：\r\n" +
+"原因有两个，都处理掉了。\r\n" +
 "\r\n" +
-"· GitHub Release 正文（RELEASE_NOTES.md）；\r\n" +
-"· 游戏内 F1 面板里的「更新公告」；\r\n" +
-"· 安装器安装完成后的弹窗。\r\n" +
+"① 存档位置放错了。 等级存档原本写在游戏目录里：\r\n" +
 "\r\n" +
-"于是版本一升，后两处经常忘了改——v2.2.2 就是如此：安装包是新的，公告却还停在 2.2.1。\r\n" +
+"```\r\n" +
+"\\BepInEx\\config\\ColoringPixelsTool.Profile.json\r\n" +
+"```\r\n" +
 "\r\n" +
-"现在改为单一来源：RELEASE_NOTES.md 是唯一出处，新增脚本 scripts/build-changelog.ps1\r\n" +
-"会在编译前把它自动转换成两个源码文件：\r\n" +
+"而 BepInEx\\config 会随着「覆盖安装 / 卸载插件 / 卸载时勾选移除 BepInEx / 验证游戏文件完整性 / 重装游戏」\r\n" +
+"一起消失——一更新，进度就没了。\r\n" +
 "\r\n" +
-"· src/ColoringPixelsTool/Changelog.cs —— 游戏内面板公告；\r\n" +
-"· installer/ReleaseNotes.cs —— 安装器弹窗公告。\r\n" +
+"现在改存到漫游目录，与游戏目录彻底解耦：\r\n" +
 "\r\n" +
-"publish.ps1 与 CI 所用的 build-release.ps1 都会先执行这一步。\r\n" +
-"发版时如果公告里没写到新版本号，脚本会直接报错提醒，从源头堵住「忘了改公告」。\r\n" +
+"```\r\n" +
+"%APPDATA%\\ColoringPixelsTool\\ColoringPixelsTool.Profile.json\r\n" +
+"```\r\n" +
 "\r\n" +
-"2. 公告排版适配面板与弹窗\r\n" +
+"② 存档是「先截断再重写」的。 之前用 File.WriteAllText 直接覆盖，会先把原文件清空再写入；\r\n" +
+"一旦中途崩溃或断电，就留下半截 JSON，下次读取解析不出来，等级就被打回 1 级。\r\n" +
+"现在改成先写临时文件、写完再替换。\r\n" +
 "\r\n" +
-"转换时会把 Markdown 的标题、加粗、列表、表格与 按键 标记统一转成纯文本，\r\n" +
-"面板与弹窗里显示的是干净正文，不会再冒出 **、##、 这类符号。\r\n" +
+"2. 三重保险，让进度不会再丢\r\n" +
+"\r\n" +
+"· 自动迁移：升级后会先把旧位置的存档迁移过来；旧的 BepInEx\\config 里仍保留一份镜像副本作备份。\r\n" +
+"· 备份回退：每次保存都会留下上一份 .bak；读取时在「正式存档 / 备份 / 旧位置」三份里挑进度最多的那份，\r\n" +
+"  任何一次写入失败都不会掉级。\r\n" +
+"· 损坏不静默丢弃：读到疑似损坏的存档会重命名成 .corrupt- 留存，而不是直接盖掉。\r\n" +
+"· 等级可由经验反推：只要经验值还在，等级就能从累计 XP 重新算回来，存档里 level 字段丢了也不会掉级。\r\n" +
+"\r\n" +
+"「设置 → 用户资料」卡片底部现在会直接显示存档所在目录，方便随时确认或手动备份。\r\n" +
 "\r\n" +
 "📖 文档补充\r\n" +
 "\r\n" +
-"docs/BUILDING.md 增加「更新公告」一节，说明公告的唯一来源与生成方式。\r\n" +
+"README.md 与 docs/USAGE.md 增加了等级存档位置与自动迁移的说明。\r\n" +
 "\r\n" +
 "💡 小提示\r\n" +
 "\r\n" +
-"· Coloring Pixels：按 F1 打开 / 关闭面板，F7 开始人工辅助。\r\n" +
-"· 涂色大师：像素梦想家：先启动游戏，再运行 PixelAssist\\PixelAssist.exe。\r\n" +
-"· 想改公告内容：编辑仓库根目录的 RELEASE_NOTES.md 即可，面板与安装器会自动同步。\r\n" +
+"· 本次更新后第一次进游戏，旧的等级会自动迁移到新位置，不用手动操作。\r\n" +
+"· 想整体备份进度：复制 %APPDATA%\\ColoringPixelsTool\\ 整个目录即可。\r\n" +
 "\r\n" +
 "📦 安装包\r\n" +
 "\r\n" +

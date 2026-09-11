@@ -24,6 +24,9 @@ namespace ColoringPixelsTool
     {
         public const string FileName = "ColoringPixelsTool.Profile.json";
 
+        /// <summary>用户数据目录名（放在 %APPDATA% 下，与游戏目录解耦）。</summary>
+        private const string UserDataFolderName = "ColoringPixelsTool";
+
         public static string Username = "";
         public static string AvatarPath = "";
         public static string BackgroundPath = "";
@@ -52,13 +55,57 @@ namespace ColoringPixelsTool
         private static bool _dirty;
         private static string _filePath;
 
+        /// <summary>
+        /// 用户数据目录：%APPDATA%\ColoringPixelsTool。
+        ///
+        /// 等级存档**刻意不放在游戏目录里**。BepInEx\config 会随「覆盖安装 / 卸载插件 /
+        /// 验证游戏文件完整性 / 重装游戏」一起消失，放在那儿就会出现「更新一次版本，
+        /// 等级从头再来」。放到漫游目录后，换版本、重装插件都还在。
+        /// </summary>
+        public static string UserDataDirectory()
+        {
+            try
+            {
+                string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (!string.IsNullOrEmpty(roaming)) return Path.Combine(roaming, UserDataFolderName);
+            }
+            catch (Exception)
+            {
+                // 极端环境拿不到漫游目录时就退回旧位置，至少还能存
+            }
+            return GameLocalizer.ConfigDirectory();
+        }
+
+        /// <summary>正式存档路径（漫游目录）。</summary>
         public static string FilePath
         {
             get
             {
-                if (!string.IsNullOrEmpty(_filePath)) return _filePath;
-                _filePath = Path.Combine(GameLocalizer.ConfigDirectory(), FileName);
+                if (string.IsNullOrEmpty(_filePath))
+                    _filePath = Path.Combine(UserDataDirectory(), FileName);
                 return _filePath;
+            }
+        }
+
+        /// <summary>上一份成功存档的备份（新文件写坏时从这里回退）。</summary>
+        private static string BackupPath { get { return FilePath + ".bak"; } }
+
+        /// <summary>旧版存档位置（游戏目录 BepInEx\config 下）：既是迁移来源，也是兜底镜像。</summary>
+        public static string MirrorPath
+        {
+            get { return Path.Combine(GameLocalizer.ConfigDirectory(), FileName); }
+        }
+
+        private static bool SamePath(string a, string b)
+        {
+            try
+            {
+                return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -107,18 +154,40 @@ namespace ColoringPixelsTool
             Loaded = false;
             try
             {
-                if (!File.Exists(FilePath))
+                // 依次考察：正式存档 → 上一份备份 → 旧位置（游戏目录里的历史存档）。
+                // 三份里取「进度最多」的那份，任何一次写入失败都不会把等级打回 1 级。
+                string[] candidates = new[] { FilePath, BackupPath, MirrorPath };
+                Candidate best = new Candidate();
+
+                for (int i = 0; i < candidates.Length; i++)
                 {
+                    if (i > 0 && SamePath(candidates[i], candidates[0])) continue;
+                    Candidate c = ReadCandidate(candidates[i]);
+                    if (c.Valid && c.BetterThan(best)) best = c;
+                }
+
+                if (!best.Valid)
+                {
+                    // 从来没有过存档：建一份初始资料
+                    ResetToDefaults();
                     EnsureDirectory();
                     Save();
                     Loaded = true;
                     return;
                 }
 
-                string json = File.ReadAllText(FilePath, Encoding.UTF8);
-                Parse(json);
+                ResetToDefaults();
+                Parse(best.Json);
+                RecoverLevelFromXp();
                 Loaded = true;
-                Log.Info("用户资料已加载：Lv." + Level + " (" + Xp + " XP) — " + Path.GetFileName(FilePath));
+                Log.Info("用户资料已加载：Lv." + Level + " (" + Xp + " XP) — " + best.Path);
+
+                // 来源不是正式位置（首次迁移 / 从备份恢复）时立刻回写一份
+                if (!SamePath(best.Path, FilePath))
+                {
+                    Log.Info("用户资料已同步到：" + FilePath);
+                    Save();
+                }
             }
             catch (Exception e)
             {
@@ -126,12 +195,143 @@ namespace ColoringPixelsTool
             }
         }
 
+        /// <summary>一个候选存档及其「进度权重」，用于在多个副本之间挑最新的那份。</summary>
+        private struct Candidate
+        {
+            public string Json;
+            public string Path;
+            public bool Valid;
+            public int Xp;
+            public int Level;
+
+            public bool BetterThan(Candidate other)
+            {
+                if (!other.Valid) return true;
+                if (Xp != other.Xp) return Xp > other.Xp;
+                return Level > other.Level;
+            }
+        }
+
+        /// <summary>读取并校验一个候选存档；损坏的文件会被挪走而不是直接盖掉。</summary>
+        private static Candidate ReadCandidate(string path)
+        {
+            Candidate c = new Candidate();
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return c;
+
+            string json;
+            try
+            {
+                json = File.ReadAllText(path, Encoding.UTF8);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("读取用户资料失败（已忽略该副本）：" + path + " — " + e.Message);
+                return c;
+            }
+
+            if (!LooksLikeProfile(json))
+            {
+                Quarantine(path);
+                return c;
+            }
+
+            try
+            {
+                ResetToDefaults();
+                Parse(json);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("解析用户资料失败：" + path + " — " + e.Message);
+                Quarantine(path);
+                return c;
+            }
+
+            c.Json = json;
+            c.Path = path;
+            c.Valid = true;
+            c.Xp = Xp;
+            c.Level = Level;
+            return c;
+        }
+
+        /// <summary>存档是否看起来是完整的（写入被中断的文件不会有收尾括号，也不含 xp 字段）。</summary>
+        private static bool LooksLikeProfile(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return false;
+
+            string t = json.Trim();
+            if (t.Length < 2 || t[t.Length - 1] != '}') return false;
+            return t.IndexOf("\"xp\"", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>把读不动的存档挪到 .corrupt-* 而不是删掉，方便事后人工找回。</summary>
+        private static void Quarantine(string path)
+        {
+            string bad = path + ".corrupt-" + DateTime.Now.ToString("yyyyMMddHHmmss");
+            try
+            {
+                File.Move(path, bad);
+                Log.Warn("用户资料疑似损坏，已移到：" + bad);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("用户资料疑似损坏，但无法移走：" + path + " — " + e.Message);
+            }
+        }
+
+        private static void ResetToDefaults()
+        {
+            Username = "";
+            AvatarPath = "";
+            BackgroundPath = "";
+            Level = 1;
+            Xp = 0;
+            TotalSeconds = 0f;
+            PixelsPainted = 0;
+            ManualPixels = 0;
+            AutoPixels = 0;
+            ManualClicks = 0;
+            ImagesCompleted = 0;
+            LargestImage = 0;
+            TotalImagePixels = 0;
+            LastVersion = "";
+            PendingLevelUp = 0;
+            _timeAccumulator = 0f;
+        }
+
         public static void Save()
         {
             try
             {
                 EnsureDirectory();
-                File.WriteAllText(FilePath, ToJson(), Encoding.UTF8);
+                string json = ToJson();
+
+                // 上一份存档留作备份：万一新文件写坏还能回退
+                try
+                {
+                    if (File.Exists(FilePath)) File.Copy(FilePath, BackupPath, true);
+                }
+                catch (Exception)
+                {
+                    // 备份失败不影响本次保存
+                }
+
+                WriteAtomic(FilePath, json);
+
+                // 再往游戏目录写一份镜像：%APPDATA% 被清理时还能捞回来
+                if (!SamePath(MirrorPath, FilePath))
+                {
+                    try
+                    {
+                        WriteAtomic(MirrorPath, json);
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Warn("用户资料镜像写入失败（不影响使用）：" + e.Message);
+                    }
+                }
+
                 _dirty = false;
                 _saveCooldown = 0f;
             }
@@ -139,6 +339,22 @@ namespace ColoringPixelsTool
             {
                 Log.Warn("保存用户资料失败：" + e.Message);
             }
+        }
+
+        /// <summary>
+        /// 先写临时文件、再替换原文件。
+        /// 直接 File.WriteAllText 会先把原文件截断再写，一旦中途崩溃 / 断电，
+        /// 存档就变成半截 JSON，下次加载解析不出来，等级就被打回 1 级。
+        /// </summary>
+        private static void WriteAtomic(string path, string text)
+        {
+            string dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text, Encoding.UTF8);
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(tmp, path);
         }
 
         /// <summary>按需落盘：有改动时最多每 15 秒写一次，避免频繁 IO。</summary>
@@ -164,6 +380,30 @@ namespace ColoringPixelsTool
             if (level <= 1) return 0;
             int n = level - 1;
             return 200 * n + 60 * n * n;
+        }
+
+        /// <summary>
+        /// 由累计 XP 反推等级。XP 才是唯一真相，等级永远可以还原出来：
+        /// 只要经验值还在，升级经验表怎么调、存档里 level 字段有没有丢，都不会掉级。
+        /// </summary>
+        public static int LevelFromXp(int xp)
+        {
+            if (xp <= 0) return 1;
+            int lv = 1;
+            while (lv < 9999 && xp >= XpForLevel(lv + 1)) lv++;
+            return lv;
+        }
+
+        /// <summary>兜底修正：等级至少是累计 XP 对应的等级（只升不降）。</summary>
+        private static void RecoverLevelFromXp()
+        {
+            if (Xp < 0) Xp = 0;
+            int implied = LevelFromXp(Xp);
+            if (implied > Level)
+            {
+                Log.Info("等级按累计经验修正：Lv." + Level + " → Lv." + implied + "（" + Xp + " XP）");
+                Level = implied;
+            }
         }
 
         public static int XpToNext { get { return XpForLevel(Level + 1); } }
@@ -280,6 +520,8 @@ namespace ColoringPixelsTool
         {
             var sb = new StringBuilder();
             sb.AppendLine("{");
+            sb.AppendLine("  \"schema\": 2,");
+            sb.AppendLine("  \"savedAt\": " + Escape(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")) + ",");
             sb.AppendLine("  \"username\": " + Escape(Username) + ",");
             sb.AppendLine("  \"avatarPath\": " + Escape(AvatarPath) + ",");
             sb.AppendLine("  \"backgroundPath\": " + Escape(BackgroundPath) + ",");
