@@ -367,9 +367,11 @@ namespace ColoringPixelsTool
                 return;
             }
 
-            // 新手指引：独占显示，避免和后面的面板抢同一次点击
+            // 新手指引：不再独占整画面板。先画面板，再画引导遮罩，
+            // 避免引导一弹就把面板完全顶掉，导致用户以为插件没装上。
             if (_showGuide)
             {
+                if (_visible) DrawWindow();
                 DrawGuide();
                 return;
             }

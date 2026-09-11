@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.3.5";
+        public const string Version = "2.3.6";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -148,8 +148,9 @@ namespace ColoringPixelsTool
             bool freshInstall = UserProfile.ConsumeFreshInstallFlag();
             if (freshInstall)
             {
+                // 只恢复上锁；新手指引不再强制重置。
+                // 否则引导会独占 OnGUI，把作弊面板整个顶掉，导致用户以为面板没了。
                 if (AutoUnlocked != null) AutoUnlocked.Value = false;
-                if (GuideShown != null) GuideShown.Value = false;
             }
 
             if (freshInstall || UserProfile.LastVersion != Version)
