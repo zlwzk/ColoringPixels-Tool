@@ -18,8 +18,7 @@ namespace ColoringPixelsTool.Installer
         public bool RemoveBepInEx;       // 卸载时同时移除 BepInEx 本体
         public bool RestoreBackup = true;
         public string GameDir;
-        public string GameKey;           // --game=cp / pcs：指定目标游戏
-        public bool AllGames;            // --all：对所有检测到的游戏各装一次
+        public string GameKey;           // --game=：兼容旧快捷方式，本工具只有一款游戏
         public string LogPath;
 
         public static Options Parse(string[] args)
@@ -82,9 +81,6 @@ namespace ColoringPixelsTool.Installer
                         case "--game":
                             o.GameKey = val;
                             break;
-                        case "--all":
-                            o.AllGames = true;
-                            break;
                         case "--log":
                             o.LogPath = val;
                             break;
@@ -114,8 +110,7 @@ namespace ColoringPixelsTool.Installer
             lines.Add("用法： ColoringPixelsTool-Setup.exe [选项]");
             lines.Add("");
             lines.Add("  --dir=<路径>        指定游戏目录（跳过自动检测）");
-            lines.Add("  --game=<cp|pcs>     指定目标游戏，默认 cp");
-            lines.Add("  --all               对所有检测到的游戏各安装一次");
+            lines.Add("  --game=cp           指定目标游戏（本工具只有一款，纯兼容旧快捷方式）");
             lines.Add("  --silent            静默安装，不显示界面");
             lines.Add("  --detect-only       只检测游戏目录并退出");
             lines.Add("  --uninstall         卸载本插件");

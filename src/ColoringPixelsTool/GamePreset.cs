@@ -120,7 +120,7 @@ namespace ColoringPixelsTool
         {
             Entries.Clear();
 
-            string dir = GameLocalizer.ConfigDirectory();
+            string dir = Plugin.ConfigDirectory();
             string name = Plugin.PresetFile != null && !string.IsNullOrEmpty(Plugin.PresetFile.Value)
                 ? Plugin.PresetFile.Value
                 : "ColoringPixelsTool.Preset.txt";

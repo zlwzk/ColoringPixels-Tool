@@ -2,36 +2,10 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using UnityEngine;
 
 namespace ColoringPixelsTool
 {
-    /// <summary>
-    /// 等级模块的日志出口。插件端把它接到 BepInEx 的日志上，独立助手端接到自己的界面日志上，
-    /// 这样同一份等级逻辑可以原封不动地编进两个程序（两个游戏共用一个等级系统）。
-    /// </summary>
-    internal static class ProfileLog
-    {
-        public static Action<string> InfoTarget;
-        public static Action<string> WarnTarget;
-
-        public static void Info(string message) { if (InfoTarget != null) InfoTarget(message); }
-        public static void Warn(string message) { if (WarnTarget != null) WarnTarget(message); }
-    }
-
-    /// <summary>
-    /// 不依赖 UnityEngine 的小工具。等级逻辑要能编进独立的 WinForms 助手，
-    /// 所以这里不引用 Mathf，自己实现用得到的几个函数。
-    /// </summary>
-    internal static class MathUtil
-    {
-        public static int Max(int a, int b) { return a > b ? a : b; }
-        public static long Max(long a, long b) { return a > b ? a : b; }
-        public static float Max(float a, float b) { return a > b ? a : b; }
-        public static int Min(int a, int b) { return a < b ? a : b; }
-        public static float Clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
-        public static int FloorToInt(float v) { return (int)Math.Floor(v); }
-    }
-
     /// <summary>
     /// 经验轨道：两条互不相干的成长线，各升各的级。
     /// </summary>
@@ -80,32 +54,10 @@ namespace ColoringPixelsTool
         private const string UserDataFolderName = "ColoringPixelsTool";
 
         /// <summary>
-        /// 「卸载后重装」标记文件名（放在用户数据目录里，安装器卸载时写入、插件启动时消费一次）。
-        /// 与 installer\AppInfo.FreshInstallFlagName 必须保持一致。
+        /// 「卸载后重装」标记文件名：安装器卸载时写进用户数据目录，插件启动时消费一次。
+        /// 必须与 installer\AppInfo.FreshInstallFlagName 保持一致。
         /// </summary>
         public const string FreshInstallFlagName = "fresh-install.flag";
-
-        /// <summary>
-        /// 镜像目录：插件端指向游戏目录里的 BepInEx\config（%APPDATA% 被清理时还能捞回来），
-        /// 独立助手端留空则退回本机 LocalAppData。留空也不会丢等级，只是个额外副本。
-        /// </summary>
-        public static string MirrorDirectory = "";
-
-        /// <summary>镜像目录的兜底：没注入就放到 LocalAppData 下。</summary>
-        private static string MirrorDirectoryOrFallback()
-        {
-            if (!string.IsNullOrEmpty(MirrorDirectory)) return MirrorDirectory;
-            try
-            {
-                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (!string.IsNullOrEmpty(local)) return Path.Combine(local, UserDataFolderName);
-            }
-            catch (Exception)
-            {
-                // 拿不到目录就退回相对路径，至少还能试着写
-            }
-            return UserDataFolderName;
-        }
 
         public static string Username = "";
         public static string AvatarPath = "";
@@ -142,15 +94,6 @@ namespace ColoringPixelsTool
         private static bool _dirty;
         private static string _filePath;
 
-        /// <summary>每隔几秒瞄一眼存档文件有没有被「另一个游戏 / 另一个程序」改过。</summary>
-        private static float _watchCooldown = 2f;
-
-        /// <summary>上次看到（或自己写下）的存档时间戳，用来判断是否被别人改过。</summary>
-        private static DateTime _lastSeenWrite = DateTime.MinValue;
-
-        /// <summary>原子写入用的临时文件序号（同进程内多线程并发写时不能撞名）。</summary>
-        private static int _tmpSequence;
-
         /// <summary>每涂多少格给 1 XP（自动涂色与扫描引擎同费率）。</summary>
         private const int PixelsPerXp = 150;
 
@@ -181,7 +124,7 @@ namespace ColoringPixelsTool
             {
                 // 极端环境拿不到漫游目录时就退回旧位置，至少还能存
             }
-            return MirrorDirectoryOrFallback();
+            return Plugin.ConfigDirectory();
         }
 
         /// <summary>
@@ -209,7 +152,7 @@ namespace ColoringPixelsTool
         ///
         /// 为什么需要这个标记：等级存档刻意放在 %APPDATA% 里，好让「覆盖安装 / 卸载重装」都不丢进度 ——
         /// 但也正因为如此，插件无法自己分辨「老用户升级」和「卸载后又装回来」。安装器卸载时会留下这个标记，
-        /// 插件启动时消费一次，就能把这次启动当成新用户（重新上锁、重新走新手指引、重新弹完整功能总览）；
+        /// 插件启动时消费一次，就能把这次启动当成新用户（重新上锁、重新弹完整功能总览）；
         /// 而覆盖安装不写标记，于是维持原状。
         ///
         /// 标记刻意不放游戏目录（会被卸载一起清掉，插件就看不到了），也不写进存档里（那里要保住进度）。
@@ -248,7 +191,7 @@ namespace ColoringPixelsTool
         /// <summary>旧版存档位置（游戏目录 BepInEx\config 下）：既是迁移来源，也是兜底镜像。</summary>
         public static string MirrorPath
         {
-            get { return Path.Combine(MirrorDirectoryOrFallback(), FileName); }
+            get { return Path.Combine(Plugin.ConfigDirectory(), FileName); }
         }
 
         private static bool SamePath(string a, string b)
@@ -371,26 +314,20 @@ namespace ColoringPixelsTool
                 ResetToDefaults();
                 Parse(best.Json);
                 RecoverLevelFromXp();
-
-                // 另一个游戏 / 另一个程序可能比这份副本更新：再合并一次，永远取进度多的那份
-                MergeWithDisk();
-                RecoverLevelFromXp();
-
                 Loaded = true;
-                NoteOwnWrite();
-                ProfileLog.Info("用户资料已加载：人工辅助 Lv." + LevelManual + " (" + XpManual + " XP) / 自动绘图 Lv."
+                Log.Info("用户资料已加载：人工辅助 Lv." + LevelManual + " (" + XpManual + " XP) / 自动绘图 Lv."
                          + LevelAuto + " (" + XpAuto + " XP) — " + best.Path);
 
                 // 来源不是正式位置（首次迁移 / 从备份恢复）时立刻回写一份
                 if (!SamePath(best.Path, FilePath))
                 {
-                    ProfileLog.Info("用户资料已同步到：" + FilePath);
+                    Log.Info("用户资料已同步到：" + FilePath);
                     Save();
                 }
             }
             catch (Exception e)
             {
-                ProfileLog.Warn("加载用户资料失败：" + e.Message);
+                Log.Warn("加载用户资料失败：" + e.Message);
             }
         }
 
@@ -427,7 +364,7 @@ namespace ColoringPixelsTool
             }
             catch (Exception e)
             {
-                ProfileLog.Warn("读取用户资料失败（已忽略该副本）：" + path + " — " + e.Message);
+                Log.Warn("读取用户资料失败（已忽略该副本）：" + path + " — " + e.Message);
                 return c;
             }
 
@@ -444,7 +381,7 @@ namespace ColoringPixelsTool
             }
             catch (Exception e)
             {
-                ProfileLog.Warn("解析用户资料失败：" + path + " — " + e.Message);
+                Log.Warn("解析用户资料失败：" + path + " — " + e.Message);
                 Quarantine(path);
                 return c;
             }
@@ -453,7 +390,7 @@ namespace ColoringPixelsTool
             c.Path = path;
             c.Valid = true;
             c.Xp = (long)XpManual + XpAuto;
-            c.Level = MathUtil.Max(LevelManual, LevelAuto);
+            c.Level = Mathf.Max(LevelManual, LevelAuto);
             return c;
         }
 
@@ -477,11 +414,11 @@ namespace ColoringPixelsTool
             try
             {
                 File.Move(path, bad);
-                ProfileLog.Warn("用户资料疑似损坏，已移到：" + bad);
+                Log.Warn("用户资料疑似损坏，已移到：" + bad);
             }
             catch (Exception e)
             {
-                ProfileLog.Warn("用户资料疑似损坏，但无法移走：" + path + " — " + e.Message);
+                Log.Warn("用户资料疑似损坏，但无法移走：" + path + " — " + e.Message);
             }
         }
 
@@ -513,31 +450,11 @@ namespace ColoringPixelsTool
             _assistPixelCarry = 0;
         }
 
-        /// <summary>
-        /// 存档写入的互斥锁。独立助手的「自动绘图」跑在后台线程上，会和 UI 线程的定时存盘
-        /// 撞在一起：两个线程同时写同一个临时文件会互相踩，同进程内也可能出现读写冲突。
-        /// </summary>
-        private static readonly object SaveGate = new object();
-
         public static void Save()
-        {
-            lock (SaveGate)
-            {
-                SaveLocked();
-            }
-        }
-
-        private static void SaveLocked()
         {
             try
             {
                 EnsureDirectory();
-
-                // 《Coloring Pixels》与《涂色大师》共用这一份存档：写盘前先把对方可能已经写进去的
-                // 进度合并进来。经验与统计只增不减，取较大值即可 —— 无论谁先写，都不会把对方抹掉。
-                MergeWithDisk();
-                RecoverLevelFromXp();
-
                 string json = ToJson();
 
                 // 上一份存档留作备份：万一新文件写坏还能回退
@@ -561,17 +478,16 @@ namespace ColoringPixelsTool
                     }
                     catch (Exception e)
                     {
-                        ProfileLog.Warn("用户资料镜像写入失败（不影响使用）：" + e.Message);
+                        Log.Warn("用户资料镜像写入失败（不影响使用）：" + e.Message);
                     }
                 }
 
                 _dirty = false;
                 _saveCooldown = 0f;
-                NoteOwnWrite();
             }
             catch (Exception e)
             {
-                ProfileLog.Warn("保存用户资料失败：" + e.Message);
+                Log.Warn("保存用户资料失败：" + e.Message);
             }
         }
 
@@ -585,165 +501,18 @@ namespace ColoringPixelsTool
             string dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            // 临时文件名带上进程号 + 线程号 + 自增序号：
-            // 插件与独立助手可能同时写同一份存档（跨进程），同进程内也可能有后台线程并发写，
-            // 三者都不能撞到同一个临时文件上。
-            int seq = System.Threading.Interlocked.Increment(ref _tmpSequence);
-            string tmp = path + ".tmp" + System.Diagnostics.Process.GetCurrentProcess().Id
-                       + "-" + System.Threading.Thread.CurrentThread.ManagedThreadId + "-" + seq;
-
-            // 被对方占用时退让重试，别因为一次锁冲突就丢掉这次进度
-            try
-            {
-                File.WriteAllText(tmp, text, Encoding.UTF8);
-
-                for (int attempt = 0; ; attempt++)
-                {
-                    try
-                    {
-                        if (File.Exists(path)) File.Delete(path);
-                        File.Move(tmp, path);
-                        return;
-                    }
-                    catch (System.IO.IOException)
-                    {
-                        if (attempt >= 8) throw;
-                        System.Threading.Thread.Sleep(60);
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        if (attempt >= 8) throw;
-                        System.Threading.Thread.Sleep(60);
-                    }
-                }
-            }
-            finally
-            {
-                // 写失败时别把临时文件留在用户目录里（成功时它已经被 Move 走了）
-                try
-                {
-                    if (File.Exists(tmp)) File.Delete(tmp);
-                }
-                catch (Exception)
-                {
-                }
-            }
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text, Encoding.UTF8);
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(tmp, path);
         }
 
         /// <summary>按需落盘：有改动时最多每 15 秒写一次，避免频繁 IO。</summary>
         public static void TickSave(float delta)
         {
-            // 两个游戏可能同时在跑：定期看看对方有没有写进新进度，有就合并进来。
-            // 这样一边涂、另一边的经验条不用重启程序就能跟上。
-            _watchCooldown -= delta;
-            if (_watchCooldown <= 0f)
-            {
-                _watchCooldown = 2f;
-                RefreshExternal();
-            }
-
             if (!_dirty) return;
             _saveCooldown -= delta;
             if (_saveCooldown <= 0f) Save();
-        }
-
-        /// <summary>
-        /// 与磁盘上的存档合并（两个游戏共用一份等级存档的核心）。
-        ///
-        /// 三个副本（正式存档 / 备份 / 镜像）都看一遍，把比内存里更大的一份取过来。
-        /// 经验与统计只增不减，所以「取较大值」是安全的：谁先写盘都不会把对方的进度抹掉。
-        /// </summary>
-        public static void MergeWithDisk()
-        {
-            string[] candidates = new string[] { FilePath, BackupPath, MirrorPath };
-            for (int i = 0; i < candidates.Length; i++)
-            {
-                if (i > 0 && SamePath(candidates[i], candidates[0])) continue;
-                MergeFile(candidates[i]);
-            }
-        }
-
-        private static void MergeFile(string path)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
-                string json = File.ReadAllText(path, Encoding.UTF8);
-                if (!LooksLikeProfile(json)) return;
-                MergeFromJson(json);
-            }
-            catch (Exception e)
-            {
-                ProfileLog.Warn("合并用户资料失败（已跳过该副本）：" + path + " — " + e.Message);
-            }
-        }
-
-        /// <summary>把另一份存档里更多的进度取到内存里（经验和统计只增不减）。</summary>
-        private static void MergeFromJson(string json)
-        {
-            bool split = HasRaw(json, "xpManual");
-            XpManual = MathUtil.Max(XpManual, ReadInt(json, split ? "xpManual" : "xp", 0));
-            LevelManual = MathUtil.Max(LevelManual, ReadInt(json, split ? "levelManual" : "level", 1));
-            XpAuto = MathUtil.Max(XpAuto, ReadInt(json, "xpAuto", 0));
-            LevelAuto = MathUtil.Max(LevelAuto, ReadInt(json, "levelAuto", 1));
-
-            TotalSeconds = MathUtil.Max(TotalSeconds, ReadFloat(json, "totalSeconds", 0f));
-            PixelsPainted = MathUtil.Max(PixelsPainted, ReadLong(json, "pixelsPainted", 0));
-            ManualPixels = MathUtil.Max(ManualPixels, ReadLong(json, "manualPixels", 0));
-            AutoPixels = MathUtil.Max(AutoPixels, ReadLong(json, "autoPixels", 0));
-            AssistPixels = MathUtil.Max(AssistPixels, ReadLong(json, "assistPixels", 0));
-            ManualClicks = MathUtil.Max(ManualClicks, ReadLong(json, "manualClicks", 0));
-            ImagesCompleted = MathUtil.Max(ImagesCompleted, ReadInt(json, "imagesCompleted", 0));
-            ImagesCompletedManual = MathUtil.Max(ImagesCompletedManual, ReadInt(json, "imagesCompletedManual", 0));
-            ImagesCompletedAuto = MathUtil.Max(ImagesCompletedAuto, ReadInt(json, "imagesCompletedAuto", 0));
-            LargestImage = MathUtil.Max(LargestImage, ReadInt(json, "largestImage", 0));
-            TotalImagePixels = MathUtil.Max(TotalImagePixels, ReadLong(json, "totalImagePixels", 0));
-
-            // 资料类字段没有「大小」可比，本机没设过才采用对方那份
-            if (string.IsNullOrEmpty(Username)) Username = ReadString(json, "username");
-            if (string.IsNullOrEmpty(AvatarPath)) AvatarPath = ReadString(json, "avatarPath");
-            if (string.IsNullOrEmpty(BackgroundPath)) BackgroundPath = ReadString(json, "backgroundPath");
-        }
-
-        /// <summary>
-        /// 看看正式存档是不是被另一侧改过，是就合并进来。返回是否真的合并到了新进度。
-        /// </summary>
-        public static bool RefreshExternal()
-        {
-            try
-            {
-                string path = FilePath;
-                if (!File.Exists(path)) return false;
-
-                DateTime stamp = File.GetLastWriteTimeUtc(path);
-                if (stamp == _lastSeenWrite) return false;
-                _lastSeenWrite = stamp;
-
-                long before = (long)XpManual + XpAuto;
-                MergeWithDisk();
-                RecoverLevelFromXp();
-                if ((long)XpManual + XpAuto == before) return false;
-
-                ProfileLog.Info("检测到另一侧写入的进度，已合并：人工辅助 " + XpManual + " XP / 自动绘图 "
-                                + XpAuto + " XP");
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        /// <summary>记下「刚才是自己写的盘」，免得把自己写的文件当成外部改动。</summary>
-        private static void NoteOwnWrite()
-        {
-            try
-            {
-                if (File.Exists(FilePath)) _lastSeenWrite = File.GetLastWriteTimeUtc(FilePath);
-            }
-            catch (Exception)
-            {
-            }
         }
 
         private static void EnsureDirectory()
@@ -791,14 +560,14 @@ namespace ColoringPixelsTool
             int m = LevelFromXp(XpManual);
             if (m > LevelManual)
             {
-                ProfileLog.Info("人工辅助等级按累计经验修正：Lv." + LevelManual + " → Lv." + m + "（" + XpManual + " XP）");
+                Log.Info("人工辅助等级按累计经验修正：Lv." + LevelManual + " → Lv." + m + "（" + XpManual + " XP）");
                 LevelManual = m;
             }
 
             int a = LevelFromXp(XpAuto);
             if (a > LevelAuto)
             {
-                ProfileLog.Info("自动绘图等级按累计经验修正：Lv." + LevelAuto + " → Lv." + a + "（" + XpAuto + " XP）");
+                Log.Info("自动绘图等级按累计经验修正：Lv." + LevelAuto + " → Lv." + a + "（" + XpAuto + " XP）");
                 LevelAuto = a;
             }
         }
@@ -817,18 +586,18 @@ namespace ColoringPixelsTool
         /// </summary>
         public static int XpIntoLevelOf(XpTrack track)
         {
-            return MathUtil.Max(0, XpOf(track) - XpForLevel(LevelOf(track)));
+            return Mathf.Max(0, XpOf(track) - XpForLevel(LevelOf(track)));
         }
 
         public static int XpNeededForLevelOf(XpTrack track)
         {
             int lv = LevelOf(track);
-            return MathUtil.Max(1, XpForLevel(lv + 1) - XpForLevel(lv));
+            return Mathf.Max(1, XpForLevel(lv + 1) - XpForLevel(lv));
         }
 
         public static float ProgressOf(XpTrack track)
         {
-            return MathUtil.Clamp01((float)XpIntoLevelOf(track) / MathUtil.Max(1, XpNeededForLevelOf(track)));
+            return Mathf.Clamp01((float)XpIntoLevelOf(track) / Mathf.Max(1, XpNeededForLevelOf(track)));
         }
 
         /// <summary>往指定那条经验线加经验（两条线各升各的级）。</summary>
@@ -848,7 +617,7 @@ namespace ColoringPixelsTool
             if (level != old)
             {
                 if (auto) PendingLevelUpAuto = level; else PendingLevelUpManual = level;
-                ProfileLog.Info((auto ? "自动绘图" : "人工辅助") + "等级提升：Lv." + old + " → Lv." + level +
+                Log.Info((auto ? "自动绘图" : "人工辅助") + "等级提升：Lv." + old + " → Lv." + level +
                          "（" + TitleFor(track, level) + "，" + reason + " +" + amount + " XP）");
                 Save();
                 return;
@@ -870,7 +639,7 @@ namespace ColoringPixelsTool
             _timeAccumulator += delta;
             if (_timeAccumulator >= 30f)
             {
-                int steps = MathUtil.FloorToInt(_timeAccumulator / 30f);
+                int steps = Mathf.FloorToInt(_timeAccumulator / 30f);
                 _timeAccumulator -= steps * 30f;
                 AddXp(XpTrack.Manual, steps, "在线时长");
             }
@@ -933,13 +702,13 @@ namespace ColoringPixelsTool
                 ManualPixels += cellsPainted;
                 PixelsPainted += cellsPainted;
 
-                int xp = MathUtil.Max(1, cellsPainted / 25);
+                int xp = Mathf.Max(1, cellsPainted / 25);
                 // 涂色率（每击平均格数）越高，额外奖励越多
                 if (cellsPainted >= 3)
-                    xp += MathUtil.Min(12, cellsPainted / 20);
+                    xp += Mathf.Min(12, cellsPainted / 20);
                 AddXp(XpTrack.Manual, xp, "手动涂色 " + cellsPainted + " 格");
 
-                if (seconds > 0f && cellsPainted / MathUtil.Max(0.05f, seconds) > 30f)
+                if (seconds > 0f && cellsPainted / Mathf.Max(0.05f, seconds) > 30f)
                     AddXp(XpTrack.Manual, 1, "涂色手速惊人");
             }
         }
@@ -968,14 +737,14 @@ namespace ColoringPixelsTool
             if (track == XpTrack.Auto) ImagesCompletedAuto++; else ImagesCompletedManual++;
             TotalImagePixels += pixelCount;
 
-            int baseXp = 25 + MathUtil.Max(0, pixelCount / 150);
+            int baseXp = 25 + Mathf.Max(0, pixelCount / 150);
             AddXp(track, baseXp, "完成 " + pixelCount + " 像素图片");
 
             if (pixelCount > LargestImage)
             {
                 int diff = pixelCount - LargestImage;
                 LargestImage = pixelCount;
-                AddXp(track, MathUtil.Max(0, diff / 150), "刷新最大完成图记录");
+                AddXp(track, Mathf.Max(0, diff / 150), "刷新最大完成图记录");
             }
             else
             {

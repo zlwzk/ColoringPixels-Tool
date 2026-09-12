@@ -180,6 +180,43 @@ namespace ColoringPixelsTool.Installer
             }
         }
 
+        // ------------------------------------------------------------ 由 Steam 启动
+
+        /// <summary>Steam 的「运行游戏」协议地址。</summary>
+        public static string RungameUrl()
+        {
+            return "steam://rungameid/" + AppInfo.SteamAppId;
+        }
+
+        /// <summary>
+        /// 这个游戏目录是不是由 Steam 装出来的：位于某个 Steam 库的 steamapps\common 下，
+        /// 且对应的 appmanifest 仍然存在。
+        ///
+        /// 为什么两样都要对：玩家可能把游戏手动拷到别处。那种副本交给 Steam 启动只会失败，
+        /// 直接运行 exe 反而是对的。
+        /// </summary>
+        public static bool IsSteamInstall(string gameDir)
+        {
+            if (string.IsNullOrEmpty(gameDir)) return false;
+            try
+            {
+                string full = Path.GetFullPath(gameDir).TrimEnd('\\', '/');
+                string marker = Path.Combine("steamapps", "common");
+
+                int idx = full.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (idx <= 0) return false;
+
+                string libraryRoot = full.Substring(0, idx).TrimEnd('\\', '/');
+                if (libraryRoot.Length == 0) return false;
+
+                return HasAppManifest(libraryRoot);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         // ------------------------------------------------------------ 工具
 
         public static List<DriveInfo> FixedDrives()

@@ -8,7 +8,7 @@ namespace ColoringPixelsTool
     /// 提供一份带中文字形的动态字体。
     ///
     /// 游戏自带的是像素字体（Silkscreen 等），没有中文字形；把中文塞进去会显示成方框，
-    /// 所以汉化后的文本和注入的按钮都需要换成一个系统中文字体。
+    /// 所以注入到游戏界面里的中文按钮都要换成一个系统中文字体。
     /// </summary>
     internal static class CjkFont
     {
@@ -23,20 +23,6 @@ namespace ColoringPixelsTool
         {
             if (_font != null) return _font;
             if (_failed) return null;
-
-            string want = Plugin.LocalizeFont != null ? Plugin.LocalizeFont.Value : null;
-            if (!string.IsNullOrEmpty(want))
-            {
-                Font f = Font.CreateDynamicFontFromOSFont(want, 24);
-                if (f != null)
-                {
-                    _font = f;
-                    _name = want;
-                    Log.Info("中文字体（自定义）：" + want);
-                    return _font;
-                }
-                Log.Warn("配置的中文字体不可用，回退到自动选择：" + want);
-            }
 
             string[] candidates =
             {
@@ -70,7 +56,7 @@ namespace ColoringPixelsTool
             }
 
             _failed = true;
-            Log.Warn("未找到可用的中文字体，汉化文本可能显示为方块；可在配置里指定「汉化字体」。");
+            Log.Warn("未找到可用的中文字体，注入的中文按钮可能显示为方块。");
             return null;
         }
 

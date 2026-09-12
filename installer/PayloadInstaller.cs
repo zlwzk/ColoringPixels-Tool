@@ -24,6 +24,14 @@ namespace ColoringPixelsTool.Installer
         /// <summary>进度回调：百分比(0-100) + 说明文字。传 null 表示不关心。</summary>
         public delegate void ProgressHandler(int percent, string text);
 
+        /// <summary>
+        /// 旧版（双游戏时期）安装包里独立助手的顶层目录名。
+        /// 3.0.0 起不再随包分发，但用户手上可能留着旧的 payload.zip，
+        /// 或者游戏目录里还躺着旧版铺开的助手 —— 这两处都当旧数据清掉。
+        /// </summary>
+        private const string LegacyAssistFolderName = "PixelAssist";
+        private const string LegacyAssistPrefix = LegacyAssistFolderName + "/";
+
         // ============================================================ 资源
 
         public static Stream OpenPayload()
@@ -44,6 +52,7 @@ namespace ColoringPixelsTool.Installer
                     foreach (ZipArchiveEntry e in zip.Entries)
                     {
                         if (IsDirectoryEntry(e)) continue;
+                        if (IsLegacyAssistEntry(e.FullName)) continue;
                         list.Add(e.FullName + "  (" + e.Length + " B)");
                     }
                 }
@@ -56,24 +65,16 @@ namespace ColoringPixelsTool.Installer
         public static DeployReport Install(string gameDir, bool overwriteExisting, bool backup,
             ProgressHandler progress)
         {
-            return Install(gameDir, AppInfo.ColoringPixels, overwriteExisting, backup, progress);
-        }
-
-        public static DeployReport Install(string gameDir, GameDescriptor game, bool overwriteExisting,
-            bool backup, ProgressHandler progress)
-        {
-            if (game == null) game = AppInfo.Games[0];
             DeployReport report = new DeployReport();
 
-            GameInfo info = GameLocator.Inspect(gameDir, game);
+            GameInfo info = GameLocator.Inspect(gameDir);
             if (!info.Usable) throw new InvalidOperationException("游戏目录不可用：" + info.Error);
             if (info.Warning != null) report.Warnings.Add(info.Warning);
 
             string root = EnsureTrailingSeparator(info.Directory);
-            string backupRoot = Path.Combine(root, game.BackupRelativePath);
+            string backupRoot = Path.Combine(root, AppInfo.ColoringPixels.BackupRelativePath);
 
-            Report(progress, 1, "校验完成：" + game.DisplayName + " · " + info.Directory
-                + "（" + info.ArchitectureText + "）");
+            Report(progress, 1, "校验完成：" + info.Directory + "（" + info.ArchitectureText + "）");
 
             int written = 0;
             int upToDate = 0;
@@ -86,16 +87,16 @@ namespace ColoringPixelsTool.Installer
                 {
                     int total = 0;
                     foreach (ZipArchiveEntry e in zip.Entries)
-                        if (!IsDirectoryEntry(e) && BelongsTo(game, e.FullName)) total++;
+                        if (!IsDirectoryEntry(e) && !IsLegacyAssistEntry(e.FullName)) total++;
 
                     if (total == 0)
-                        throw new InvalidOperationException("安装包中没有属于「" + game.DisplayName + "」的文件，安装器版本可能过旧");
+                        throw new InvalidOperationException("安装包是空的，安装器构建可能出了问题");
 
                     int index = 0;
                     foreach (ZipArchiveEntry entry in zip.Entries)
                     {
                         if (IsDirectoryEntry(entry)) continue;
-                        if (!BelongsTo(game, entry.FullName)) continue;
+                        if (IsLegacyAssistEntry(entry.FullName)) continue;
                         index++;
 
                         string relative = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
@@ -157,39 +158,50 @@ namespace ColoringPixelsTool.Installer
             if (written == 0 && upToDate == 0)
                 throw new InvalidOperationException("没有写入任何文件，请检查游戏目录权限");
 
-            if (game.Injectable) RemoveLegacyPluginFiles(info.Directory, report);
-            WriteMarker(info.Directory, game, report);
+            RemoveLegacyPluginFiles(info.Directory, report);
+            CleanupLegacyAssist(info.Directory, report);
+            WriteMarker(info.Directory, report);
             if (written == 0)
                 Report(progress, 100, "已是最新，无需修改");
             else
                 Report(progress, 100, "部署完成：写入 " + report.Written + " 个，跳过 " + report.Skipped + " 个");
 
-            Verify(info.Directory, game);
+            Verify(info.Directory);
             return report;
         }
 
-        /// <summary>
-        /// 判断 payload.zip 里的某个条目是否属于这款游戏。
-        /// 根负载（Coloring Pixels）之外，其它游戏各自占一个顶层子目录。
-        /// </summary>
-        private static bool BelongsTo(GameDescriptor game, string entryName)
+        /// <summary>payload.zip 里是不是旧版独立助手的内容（顶层 PixelAssist\ 目录）。</summary>
+        private static bool IsLegacyAssistEntry(string entryName)
         {
             string name = (entryName ?? "").Replace('\\', '/');
+            return name.StartsWith(LegacyAssistPrefix, StringComparison.OrdinalIgnoreCase);
+        }
 
-            if (!string.IsNullOrEmpty(game.PayloadPrefix))
-                return name.StartsWith(game.PayloadPrefix, StringComparison.OrdinalIgnoreCase);
-
-            foreach (GameDescriptor other in AppInfo.Games)
+        /// <summary>
+        /// 清理 2.3.x 双游戏版本遗留在游戏目录里的独立助手。
+        /// 只认「占着 PixelAssist 这个名字、里面还躺着 PixelAssist.exe」的目录，
+        /// 免得误删玩家自己同名的文件夹。
+        /// </summary>
+        private static void CleanupLegacyAssist(string gameDir, DeployReport report)
+        {
+            try
             {
-                if (other == game) continue;
-                if (string.IsNullOrEmpty(other.PayloadPrefix)) continue;
-                if (name.StartsWith(other.PayloadPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+                string assistDir = Path.Combine(gameDir, LegacyAssistFolderName);
+                if (!Directory.Exists(assistDir)) return;
+                if (!File.Exists(Path.Combine(assistDir, LegacyAssistFolderName + ".exe"))) return;
+
+                Directory.Delete(assistDir, true);
+                report.Removed++;
+                Log.Info("已清理旧版独立助手目录：" + assistDir);
             }
-            return true;
+            catch (Exception ex)
+            {
+                Log.Warn("清理旧版独立助手目录失败：" + ex.Message);
+            }
         }
 
         /// <summary>清理旧版本遗留的插件 DLL（ColoringPixelsCheat 时期的文件名）。
-        /// 同一 GUID 的旧插件若还留在 plugins 目录，会和 新插件一起被 BepInEx 加载并冲突。</summary>
+        /// 同一 GUID 的旧插件若还留在 plugins 目录，会和新插件一起被 BepInEx 加载并冲突。</summary>
         private static void RemoveLegacyPluginFiles(string gameDir, DeployReport report)
         {
             string plugins = Path.Combine(Path.Combine(gameDir, AppInfo.BepInExFolderName), "plugins");
@@ -268,28 +280,14 @@ namespace ColoringPixelsTool.Installer
             return total;
         }
 
-        /// <summary>安装完整性校验。</summary>
+        // ============================================================ 校验
+
+        /// <summary>安装完整性校验：缺任何一个关键文件都直接抛错。</summary>
         public static void Verify(string gameDir)
         {
-            Verify(gameDir, AppInfo.ColoringPixels);
-        }
+            string root = Path.GetDirectoryName(Path.Combine(gameDir, AppInfo.ColoringPixels.ExeName));
 
-        public static void Verify(string gameDir, GameDescriptor game)
-        {
-            if (game == null) game = AppInfo.Games[0];
-            string root = Path.GetDirectoryName(Path.Combine(gameDir, game.ExeName));
-
-            // 独立助手：只需要确认 exe 就位
-            if (!string.IsNullOrEmpty(game.AssistExeRelativePath))
-            {
-                string assist = Path.Combine(root, game.AssistExeRelativePath);
-                if (!File.Exists(assist))
-                    throw new InvalidOperationException("校验失败：独立助手 " + AppInfo.AssistExeName + " 未就位");
-                Log.Ok("校验通过：独立助手 " + AppInfo.AssistExeName + " 已就位");
-                return;
-            }
-
-            string plugin = Path.Combine(root, game.PluginRelativePath);
+            string plugin = Path.Combine(root, AppInfo.ColoringPixels.PluginRelativePath);
             string preloader = Path.Combine(Path.Combine(Path.Combine(root, AppInfo.BepInExFolderName), "core"),
                 "BepInEx.Preloader.dll");
             string proxy = Path.Combine(root, "winhttp.dll");
@@ -306,42 +304,19 @@ namespace ColoringPixelsTool.Installer
         public static DeployReport Uninstall(string gameDir, bool removeBepInEx, bool restoreBackup,
             ProgressHandler progress)
         {
-            return Uninstall(gameDir, AppInfo.ColoringPixels, removeBepInEx, restoreBackup, progress);
-        }
-
-        public static DeployReport Uninstall(string gameDir, GameDescriptor game, bool removeBepInEx,
-            bool restoreBackup, ProgressHandler progress)
-        {
-            if (game == null) game = AppInfo.Games[0];
             DeployReport report = new DeployReport();
 
-            GameInfo info = GameLocator.Inspect(gameDir, game);
+            GameInfo info = GameLocator.Inspect(gameDir);
             if (!info.Usable) throw new InvalidOperationException("游戏目录不可用：" + info.Error);
 
             string root = EnsureTrailingSeparator(info.Directory);
-            string backupRoot = Path.Combine(root, game.BackupRelativePath);
+            string backupRoot = Path.Combine(root, AppInfo.ColoringPixels.BackupRelativePath);
 
             if (restoreBackup && Directory.Exists(backupRoot))
             {
                 Report(progress, 10, "还原被覆盖的文件……");
                 RestoreDirectory(backupRoot, root, report);
                 TryDeleteDirectory(backupRoot);
-            }
-
-            // ---- 独立助手：整个目录都是我们放的，直接删掉 ----
-            if (!game.Injectable)
-            {
-                Report(progress, 40, "移除独立助手……");
-                string marker = Path.Combine(root, game.MarkerRelativePath);
-                string assistDir = Path.GetDirectoryName(marker);
-                if (!string.IsNullOrEmpty(assistDir) && Directory.Exists(assistDir))
-                {
-                    TryDeleteDirectory(assistDir);
-                    report.Removed++;
-                }
-                DeleteFile(marker, report);
-                Report(progress, 100, "卸载完成：移除 " + report.Removed + " 项");
-                return report;
             }
 
             string bepinex = Path.Combine(root, AppInfo.BepInExFolderName);
@@ -351,6 +326,7 @@ namespace ColoringPixelsTool.Installer
             RemoveLegacyPluginFiles(info.Directory, report);
             DeleteFile(Path.Combine(Path.Combine(bepinex, "config"), AppInfo.PluginConfigName), report);
             DeleteFile(Path.Combine(bepinex, AppInfo.MarkerFileName), report);
+            CleanupLegacyAssist(info.Directory, report);
 
             if (removeBepInEx)
             {
@@ -375,68 +351,20 @@ namespace ColoringPixelsTool.Installer
                 DeleteFile(Path.Combine(root, AppInfo.DoorstopMarkerFile), report);
             }
 
-            // 卸载重装要当成新用户：留个标记，插件下次启动消费它（重新上锁 / 重新弹功能总览）。
-            MarkFreshInstallPending(report);
+            // 留下「卸载后重装」标记：插件下次启动会消费一次，把上锁 / 新手指引 / 公告恢复出厂。
+            // 覆盖安装不写这个文件，老用户升级因此维持原状；等级 / 经验存在漫游目录，不受卸载影响。
+            Settings.WriteFreshInstallFlag();
 
             Report(progress, 100, "卸载完成：移除 " + report.Removed + " 项");
             return report;
         }
 
-        /// <summary>
-        /// 在用户数据目录写一个「卸载后重装」标记，插件下次启动消费一次：
-        /// 这次启动当作新用户 —— 重新上锁、重新走新手指引、重新弹完整功能总览。
-        ///
-        /// 为什么不能靠删游戏目录里的东西就完事：等级存档刻意放在 %APPDATA% 里（卸载不动它），
-        /// 插件因此无法自己分辨「老用户升级」和「卸载后又装回来」。覆盖安装不走这里，
-        /// 所以老用户升级依旧只看到当版更新公告。
-        ///
-        /// 标记只影响上锁 / 指引 / 公告这类状态，**不动等级与经验**。
-        /// </summary>
-        private static void MarkFreshInstallPending(DeployReport report)
-        {
-            try
-            {
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                if (string.IsNullOrEmpty(appData))
-                {
-                    Log.Warn("拿不到漫游目录，跳过「卸载后重装 = 新用户」标记");
-                    return;
-                }
-
-                string dir = Path.Combine(appData, AppInfo.UserDataFolderName);
-                Directory.CreateDirectory(dir);
-
-                File.WriteAllText(
-                    Path.Combine(dir, AppInfo.FreshInstallFlagName),
-                    "uninstalled at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
-                        + Environment.NewLine,
-                    new UTF8Encoding(false));
-
-                Log.Info("已记录「卸载后重装」标记：下次装回来会当作新用户（重新上锁 / 重新弹功能总览）");
-            }
-            catch (Exception ex)
-            {
-                report.Warnings.Add("「卸载后重装 = 新用户」标记写入失败：" + ex.Message);
-                Log.Warn("标记「卸载后重装」失败（不影响卸载）：" + ex.Message);
-            }
-        }
-
         public static bool IsInstalled(string gameDir)
         {
-            return IsInstalled(gameDir, AppInfo.ColoringPixels);
-        }
-
-        public static bool IsInstalled(string gameDir, GameDescriptor game)
-        {
-            if (game == null) game = AppInfo.Games[0];
             try
             {
-                if (!string.IsNullOrEmpty(game.PluginRelativePath) &&
-                    File.Exists(Path.Combine(gameDir, game.PluginRelativePath))) return true;
-
-                if (!string.IsNullOrEmpty(game.AssistExeRelativePath) &&
-                    File.Exists(Path.Combine(gameDir, game.AssistExeRelativePath))) return true;
-
+                GameDescriptor game = AppInfo.ColoringPixels;
+                if (File.Exists(Path.Combine(gameDir, game.PluginRelativePath))) return true;
                 return File.Exists(Path.Combine(gameDir, game.MarkerRelativePath));
             }
             catch (Exception)
@@ -447,15 +375,9 @@ namespace ColoringPixelsTool.Installer
 
         public static string InstalledVersion(string gameDir)
         {
-            return InstalledVersion(gameDir, AppInfo.ColoringPixels);
-        }
-
-        public static string InstalledVersion(string gameDir, GameDescriptor game)
-        {
-            if (game == null) game = AppInfo.Games[0];
             try
             {
-                string marker = Path.Combine(gameDir, game.MarkerRelativePath);
+                string marker = Path.Combine(gameDir, AppInfo.ColoringPixels.MarkerRelativePath);
                 if (!File.Exists(marker)) return null;
 
                 foreach (string line in File.ReadAllLines(marker))
@@ -472,146 +394,92 @@ namespace ColoringPixelsTool.Installer
 
         // ============================================================ 启动
 
-        public static Process LaunchGame(string gameDir, out string error)
-        {
-            bool alreadyRunning;
-            return LaunchGame(gameDir, AppInfo.ColoringPixels, out alreadyRunning, out error);
-        }
-
-        public static Process LaunchGame(string gameDir, GameDescriptor game, out string error)
-        {
-            bool alreadyRunning;
-            return LaunchGame(gameDir, game, out alreadyRunning, out error);
-        }
-
         /// <summary>
-        /// 启动游戏。<paramref name="alreadyRunning"/> 为 true 表示游戏本来就在跑，
-        /// 返回的是那个已经在运行的进程，没有重复启动。
+        /// 启动游戏。
         ///
-        /// 为什么要先看一眼：Unity 游戏不拦多开，重复 Process.Start 只会多出
-        /// 一个游戏窗口。用户点「一键安装」（勾了安装后自动启动）之后再顺手点
-        /// 「启动游戏」，就会出现「装一次游戏画面冒出好几遍」的现象。
+        /// <paramref name="alreadyRunning"/> 为 true 表示游戏本来就在跑，返回的是那个已经在运行的进程，
+        /// 没有重复启动 —— Unity 游戏不拦多开，重复 Process.Start 只会多出一个游戏窗口，
+        /// 用户点完「一键安装」（勾了自动启动）再顺手点「启动游戏」就会出现这种叠窗口。
+        ///
+        /// <paramref name="viaSteam"/> 为 true 表示这次是交给 Steam 拉起的（返回 null，
+        /// 因为真正拉起来的是 Steam，游戏进程稍后才出现）。
         /// </summary>
-        public static Process LaunchGame(string gameDir, GameDescriptor game,
-            out bool alreadyRunning, out string error)
+        public static Process LaunchGame(string gameDir, out bool alreadyRunning, out bool viaSteam,
+            out string error)
         {
             error = null;
             alreadyRunning = false;
-            if (game == null) game = AppInfo.Games[0];
+            viaSteam = false;
 
             try
             {
-                Process running = GameLocator.GetRunningGame(game);
+                Process running = GameLocator.GetRunningGame();
                 if (running != null)
                 {
                     alreadyRunning = true;
                     return running;
                 }
 
-                string exe = Path.Combine(gameDir, game.ExeName);
+                string exe = Path.Combine(gameDir, AppInfo.ColoringPixels.ExeName);
                 if (!File.Exists(exe))
                 {
-                    error = "找不到 " + game.ExeName;
+                    error = "找不到 " + AppInfo.ColoringPixels.ExeName;
                     return null;
                 }
 
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = exe;
-                psi.WorkingDirectory = gameDir;
-                psi.UseShellExecute = true;
-                return Process.Start(psi);
+                // Steam 版必须交给 Steam 拉起：直接启动 exe 时 Steamworks 的初始化会失败，
+                // 游戏在启动阶段自己退出 —— 玩家看到的就是「点启动就闪退」。
+                if (SteamLocator.IsSteamInstall(gameDir))
+                {
+                    try
+                    {
+                        ProcessStartInfo psi = new ProcessStartInfo();
+                        psi.FileName = SteamLocator.RungameUrl();
+                        psi.UseShellExecute = true;
+                        Process.Start(psi);
+                        viaSteam = true;
+                        Log.Info("已交给 Steam 启动：" + psi.FileName);
+                        return null;
+                    }
+                    catch (Exception ex)
+                    {
+                        // 协议启动失败就退回直接启动，至少让游戏能跑起来
+                        Log.Warn("通过 Steam 启动失败（" + ex.Message + "），改为直接启动游戏");
+                    }
+                }
+
+                ProcessStartInfo direct = new ProcessStartInfo();
+                direct.FileName = exe;
+                direct.WorkingDirectory = gameDir;
+                direct.UseShellExecute = true;
+                return Process.Start(direct);
             }
             catch (Exception ex)
             {
                 error = ex.Message;
                 return null;
             }
-        }
-
-        /// <summary>启动独立助手（只有非注入式游戏才有）。</summary>
-        public static Process LaunchAssist(string gameDir, GameDescriptor game, out string error)
-        {
-            bool alreadyRunning;
-            return LaunchAssist(gameDir, game, out alreadyRunning, out error);
-        }
-
-        public static Process LaunchAssist(string gameDir, GameDescriptor game,
-            out bool alreadyRunning, out string error)
-        {
-            error = null;
-            alreadyRunning = false;
-            if (game == null || string.IsNullOrEmpty(game.AssistExeRelativePath))
-            {
-                error = "该游戏没有配套的独立助手";
-                return null;
-            }
-
-            try
-            {
-                // 助手自己有单实例保护，再启动一次也只会弹一句「已经在运行」，
-                // 这里先查一下，省得给用户弹那个没用的框。
-                Process running = FindByProcessName(Path.GetFileNameWithoutExtension(AppInfo.AssistExeName));
-                if (running != null)
-                {
-                    alreadyRunning = true;
-                    return running;
-                }
-
-                string exe = Path.Combine(gameDir, game.AssistExeRelativePath);
-                if (!File.Exists(exe))
-                {
-                    error = "找不到 " + AppInfo.AssistExeName;
-                    return null;
-                }
-
-                ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = exe;
-                psi.WorkingDirectory = Path.GetDirectoryName(exe);
-                psi.UseShellExecute = true;
-                return Process.Start(psi);
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-                return null;
-            }
-        }
-
-        /// <summary>按进程名找一个正在运行的进程（找不到返回 null）。</summary>
-        private static Process FindByProcessName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return null;
-            try
-            {
-                Process[] list = Process.GetProcessesByName(name);
-                if (list != null && list.Length > 0) return list[0];
-            }
-            catch (Exception)
-            {
-            }
-            return null;
         }
 
         // ============================================================ 内部工具
 
-        private static void WriteMarker(string gameDir, GameDescriptor game, DeployReport report)
+        private static void WriteMarker(string gameDir, DeployReport report)
         {
             try
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("# " + AppInfo.ProductName + " 安装记录（删除本文件不影响使用）");
-                sb.AppendLine("game=" + game.Key);
-                sb.AppendLine("game_name=" + game.DisplayName);
+                sb.AppendLine("game=" + AppInfo.ColoringPixels.Key);
+                sb.AppendLine("game_name=" + AppInfo.ColoringPixels.DisplayName);
                 sb.AppendLine("version=" + AppInfo.AppVersion);
-                sb.AppendLine("plugin=" + (string.IsNullOrEmpty(game.PluginRelativePath)
-                    ? AppInfo.AssistExeName : AppInfo.PluginGuid));
+                sb.AppendLine("plugin=" + AppInfo.PluginGuid);
                 sb.AppendLine("installed_at=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 sb.AppendLine("installed_by=" + AppInfo.ProductName + " Installer");
                 sb.AppendLine("written=" + report.Written);
                 sb.AppendLine("skipped=" + report.Skipped);
                 sb.AppendLine("backed_up=" + report.BackedUp);
 
-                string marker = Path.Combine(gameDir, game.MarkerRelativePath);
+                string marker = Path.Combine(gameDir, AppInfo.ColoringPixels.MarkerRelativePath);
                 string dir = Path.GetDirectoryName(marker);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 

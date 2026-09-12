@@ -15,16 +15,16 @@ namespace ColoringPixelsTool.Installer
     {
         // ---- 窗口尺寸（基准像素，实际会乘 DPI 系数）----
         private const int BaseWidth = 660;
-        private const int BaseHeight = 620;
+        private const int BaseHeight = 584;
         private const int TitleHeight = 46;
         private const int Side = 16;
         private const int CardWidth = 628;
 
         private readonly Options _options;
         private readonly List<GameCandidate> _candidates = new List<GameCandidate>();
-        private readonly Dictionary<string, string> _dirByGame = new Dictionary<string, string>();
 
-        private GameDescriptor _game;
+        // 只支持一款游戏（《Coloring Pixels》）：界面上的提示文案都从这张表取。
+        private static readonly GameDescriptor _game = AppInfo.ColoringPixels;
 
         private TextBox _txtDir;
         private Label _lblStatus;
@@ -37,8 +37,6 @@ namespace ColoringPixelsTool.Installer
         private Button _btnOpenDir;
         private Button _btnLaunch;
         private Button _btnUpdate;
-        private Button _btnGameCp;
-        private Button _btnGamePcs;
         private Label _lblDirTitle;
         private Label _lblHint;
 
@@ -65,9 +63,6 @@ namespace ColoringPixelsTool.Installer
         public MainForm(Options options)
         {
             _options = options;
-
-            _game = AppInfo.FindGame(options.GameKey);
-            if (_game == null) _game = AppInfo.ColoringPixels;
 
             SuspendLayout();
             AutoScaleMode = AutoScaleMode.None;
@@ -98,103 +93,6 @@ namespace ColoringPixelsTool.Installer
             Log.Line += OnLogLine;
 
             ResumeLayout(false);
-        }
-
-        // ============================================================ 游戏切换
-
-        /// <summary>切到另一款游戏：各自记着自己的目录，互不干扰。</summary>
-        private void SelectGame(GameDescriptor game)
-        {
-            if (game == null || ReferenceEquals(game, _game)) return;
-
-            RememberDir(_game, _txtDir.Text.Trim());
-
-            _game = game;
-            _source = null;
-
-            string saved = RecallDir(game);
-            _txtDir.Text = saved == null ? "" : saved;
-
-            ApplyGameVisuals();
-
-            if (!string.IsNullOrEmpty(_txtDir.Text))
-            {
-                _source = "上次使用";
-                RefreshStatus(true);
-            }
-            else
-            {
-                RefreshStatus(false);
-            }
-        }
-
-        // ============================================================ 目录记忆
-        //
-        // 用户只要选过一次目录，下次打开安装器就该直接可用 —— 这是最基本的手感。
-        // 记忆存在 %APPDATA%\ColoringPixelsTool\installer.settings（见 Settings.cs），
-        // 刻意不放游戏目录：游戏目录会被「验证文件完整性 / 卸载 / 重装」清掉，
-        // 而那恰恰是最需要留住这份记忆的时候。
-
-        /// <summary>记住某款游戏的目录（内存字典 + 本地偏好；只有校验通过才落盘）。</summary>
-        private void RememberDir(GameDescriptor game, string dir)
-        {
-            if (game == null) return;
-
-            if (string.IsNullOrEmpty(dir))
-            {
-                _dirByGame.Remove(game.Key);
-                return;
-            }
-
-            _dirByGame[game.Key] = dir;
-
-            // 只在目录确实可用时落盘，免得把用户敲了一半的路径记下来。
-            if (GameLocator.Inspect(dir, game).Usable) Settings.SaveDir(game.Key, dir);
-        }
-
-        /// <summary>取回某款游戏上次使用的目录（先内存、再本地偏好）。</summary>
-        private string RecallDir(GameDescriptor game)
-        {
-            if (game == null) return null;
-
-            string dir;
-            if (_dirByGame.TryGetValue(game.Key, out dir) && !string.IsNullOrEmpty(dir)) return dir;
-
-            dir = Settings.LoadDir(game.Key);
-            if (!string.IsNullOrEmpty(dir)) _dirByGame[game.Key] = dir;
-            return dir;
-        }
-
-        /// <summary>把本地偏好里的目录一次性预读进内存。</summary>
-        private void PreloadSavedDirs()
-        {
-            foreach (GameDescriptor g in AppInfo.Games)
-            {
-                string dir = Settings.LoadDir(g.Key);
-                if (string.IsNullOrEmpty(dir)) continue;
-                _dirByGame[g.Key] = dir;
-            }
-        }
-
-        private void ApplyGameVisuals()
-        {
-            StyleGameTab(_btnGameCp, ReferenceEquals(_game, AppInfo.ColoringPixels));
-            StyleGameTab(_btnGamePcs, ReferenceEquals(_game, AppInfo.PixelCrossStitch));
-
-            if (_lblDirTitle != null)
-                _lblDirTitle.Text = "「" + _game.DisplayName + "」安装目录（必须包含 " + _game.ExeName + "）";
-
-            if (_lblHint != null) _lblHint.Text = _game.TipText;
-
-            Text = AppInfo.DisplayName + " v" + AppInfo.AppVersion + " · " + _game.DisplayName;
-        }
-
-        private static void StyleGameTab(Button b, bool active)
-        {
-            if (b == null) return;
-            b.BackColor = active ? Theme.Accent : Theme.Card;
-            b.ForeColor = active ? Color.White : Theme.Muted;
-            b.Font = active ? Theme.FontBold : Theme.FontNormal;
         }
 
         // ============================================================ 构建界面
@@ -241,29 +139,13 @@ namespace ColoringPixelsTool.Installer
             cardDir.Location = new Point(left, Theme.S(54));
             cardDir.Size = new Size(width, Theme.S(196));
 
-            // 游戏选择：两款游戏各自记忆目录，切换互不影响。
-            int tabGap = Theme.S(8);
-            int tabW = (inner - tabGap) / 2;
-            int tabY = Theme.S(34);
-            int tabH = Theme.S(28);
-
-            _btnGameCp = Theme.MakeButton("Coloring Pixels", Theme.Card, Theme.Muted, tabW, tabH, false,
-                delegate(object s, EventArgs e) { SelectGame(AppInfo.ColoringPixels); });
-            _btnGameCp.Location = new Point(Theme.S(Side), tabY);
-            cardDir.Controls.Add(_btnGameCp);
-
-            _btnGamePcs = Theme.MakeButton(AppInfo.PixelCrossStitch.DisplayName, Theme.Card, Theme.Muted,
-                tabW, tabH, false,
-                delegate(object s, EventArgs e) { SelectGame(AppInfo.PixelCrossStitch); });
-            _btnGamePcs.Location = new Point(Theme.S(Side) + tabW + tabGap, tabY);
-            cardDir.Controls.Add(_btnGamePcs);
-
-            int rowY = Theme.S(70);
-            _lblDirTitle = Theme.MakeLabel("游戏安装目录", Theme.Muted, Theme.FontSmall,
-                Theme.S(Side), rowY, inner, Theme.S(16));
+            int rowY = Theme.S(40);
+            _lblDirTitle = Theme.MakeLabel(
+                "「" + _game.DisplayName + "」安装目录（必须包含 " + _game.ExeName + "）",
+                Theme.Muted, Theme.FontSmall, Theme.S(Side), rowY, inner, Theme.S(16));
             cardDir.Controls.Add(_lblDirTitle);
 
-            int boxY = Theme.S(90);
+            int boxY = Theme.S(62);
             int boxH = Theme.S(30);
             int btnW = Theme.S(84);
             int browseW = Theme.S(84);
@@ -283,13 +165,13 @@ namespace ColoringPixelsTool.Installer
             cardDir.Controls.Add(_btnBrowse);
 
             _dot = new StatusDot();
-            _dot.Location = new Point(Theme.S(Side), Theme.S(132));
+            _dot.Location = new Point(Theme.S(Side), Theme.S(100));
             _dot.Size = new Size(Theme.S(14), Theme.S(14));
             _dot.DotColor = Theme.Muted;
             cardDir.Controls.Add(_dot);
 
             _lblStatus = Theme.MakeLabel("正在等待检测……", Theme.Muted, Theme.FontSmall,
-                Theme.S(Side) + Theme.S(22), Theme.S(128), inner - Theme.S(22), Theme.S(42));
+                Theme.S(Side) + Theme.S(22), Theme.S(96), inner - Theme.S(22), Theme.S(42));
             cardDir.Controls.Add(_lblStatus);
 
             Controls.Add(cardDir);
@@ -321,7 +203,7 @@ namespace ColoringPixelsTool.Installer
             cardLog.Location = new Point(left, Theme.S(400));
             cardLog.Size = new Size(width, Theme.S(150));
 
-            _lblHint = Theme.MakeLabel("", Theme.Accent2, Theme.FontSmall,
+            _lblHint = Theme.MakeLabel(_game.TipText, Theme.Accent2, Theme.FontSmall,
                 Theme.S(Side), Theme.S(34), inner, Theme.S(18));
             cardLog.Controls.Add(_lblHint);
 
@@ -345,11 +227,11 @@ namespace ColoringPixelsTool.Installer
         private void BuildFooter()
         {
             _progress = new ProgressBarEx();
-            _progress.Location = new Point(Theme.S(Side), Theme.S(566));
+            _progress.Location = new Point(Theme.S(Side), Theme.S(530));
             _progress.Size = new Size(Theme.S(CardWidth), Theme.S(8));
             Controls.Add(_progress);
 
-            int y = Theme.S(582);
+            int y = Theme.S(546);
             int h = Theme.S(34);
             int gap = Theme.S(8);
 
@@ -407,36 +289,33 @@ namespace ColoringPixelsTool.Installer
                 Log.Error("安装包自检失败：" + ex.Message);
             }
 
-            ApplyGameVisuals();
-
             if (!string.IsNullOrEmpty(_options.GameDir))
             {
                 _txtDir.Text = _options.GameDir;
-                RememberDir(_game, _options.GameDir);
                 RefreshStatus(true);
                 StartUpdateCheck(true);
                 return;
             }
 
-            // 先看本地偏好里有没有上次用过的目录：有就直接用，不再让用户重选一遍。
-            PreloadSavedDirs();
-            string saved = RecallDir(_game);
-            if (!string.IsNullOrEmpty(saved))
+            // 上次用过的目录：装过一次的用户不必再等一遍磁盘扫描。
+            string remembered = Settings.LoadDir(_game.Key);
+            if (!string.IsNullOrEmpty(remembered))
             {
-                _txtDir.Text = saved;
-                _source = "上次使用";
-                RefreshStatus(true);
+                if (GameLocator.IsValidGameDir(remembered))
+                {
+                    _txtDir.Text = remembered;
+                    _source = "上次使用";
+                    Log.Info("使用上次的游戏目录：" + remembered);
+                    RefreshStatus(true);
+                    StartUpdateCheck(true);
+                    return;
+                }
 
-                if (GameLocator.Inspect(saved, _game).Usable)
-                    Log.Info("已恢复上次使用的游戏目录：" + saved);
-                else
-                    DetectAsync(false);   // 记忆里的目录没了（换盘 / 卸载）才重新检测
-            }
-            else
-            {
-                DetectAsync(false);
+                Log.Warn("上次记住的游戏目录已失效，改为重新检测：" + remembered);
+                Settings.ClearDir(_game.Key);
             }
 
+            DetectAsync(false);
             StartUpdateCheck(true);
         }
 
@@ -635,24 +514,10 @@ namespace ColoringPixelsTool.Installer
 
             Thread thread = new Thread(delegate()
             {
-                // 后台线程开始时记下「当时在看哪款游戏」，免得中途用户切了页签导致结果错位。
-                GameDescriptor target = _game;
-
                 try
                 {
                     List<string> trail;
-
-                    // 关键：一次把两款游戏都探测出来。
-                    //
-                    // 旧代码用的是 GameLocator.Detect()（内部写死只扫 Coloring Pixels），
-                    // 所以在《涂色大师》页签点「自动检测」永远找不到本机明明装着的游戏。
-                    List<GameCandidate> found = GameLocator.DetectAll(deep, out trail);
-
-                    bool hitTarget = false;
-                    foreach (GameCandidate c in found)
-                    {
-                        if (ReferenceEquals(c.Game, target)) { hitTarget = true; break; }
-                    }
+                    List<GameCandidate> found = GameLocator.Detect(deep, out trail);
 
                     Ui(delegate
                     {
@@ -661,50 +526,27 @@ namespace ColoringPixelsTool.Installer
                         _candidates.Clear();
                         _candidates.AddRange(found);
 
-                        // 找到的每一款都各自记住（下次打开安装器直接可用）。
-                        foreach (GameCandidate c in found)
+                        if (found.Count > 0)
                         {
-                            if (c.Game == null) continue;
-                            RememberDir(c.Game, c.Path);
-                        }
-
-                        if (!ReferenceEquals(target, _game)) return;   // 用户已经切走了
-
-                        GameCandidate mine = null;
-                        foreach (GameCandidate c in found)
-                        {
-                            if (ReferenceEquals(c.Game, _game)) { mine = c; break; }
-                        }
-
-                        if (mine != null)
-                        {
-                            _txtDir.Text = mine.Path;
-                            _source = mine.Source;
-                            Log.Ok("已定位「" + _game.DisplayName + "」目录：" + mine.Path + "（来源：" + mine.Source + "）");
-                            RefreshStatus(true);
-                        }
-                        else if (GameLocator.Inspect(_txtDir.Text, _game).Usable)
-                        {
-                            // 输入框里已经是一个可用目录（多半来自上次记忆），保留它。
+                            _txtDir.Text = found[0].Path;
+                            _source = found[0].Source;
+                            Log.Ok("已定位游戏目录：" + found[0].Path + "（来源：" + found[0].Source + "）");
                             RefreshStatus(true);
                         }
                         else
                         {
                             _source = null;
-                            _txtDir.Text = "";
                             RefreshStatus(false);
-                            Log.Warn("未能自动定位「" + _game.DisplayName + "」的目录，请点击「浏览…」手动选择");
+                            Log.Warn("未能自动定位游戏目录，请点击「浏览…」手动选择");
                         }
                     });
 
-                    if (!hitTarget && !deep)
+                    if (found.Count == 0 && !deep)
                     {
                         Ui(delegate
                         {
-                            if (!ReferenceEquals(target, _game)) return;
-
                             DialogResult r = MessageBox.Show(this,
-                                "常规位置没有找到「" + target.DisplayName + "」的游戏目录。\n是否要扫描所有磁盘进行深度查找？",
+                                "常规位置没有找到游戏目录。\n是否要扫描所有磁盘进行深度查找？",
                                 AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                             if (r == DialogResult.Yes) DetectAsync(true);
                         });
@@ -746,7 +588,7 @@ namespace ColoringPixelsTool.Installer
 
         private void RefreshStatus(bool verbose)
         {
-            GameInfo info = GameLocator.Inspect(_txtDir.Text, _game);
+            GameInfo info = GameLocator.Inspect(_txtDir.Text);
 
             if (!info.Usable)
             {
@@ -762,18 +604,17 @@ namespace ColoringPixelsTool.Installer
                 return;
             }
 
-            // 校验通过的目录顺手落盘：这样手动浏览选过一次，下次打开安装器就直接可用。
-            RememberDir(_game, info.Directory);
+            // 目录确认可用就记下来：下次打开安装器直接用，省掉一遍磁盘扫描。
+            Settings.SaveDir(_game.Key, info.Directory);
             _dot.Pulsing = false;
 
-            bool installed = PayloadInstaller.IsInstalled(info.Directory, _game);
-            string version = PayloadInstaller.InstalledVersion(info.Directory, _game);
+            bool installed = PayloadInstaller.IsInstalled(info.Directory);
+            string version = PayloadInstaller.InstalledVersion(info.Directory);
 
             string state;
             if (installed)
             {
-                state = (_game.Injectable ? "已安装本插件" : "已安装独立助手")
-                    + (string.IsNullOrEmpty(version) ? "" : " v" + version);
+                state = "已安装本插件" + (string.IsNullOrEmpty(version) ? "" : " v" + version);
                 _dot.DotColor = Theme.Good;
                 _lblStatus.ForeColor = Theme.Good;
             }
@@ -814,8 +655,6 @@ namespace ColoringPixelsTool.Installer
             _btnUninstall.Enabled = !busy;
             _btnOpenDir.Enabled = !busy;
             _btnLaunch.Enabled = !busy;
-            _btnGameCp.Enabled = !busy;
-            _btnGamePcs.Enabled = !busy;
             _chkLaunch.Enabled = !busy;
             _chkOverwrite.Enabled = !busy;
             _chkBackup.Enabled = !busy;
@@ -830,7 +669,7 @@ namespace ColoringPixelsTool.Installer
         {
             if (_busy) return;
 
-            GameInfo info = GameLocator.Inspect(_txtDir.Text, _game);
+            GameInfo info = GameLocator.Inspect(_txtDir.Text);
             if (!info.Usable)
             {
                 MessageBox.Show(this, "游戏目录不可用：\n" + info.Error, AppInfo.DisplayName,
@@ -838,8 +677,8 @@ namespace ColoringPixelsTool.Installer
                 return;
             }
 
-            Process running = GameLocator.GetRunningGame(_game);
-            if (running != null && GameLocator.IsTargetGameRunning(info.Directory, _game))
+            Process running = GameLocator.GetRunningGame();
+            if (running != null && GameLocator.IsTargetGameRunning(info.Directory))
             {
                 DialogResult r = MessageBox.Show(this,
                     "游戏正在运行，安装前需要先关闭它。\n是否现在结束游戏进程并继续？",
@@ -862,18 +701,18 @@ namespace ColoringPixelsTool.Installer
             }
 
             string dir = info.Directory;
-            GameDescriptor game = _game;
+            GameDescriptor game = AppInfo.ColoringPixels;
             bool overwrite = _chkOverwrite.Checked;
             bool backup = _chkBackup.Checked;
             bool launch = _chkLaunch.Checked;
 
             // 装之前先问一句「之前装过没有」：没有 = 新玩家，等会儿弹全功能总览；
             // 装过 = 老玩家升级，只弹这版的更新公告。（装完再问就永远是「装过」了。）
-            bool firstInstall = !PayloadInstaller.IsInstalled(dir, game);
+            bool firstInstall = !PayloadInstaller.IsInstalled(dir);
 
             RunTask("正在安装……", delegate()
             {
-                PayloadInstaller.Install(dir, game, overwrite, backup, OnProgress);
+                PayloadInstaller.Install(dir, overwrite, backup, OnProgress);
                 Log.Ok("安装成功！" + game.TipText);
 
                 Ui(delegate
@@ -896,7 +735,7 @@ namespace ColoringPixelsTool.Installer
                     }
                 });
 
-                if (launch) Launch(dir, game);
+                if (launch) Launch(dir);
             });
         }
 
@@ -904,7 +743,7 @@ namespace ColoringPixelsTool.Installer
         {
             if (_busy) return;
 
-            GameInfo info = GameLocator.Inspect(_txtDir.Text, _game);
+            GameInfo info = GameLocator.Inspect(_txtDir.Text);
             if (!info.Usable)
             {
                 MessageBox.Show(this, "游戏目录不可用：\n" + info.Error, AppInfo.DisplayName,
@@ -912,7 +751,7 @@ namespace ColoringPixelsTool.Installer
                 return;
             }
 
-            if (!PayloadInstaller.IsInstalled(info.Directory, _game))
+            if (!PayloadInstaller.IsInstalled(info.Directory))
             {
                 MessageBox.Show(this, "这个目录里没有检测到「" + _game.DisplayName + "」的安装记录。",
                     AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -920,30 +759,15 @@ namespace ColoringPixelsTool.Installer
             }
 
             string dir = info.Directory;
-            GameDescriptor game = _game;
-            bool removeBepInEx = false;
-            bool restore = true;
 
-            if (game.Injectable)
-            {
-                UninstallDialog dlg = new UninstallDialog();
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
-                removeBepInEx = dlg.RemoveBepInEx;
-                restore = dlg.RestoreBackup;
-            }
-            else
-            {
-                DialogResult r = MessageBox.Show(this,
-                    "确定要从「" + game.DisplayName + "」中移除独立助手吗？\n\n" +
-                    "会删除游戏目录下的 PixelAssist 文件夹；你在 %APPDATA%\\PixelAssist 里的\n" +
-                    "区域与参数预设不会被删除。",
-                    AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                if (r != DialogResult.Yes) return;
-            }
+            UninstallDialog dlg = new UninstallDialog();
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            bool removeBepInEx = dlg.RemoveBepInEx;
+            bool restore = dlg.RestoreBackup;
 
             RunTask("正在卸载……", delegate()
             {
-                PayloadInstaller.Uninstall(dir, game, removeBepInEx, restore, OnProgress);
+                PayloadInstaller.Uninstall(dir, removeBepInEx, restore, OnProgress);
                 Log.Ok("卸载完成。");
                 Ui(delegate
                 {
@@ -1012,11 +836,23 @@ namespace ColoringPixelsTool.Installer
             thread.Start();
         }
 
-        private void Launch(string dir, GameDescriptor game)
+        private void Launch(string dir)
         {
             string error;
             bool alreadyRunning;
-            Process p = PayloadInstaller.LaunchGame(dir, game, out alreadyRunning, out error);
+            bool viaSteam;
+            Process p = PayloadInstaller.LaunchGame(dir, out alreadyRunning, out viaSteam, out error);
+
+            if (viaSteam)
+            {
+                // Steam 版交给 Steam 拉起：返回 null 是正常的 —— 真正去启动游戏的是 Steam，
+                // 游戏进程要等几秒才出现。所以这里不盯进程句柄，改盯进程名（见 OnAutoCloseTick）。
+                Log.Ok("已交给 Steam 启动，稍等片刻游戏就会出来。");
+                MarkGameRunning();
+                WatchGameAndAutoClose(null);
+                return;
+            }
+
             if (p == null)
             {
                 Log.Error("启动游戏失败：" + error);
@@ -1037,17 +873,7 @@ namespace ColoringPixelsTool.Installer
             Log.Ok("已启动游戏（PID " + p.Id + "）");
             MarkGameRunning();
 
-            // 非注入式游戏还得把配套的独立助手拉起来。
-            if (!string.IsNullOrEmpty(game.AssistExeRelativePath))
-            {
-                bool assistRunning;
-                Process a = PayloadInstaller.LaunchAssist(dir, game, out assistRunning, out error);
-                if (a == null) Log.Warn("启动独立助手失败：" + error);
-                else if (assistRunning) Log.Info("独立助手已经在运行（PID " + a.Id + "），跳过重复启动。");
-                else Log.Ok("已启动独立助手 " + AppInfo.AssistExeName + "（PID " + a.Id + "）");
-            }
-
-            Log.Info(game.TipText);
+            Log.Info(_game.TipText);
             WatchGameAndAutoClose(p);
         }
 
@@ -1192,14 +1018,14 @@ namespace ColoringPixelsTool.Installer
             // 安装/更新途中不要插一脚：文件正在被替换，这时候启动游戏容易出事
             if (_busy) return;
 
-            GameInfo info = GameLocator.Inspect(_txtDir.Text, _game);
+            GameInfo info = GameLocator.Inspect(_txtDir.Text);
             if (!info.Usable) return;
-            Launch(info.Directory, _game);
+            Launch(info.Directory);
         }
 
         private void OnOpenDirClick(object sender, EventArgs e)
         {
-            GameInfo info = GameLocator.Inspect(_txtDir.Text, _game);
+            GameInfo info = GameLocator.Inspect(_txtDir.Text);
             if (!info.Usable) return;
 
             try

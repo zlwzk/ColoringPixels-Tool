@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 
 namespace ColoringPixelsTool.Assist
 {
@@ -136,102 +135,6 @@ namespace ColoringPixelsTool.Assist
                 if (File.Exists(p)) File.Delete(p);
             }
             catch (Exception) { }
-        }
-
-        // ---------------------------------------------------------------- 通用文本文件
-
-        /// <summary>调色板校准结果（列/行/每个色块的位置与颜色）。</summary>
-        public const string PaletteFileName = "Assist.palette";
-
-        /// <summary>读取一份附加数据文件；不存在或读不出来时返回 null。</summary>
-        public static string LoadText(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName)) return null;
-            try
-            {
-                string p = PathOf(fileName);
-                if (!File.Exists(p)) return null;
-                return File.ReadAllText(p);
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-
-        /// <summary>写入一份附加数据文件（内容是调用方自己决定的文本）。</summary>
-        public static void SaveText(string fileName, string text)
-        {
-            if (string.IsNullOrEmpty(fileName)) return;
-            try
-            {
-                string p = PathOf(fileName);
-                string tmp = p + ".tmp";
-                File.WriteAllText(tmp, text == null ? "" : text);
-                if (File.Exists(p)) File.Delete(p);
-                File.Move(tmp, p);
-            }
-            catch (Exception)
-            {
-                // 退一步：直接覆盖写，至少保住数据
-                try { File.WriteAllText(PathOf(fileName), text == null ? "" : text); }
-                catch (Exception) { }
-            }
-        }
-
-        // ---------------------------------------------------------------- 界面偏好
-
-        private const string UiFileName = "Assist.ui";
-
-        private static readonly object UiLock = new object();
-
-        /// <summary>读取一条界面偏好（轻量 key=value 文本；读不到时返回 fallback）。</summary>
-        public static string LoadValue(string key, string fallback)
-        {
-            try
-            {
-                string p = PathOf(UiFileName);
-                if (!File.Exists(p)) return fallback;
-                foreach (string raw in File.ReadAllLines(p))
-                {
-                    string line = raw.Trim();
-                    int eq = line.IndexOf('=');
-                    if (eq <= 0) continue;
-                    if (line.Substring(0, eq).Trim() == key) return line.Substring(eq + 1).Trim();
-                }
-            }
-            catch (Exception) { }
-            return fallback;
-        }
-
-        /// <summary>写入一条界面偏好（保留同一文件里的其它键）。</summary>
-        public static void SaveValue(string key, string value)
-        {
-            if (string.IsNullOrEmpty(key)) return;
-            lock (UiLock)
-            {
-                try
-                {
-                    var table = new Dictionary<string, string>();
-                    string p = PathOf(UiFileName);
-                    if (File.Exists(p))
-                    {
-                        foreach (string raw in File.ReadAllLines(p))
-                        {
-                            string line = raw.Trim();
-                            int eq = line.IndexOf('=');
-                            if (eq <= 0) continue;
-                            table[line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
-                        }
-                    }
-                    table[key] = value ?? "";
-                    var sb = new StringBuilder();
-                    foreach (var kv in table)
-                        sb.Append(kv.Key).Append('=').Append(kv.Value).Append("\r\n");
-                    File.WriteAllText(p, sb.ToString());
-                }
-                catch (Exception) { }
-            }
         }
     }
 }

@@ -3,10 +3,9 @@
     一键构建发布包：
 
         1) build-mod.ps1        编译插件   -> artifacts\ColoringPixelsTool.dll
-        2) build-assist.ps1     编译独立助手 -> artifacts\PixelAssist.exe
-        3) build-payload.ps1    组装部署包 -> build\payload.zip
-        4) build-installer.ps1  编译安装器 -> dist\ColoringPixelsTool-Setup-v<版本>.exe
-        5) 生成校验和           -> dist\SHA256SUMS.txt
+        2) build-payload.ps1    组装部署包 -> build\payload.zip
+        3) build-installer.ps1  编译安装器 -> dist\ColoringPixelsTool-Setup-v<版本>.exe
+        4) 生成校验和           -> dist\SHA256SUMS.txt
 
     版本号唯一来源是仓库根目录的 VERSION 文件。
     用法：
@@ -19,7 +18,6 @@ param(
     [string]$Version,
     [string]$GameDir,
     [switch]$SkipMod,
-    [switch]$SkipAssist,
     [switch]$Clean
 )
 
@@ -85,27 +83,11 @@ else {
     Ok ('使用现有插件：' + $artifact)
 }
 
-# ---------------------------------------------------------------- 2. 独立助手
-
-$assistExe = Join-Path $repoRoot 'artifacts\PixelAssist.exe'
-
-if (-not $SkipAssist) {
-    Step '2/5  编译独立助手（PixelAssist）'
-    & (Join-Path $PSScriptRoot 'build-assist.ps1') -Configuration Release
-    Ok '独立助手编译完成'
-}
-else {
-    Step '2/5  跳过独立助手编译（-SkipAssist）'
-    if (-not (Test-Path -LiteralPath $assistExe)) { Warn "缺少 $assistExe，将只能安装 Coloring Pixels" }
-    else { Ok ('使用现有独立助手：' + $assistExe) }
-}
-
 # ---------------------------------------------------------------- 3. 部署包
 
-Step '3/5  组装部署包（BepInEx 插件 + 独立助手）'
+Step '3/5  组装部署包（BepInEx 插件）'
 $payloadArgs = @{ Output = $build }
 if (-not [string]::IsNullOrWhiteSpace($GameDir)) { $payloadArgs['GameDir'] = $GameDir }
-if (Test-Path -LiteralPath $assistExe) { $payloadArgs['AssistExe'] = $assistExe }
 & (Join-Path $PSScriptRoot 'build-payload.ps1') @payloadArgs
 Ok '部署包就绪'
 

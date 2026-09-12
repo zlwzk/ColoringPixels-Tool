@@ -48,7 +48,7 @@ namespace ColoringPixelsTool
             get
             {
                 if (!string.IsNullOrEmpty(_filePath)) return _filePath;
-                _filePath = Path.Combine(GameLocalizer.ConfigDirectory(), FileName);
+                _filePath = Path.Combine(Plugin.ConfigDirectory(), FileName);
                 return _filePath;
             }
         }

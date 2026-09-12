@@ -142,9 +142,7 @@ namespace ColoringPixelsTool
             Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), Ui.Alpha(Ui.Warn, 0.045f));
 
             float k = Mathf.Clamp(UiScale, 0.8f, 1.4f);
-            float mw = Mathf.Min(510f * k, Screen.width - 60f);
-            float mh = Mathf.Min(348f * k, Screen.height - 60f);
-            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+            var win = ModalRect(Mathf.Min(510f * k, Screen.width - 60f), Mathf.Min(348f * k, Screen.height - 60f));
 
             float open = Ui.Tween("unlock-open", true, 9f);
             var body = new Rect(win.x, win.y + (1f - open) * 18f, win.width, win.height);
@@ -241,7 +239,7 @@ namespace ColoringPixelsTool
                 "这是给《Coloring Pixels》准备的一整套涂色辅助工具：\n\n" +
                 "· 自动完成：一键涂完、拟人涂色、定时连图；\n" +
                 "· 人工辅助：只帮你扫行、点格子，画面交给游戏自己判定；\n" +
-                "· 体验增强：画布配色高亮、语音换色、单图用时统计、界面汉化。\n\n" +
+                "· 体验增强：画布配色高亮、语音换色、单图用时统计。\n\n" +
                 "建议花一分钟把后面几页看完。",
 
                 "「涂色 / 拟人 / 自动化」三页会写入存档，默认上锁。\n\n" +
@@ -275,9 +273,7 @@ namespace ColoringPixelsTool
             Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.66f));
 
             float k = Mathf.Clamp(UiScale, 0.8f, 1.4f);
-            float mw = Mathf.Min(560f * k, Screen.width - 60f);
-            float mh = Mathf.Min(430f * k, Screen.height - 80f);
-            var win = new Rect((Screen.width - mw) * 0.5f, (Screen.height - mh) * 0.5f, mw, mh);
+            var win = ModalRect(Mathf.Min(560f * k, Screen.width - 60f), Mathf.Min(430f * k, Screen.height - 80f));
 
             float open = Ui.Tween("guide-open", true, 7f);
             float slide = (1f - open) * 24f;
@@ -426,94 +422,6 @@ namespace ColoringPixelsTool
                 float t = 1f - Mathf.Clamp01(left / 2f);
                 Ui.Round(new Rect(okR.x + 8f, okR.yMax - 5f, (okR.width - 16f) * t, 2f), 1f, Ui.Alpha(Ui.Bad, 0.9f));
             }
-        }
-
-        // ============================================================ 人工辅助 · 助手页
-
-        private void TabManualAssist(float w, ref float y)
-        {
-            var overlay = AssistOverlay.Instance;
-
-            Section(w, ref y, "扫描引擎");
-
-            string state = "未初始化";
-            string detail = "覆盖层尚未创建，重进游戏即可。";
-            float progress = 0f;
-
-            if (overlay != null && overlay.Engine != null)
-            {
-                var en = overlay.Engine;
-                state = en.StateText;
-                detail = string.IsNullOrEmpty(en.Message) ? "就绪" : en.Message;
-                progress = Mathf.Clamp01(en.Progress);
-                if (!string.IsNullOrEmpty(en.LastError)) detail = en.LastError;
-            }
-
-            Card(w, ref y, 92f, top =>
-            {
-                Ui.Text(new Rect(Pad + 4f, top + 12f, w - Pad * 2f - 8f, 22f), state, Ui.Bold, Ui.TextCol);
-                Ui.Text(new Rect(Pad + 4f, top + 34f, w - Pad * 2f - 8f, 18f), detail, Ui.MutedSmall);
-                Ui.ProgressBar(new Rect(Pad + 4f, top + 60f, w - Pad * 2f - 8f, 8f), progress,
-                    progress >= 1f ? Ui.Good : Ui.Accent);
-            });
-
-            y += 4f;
-            Section(w, ref y, "怎么用");
-
-            Ui.Text(new Rect(0f, y, w, 84f),
-                "1. 按 " + KeyName(AssistOverlay.SelectKey) + " 在画布上拖拽，框出要涂的范围；\n" +
-                "2. 按 " + KeyName(AssistOverlay.RunKey) + " 开始，工具按住左键逐行扫过；\n" +
-                "3. 随时按 " + KeyName(AssistOverlay.StopKey) + " 急停，" + KeyName(AssistOverlay.TestRowKey) + " 只扫当前行，\n" +
-                "   " + KeyName(AssistOverlay.RestartKey) + " 从头重扫，" + KeyName(AssistOverlay.CalibrateKey) + " 校准格子；"
-                + (AssistOverlay.OverlayKey == KeyCode.None
-                    ? "覆盖层开关默认未绑定按键。"
-                    : KeyName(AssistOverlay.OverlayKey) + " 开关覆盖层。"), Ui.MutedStyle);
-            y += 92f;
-
-            if (overlay != null)
-            {
-                float half = (w - 8f) * 0.5f;
-                if (Ui.Button(new Rect(0f, y, half, 36f), "框选区域", Ui.Accent, false))
-                    overlay.BeginSelectFromUi();
-                if (Ui.Button(new Rect(half + 8f, y, half, 36f), "开始 / 暂停", Ui.Accent2, false))
-                {
-                    if (overlay.Engine != null && overlay.Engine.Running) overlay.Engine.Stop();
-                    else overlay.Engine.Start();
-                }
-                y += 44f;
-
-                if (Ui.Button(new Rect(0f, y, half, 36f), overlay.OverlayVisible ? "隐藏覆盖层" : "显示覆盖层", Ui.Muted, false))
-                    overlay.ToggleOverlayFromUi();
-                if (Ui.Button(new Rect(half + 8f, y, half, 36f), "停止", Ui.Bad, false))
-                    overlay.StopFromUi();
-                y += 44f;
-            }
-
-            y += 6f;
-            Section(w, ref y, "独立助手 PixelAssist");
-
-            Ui.Text(new Rect(0f, y, w, 92f),
-                "另一款游戏《涂色大师：像素梦想家》是 IL2CPP 的，无法注入本插件，\n" +
-                "因此随安装包附带了一个独立助手 PixelAssist.exe。\n\n" +
-                "它复用同一套扫描引擎，装在游戏目录的 PixelAssist 文件夹里，\n" +
-                "配置保存在 %APPDATA%\\PixelAssist，两边的预设互不影响。", Ui.MutedStyle);
-            y += 100f;
-
-            if (Ui.Button(new Rect(0f, y, w, 36f), "打开 PixelAssist 配置目录", Ui.Accent2, false))
-            {
-                try
-                {
-                    string dir = System.IO.Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PixelAssist");
-                    if (!System.IO.Directory.Exists(dir)) System.IO.Directory.CreateDirectory(dir);
-                    System.Diagnostics.Process.Start(dir);
-                }
-                catch (Exception ex)
-                {
-                    Toast("打开失败：" + ex.Message);
-                }
-            }
-            y += 44f;
         }
 
         // ============================================================ 快捷键总表

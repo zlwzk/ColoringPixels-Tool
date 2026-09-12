@@ -34,7 +34,7 @@ namespace ColoringPixelsTool
 
         private static readonly string[] TabsManual =
         {
-            "扫描", "区域", "参数", "预设", "预览", "助手", "设置", "调试"
+            "扫描", "区域", "参数", "预设", "预览", "设置", "调试"
         };
 
         private const float Pad = 14f;
@@ -180,8 +180,21 @@ namespace ColoringPixelsTool
 
         private void Update()
         {
+            // 热键（默认 F1）只负责「把面板调出来」：没开就开，开着再按一次才收起来。
+            // 有弹窗挡在前面时先关弹窗，别顺手把面板也切掉 —— 否则用户按一下 F1 看到弹窗，
+            // 再按一下就以为「面板调不出来」。
             if (Plugin.KeyToggle.Value != KeyCode.None && Input.GetKeyDown(Plugin.KeyToggle.Value))
-                _visible = !_visible;
+            {
+                if (!_visible) _visible = true;
+                else if (HasModal()) DismissModals();
+                else _visible = false;
+            }
+
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (HasModal()) DismissModals();
+                else if (_visible) _visible = false;
+            }
 
             if (Plugin.KeyFill.Value != KeyCode.None && Input.GetKeyDown(Plugin.KeyFill.Value))
                 DoInstantFill();
@@ -352,38 +365,101 @@ namespace ColoringPixelsTool
             // 有输入框在取字时，「长按左键」这类字母热键要让路
             TextFieldFocused = _visible && GUIUtility.keyboardControl != 0;
 
-            if (Plugin.ShowHud.Value) DrawHud();
+            if (Plugin.ShowHud.Value) GuiSafe("悬浮 HUD", DrawHud);
 
             // 面板没打开时也要能看到（例如在游戏设置界面点了「推荐预设」）
-            DrawGameToast();
+            GuiSafe("轻提示", DrawGameToast);
 
             // 粒子（彩纸 / 微光）：在缩放矩阵之外绘制，任何界面状态下都可见
-            if (UiFx.ParticlesAlive) UiFx.DrawParticles();
+            if (UiFx.ParticlesAlive) GuiSafe("粒子特效", UiFx.DrawParticles);
+
+            // 弹窗层先画、主面板后画：面板压在最上面，于是「弹窗把面板盖住、点不动」
+            // 变成了「面板照常可用，弹窗挪到旁边」。弹窗之间互斥，免得叠成一片。
+            if (_visible)
+            {
+                if (_showAnnouncement) GuiSafe("更新公告", DrawAnnouncement);
+                else if (_showGuide) GuiSafe("新手指引", DrawGuide);
+                if (_showUnlockWarning) GuiSafe("解锁确认", DrawUnlockWarning);
+            }
 
             // 爱心二次确认：最优先，玩家正在重置进度，别被其它窗口挡住
             if (HeartGuard.Pending)
             {
-                DrawHeartConfirm();
-                return;
-            }
-
-            // 新手指引：独占显示，避免和后面的面板抢同一次点击
-            if (_showGuide)
-            {
-                DrawGuide();
-                return;
-            }
-
-            // 解锁自动绘图的风险确认：同样独占，确认之前绝不会写入配置
-            if (_showUnlockWarning)
-            {
-                DrawUnlockWarning();
+                GuiSafe("爱心确认", DrawHeartConfirm);
                 return;
             }
 
             if (!_visible) return;
 
-            DrawWindow();
+            GuiSafe("主面板", DrawWindow);
+        }
+
+        /// <summary>
+        /// 逐段兜异常：IMGUI 里任何一处抛异常，OnGUI 剩下的部分就整段不画，
+        /// 玩家看到的现象正是「插件装好了却调不出面板」。这里把每段分开兜住，
+        /// 坏掉一块不至于整个面板消失，并且把原因记进日志方便定位。
+        /// </summary>
+        private void GuiSafe(string what, System.Action draw)
+        {
+            if (draw == null) return;
+            try
+            {
+                draw();
+            }
+            catch (Exception ex)
+            {
+                if (Time.unscaledTime > _guiSafeUntil)
+                {
+                    _guiSafeUntil = Time.unscaledTime + 5f;
+                    Debug.LogError("[ColoringPixelsTool] 面板绘制失败（" + what + "）：" + ex);
+                }
+            }
+        }
+
+        private float _guiSafeUntil;
+
+        /// <summary>是否有全屏弹窗正挡在面板前面。</summary>
+        private bool HasModal()
+        {
+            return _showAnnouncement || _showGuide || _showUnlockWarning;
+        }
+
+        /// <summary>关掉最上面那层弹窗（F1 / Esc 共用）。</summary>
+        private void DismissModals()
+        {
+            if (_showAnnouncement) { _showAnnouncement = false; return; }
+            if (_showGuide)
+            {
+                _showGuide = false;
+                // 和「知道了」按钮一样：看过就不再自动弹。
+                if (Plugin.GuideShown != null) Plugin.GuideShown.Value = true;
+                return;
+            }
+            if (_showUnlockWarning) { _showUnlockWarning = false; return; }
+        }
+
+        /// <summary>
+        /// 弹窗（公告 / 新手指引 / 解锁确认）的窗口位置。
+        /// 面板开着时把弹窗挪到面板右侧，让「面板 + 弹窗」同时看得见、都能点；
+        /// 面板没开或右边实在放不下（小窗口）就照旧居中。
+        /// </summary>
+        private Rect ModalRect(float width, float height)
+        {
+            if (width > Screen.width - 20f) width = Screen.width - 20f;
+            if (height > Screen.height - 20f) height = Screen.height - 20f;
+
+            float availX = 0f;
+            float availW = Screen.width;
+            if (_visible && _window.width > 0f && _window.x + _window.width < Screen.width - 40f)
+            {
+                availX = _window.x + _window.width;
+                availW = Screen.width - availX;
+            }
+
+            float x = availX + (availW - width) * 0.5f;
+            if (x < 10f) x = 10f;
+            float y = (Screen.height - height) * 0.5f;
+            return new Rect(x, y, width, height);
         }
 
         private void DrawGameToast()
@@ -467,9 +543,6 @@ namespace ColoringPixelsTool
             // ---------------- 还原 ----------------
             GUI.matrix = prevMatrix;
             Ui.Mouse = prevMouse;
-
-            // 公告是全屏遮罩，放在缩放矩阵之外绘制
-            if (_showAnnouncement) DrawAnnouncement();
         }
 
         private void DrawBackground()
@@ -587,8 +660,8 @@ namespace ColoringPixelsTool
             return "";
         }
 
-        /// <summary>「设置」页的下标（两个分区的页签表里都是第 7 个）。</summary>
-        private int SettingsTabIndex => 6;
+        /// <summary>「设置」页的下标（人工辅助 7 页里是第 6 个，自动绘图 8 页里是第 7 个）。</summary>
+        private int SettingsTabIndex => _module == ModuleManual ? 5 : 6;
 
         private void DrawProfileHeader(float areaX, float areaY, float areaW, float areaH)
         {
@@ -815,8 +888,7 @@ namespace ColoringPixelsTool
                     case 2: TabAssistParams(w, ref y); break;
                     case 3: TabAssistPresets(w, ref y); break;
                     case 4: TabPreview(w, ref y); break;
-                    case 5: TabManualAssist(w, ref y); break;
-                    case 6: TabSettings(w, ref y); break;
+                    case 5: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -1728,43 +1800,6 @@ namespace ColoringPixelsTool
             KeyBindingSections(w, ref y);
 
             y += 6f;
-            Section(w, ref y, "游戏界面汉化");
-
-            if (_loc == null) _loc = GetComponent<GameLocalizer>();
-
-            Plugin.LocalizeGame.Value = Toggle(w, ref y, Plugin.LocalizeGame.Value,
-                "汉化游戏设置界面", "把游戏自带的设置等界面的英文替换成中文");
-
-            if (Plugin.LocalizeGame.Value)
-            {
-                Plugin.LocalizeScope.Value = Segmented(w, ref y, Plugin.LocalizeScope.Value,
-                    new[] { "仅设置页面", "全部界面" });
-
-                Plugin.LocalizeSwapFont.Value = Toggle(w, ref y, Plugin.LocalizeSwapFont.Value,
-                    "自动替换中文字体", "游戏像素字体没有中文字形，开启后才能正常显示");
-
-                string fontName = CjkFont.Name;
-                int words = _loc != null ? _loc.WordCount : 0;
-                int hits = _loc != null ? _loc.TranslatedCount : 0;
-
-                Ui.Text(new Rect(0f, y, w, 20f),
-                    "词典 " + words + " 条   ·   当前译出 " + hits + " 处   ·   字体 " +
-                    (string.IsNullOrEmpty(fontName) ? "未就绪" : fontName), Ui.MutedSmall);
-                y += 24f;
-
-                if (Ui.Button(new Rect(0f, y, w, 36f), "重新载入汉化词典", Ui.Accent2, false))
-                {
-                    if (_loc != null) _loc.ReloadDictionary();
-                    Toast("汉化词典已重新载入");
-                }
-                y += 44f;
-
-                Ui.Text(new Rect(0f, y, w, 18f),
-                    "补充词条：" + (_loc != null ? _loc.ExtraFilePath : ""), Ui.MutedSmall);
-                y += 24f;
-            }
-
-            y += 6f;
             Section(w, ref y, "推荐预设");
 
             Plugin.PresetButtonEnabled.Value = Toggle(w, ref y, Plugin.PresetButtonEnabled.Value,
@@ -1864,8 +1899,6 @@ namespace ColoringPixelsTool
                     "BepInEx GUID: coloringpixels.cheatsuite", Ui.MutedSmall);
             });
         }
-
-        private GameLocalizer _loc;
 
         private int _activeKeyIndex = -1;
 
@@ -2226,6 +2259,14 @@ namespace ColoringPixelsTool
                 eng.S.CellHeight = 0;
                 MarkAssistDirty();
             }
+            y += 42f;
+
+            // 覆盖层开关：原先只挂在「助手」页上，该页删除后搬到这里，
+            // 否则没绑热键的玩家就没有任何开关覆盖层的入口。
+            if (AssistOverlay.Instance != null &&
+                Ui.Button(new Rect(0f, y, w, 34f),
+                    AssistOverlay.Instance.OverlayVisible ? "隐藏覆盖层" : "显示覆盖层", Ui.Muted, false))
+                AssistOverlay.Instance.ToggleOverlayFromUi();
             y += 42f;
         }
 
@@ -2622,11 +2663,12 @@ namespace ColoringPixelsTool
             return null;
         }
 
+        /// <summary>打开 BepInEx\config 目录（设置页的「打开配置文件夹」按钮）。</summary>
         private static void OpenConfigFolder()
         {
             try
             {
-                string dir = GameLocalizer.ConfigDirectory();
+                string dir = Plugin.ConfigDirectory();
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 System.Diagnostics.Process.Start(dir);
             }

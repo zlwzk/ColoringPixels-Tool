@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "2.3.9";
+        public const string Version = "3.0.0";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -109,13 +109,6 @@ namespace ColoringPixelsTool
         internal static ConfigEntry<float> PanelOpacity;
         internal static ConfigEntry<float> PanelScale;
 
-        // ---- 游戏界面汉化 ----
-        internal static ConfigEntry<bool> LocalizeGame;
-        internal static ConfigEntry<int> LocalizeScope;
-        internal static ConfigEntry<bool> LocalizeSwapFont;
-        internal static ConfigEntry<string> LocalizeFont;
-        internal static ConfigEntry<string> LocalizeExtraFile;
-
         // ---- 推荐预设 ----
         internal static ConfigEntry<bool> PresetButtonEnabled;
         internal static ConfigEntry<string> PresetButtonLabel;
@@ -131,12 +124,6 @@ namespace ColoringPixelsTool
             Instance = this;
             Log.Bind(Logger);
 
-            // 等级系统是两个游戏共用的（插件 + 《涂色大师》助手读写同一份存档），
-            // 这里把日志出口和镜像目录交给插件来提供。
-            ProfileLog.InfoTarget = Log.Info;
-            ProfileLog.WarnTarget = Log.Warn;
-            UserProfile.MirrorDirectory = GameLocalizer.ConfigDirectory();
-
             BindConfig();
 
             UserProfile.Load();
@@ -148,8 +135,9 @@ namespace ColoringPixelsTool
             bool freshInstall = UserProfile.ConsumeFreshInstallFlag();
             if (freshInstall)
             {
+                // 只恢复上锁；新手指引不再强制重置，否则引导会独占 OnGUI 把作弊面板整个顶掉，
+                // 用户看到的就成了「插件装完了但面板调不出来」。
                 if (AutoUnlocked != null) AutoUnlocked.Value = false;
-                if (GuideShown != null) GuideShown.Value = false;
             }
 
             if (freshInstall || UserProfile.LastVersion != Version)
@@ -201,12 +189,28 @@ namespace ColoringPixelsTool
             gameObject.AddComponent<AutoScheduler>();
             gameObject.AddComponent<CheatPanel>();
             gameObject.AddComponent<ColorHighlighter>();
-            gameObject.AddComponent<GameLocalizer>();
             gameObject.AddComponent<PresetButtonInjector>();
 
             GamePreset.Reload();
 
             Log.Info("Coloring Pixels Tool 已加载 —— 按 " + KeyToggle.Value + " 打开面板");
+        }
+
+        /// <summary>
+        /// BepInEx 的 config 目录：等级存档、推荐预设、单图计时等数据文件都放在这里。
+        /// 优先问 BepInEx 要（尊重用户自定义的路径），拿不到再回退到 &lt;游戏目录&gt;\BepInEx\config。
+        /// </summary>
+        internal static string ConfigDirectory()
+        {
+            try
+            {
+                if (Instance != null && Instance.Config != null &&
+                    !string.IsNullOrEmpty(Instance.Config.ConfigFilePath))
+                    return System.IO.Path.GetDirectoryName(Instance.Config.ConfigFilePath);
+            }
+            catch { /* 忽略 */ }
+
+            return System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "BepInEx", "config");
         }
 
         private void BindConfig()
@@ -276,19 +280,6 @@ namespace ColoringPixelsTool
             PanelScale = Config.Bind(p, "面板缩放", 0f,
                 new ConfigDescription("0 = 跟随分辨率自适应；> 0 时手动指定缩放倍数（推荐 0.8 ~ 1.6）",
                     new AcceptableValueRange<float>(0f, 2.2f)));
-
-            var zh = "7-游戏汉化";
-            LocalizeGame = Config.Bind(zh, "游戏界面汉化", true,
-                "把游戏界面上的英文（设置面板等）替换成中文");
-            LocalizeScope = Config.Bind(zh, "汉化范围", 1,
-                new ConfigDescription("0 = 只汉化游戏设置页面，1 = 汉化全部能识别到的界面文案",
-                    new AcceptableValueRange<int>(0, 1)));
-            LocalizeSwapFont = Config.Bind(zh, "自动替换中文字体", true,
-                "游戏自带的像素字体没有中文字形，开启后会把翻译过的文本换成系统中文字体");
-            LocalizeFont = Config.Bind(zh, "汉化字体", "",
-                "留空自动选择（微软雅黑 / 黑体 / 宋体 等）");
-            LocalizeExtraFile = Config.Bind(zh, "汉化补充文件", "ColoringPixelsTool.zh.txt",
-                "放在 BepInEx/config 下的补充词条文件，格式：英文原文=中文译文");
 
             var pre = "8-推荐预设";
             PresetButtonEnabled = Config.Bind(pre, "显示预设按钮", true,

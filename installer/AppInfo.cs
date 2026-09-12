@@ -1,17 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 
 namespace ColoringPixelsTool.Installer
 {
     /// <summary>
-    /// 一款受支持游戏的描述信息。安装器完全按这张表工作：
+    /// 游戏《Coloring Pixels》的描述信息。安装器完全按这张表工作：
     /// 识别目录、挑选内嵌负载、校验、写安装记录、卸载、启动。
     ///
-    /// 两款游戏的加载方式完全不同：
-    ///   * Coloring Pixels  —— Mono 构建，注入 BepInEx 5 插件（面板在游戏内，F1 打开）；
-    ///   * 涂色大师：像素梦想家 —— IL2CPP 构建，无法注入托管插件，随包分发独立助手
-    ///     PixelAssist.exe（屏幕扫描 + 模拟鼠标，F7 框选 / F6 开始）。
+    /// 游戏是 Mono 构建，注入 BepInEx 5 插件（面板在游戏内，F1 打开）。
     /// </summary>
     internal sealed class GameDescriptor
     {
@@ -21,19 +19,13 @@ namespace ColoringPixelsTool.Installer
 
         public string ExeName;
         public string DataFolderName;
-        public string ManagedAssembly;        // Mono 游戏的 Assembly-CSharp.dll；IL2CPP 为 null
-        public string ProbeFileName;          // ManagedAssembly 为 null 时改用这个文件做校验
+        public string ManagedAssembly;        // Mono 游戏的 Assembly-CSharp.dll
         public string ProcessName;
 
         public string SteamAppId;
         public string SteamInstallDirName;
 
-        public bool Expect32Bit;              // true：64 位主程序视为错误
-        public bool Injectable;               // true：注入式插件；false：独立助手
-
-        public string PayloadPrefix;          // payload.zip 中属于本游戏的前缀（"" = 根目录）
-        public string PluginRelativePath;     // 注入式插件本体（可空）
-        public string AssistExeRelativePath;  // 独立助手 exe（可空）
+        public string PluginRelativePath;     // 插件本体（相对游戏目录）
         public string MarkerRelativePath;     // 安装记录文件
         public string BackupRelativePath;     // 覆盖文件时的备份目录
     }
@@ -42,20 +34,10 @@ namespace ColoringPixelsTool.Installer
     internal static class AppInfo
     {
         public const string ProductName = "Coloring Pixels Tool";
-        public const string DisplayName = "涂色大师 · Tool";
+        public const string DisplayName = "Coloring Pixels Tool";
         public const string PluginGuid = "coloringpixels.cheatsuite";
         public const string PluginDllName = "ColoringPixelsTool.dll";
         public const string PluginConfigName = "coloringpixels.cheatsuite.cfg";
-
-        /// <summary>用户数据目录名（%APPDATA% 下）。与插件 UserProfile.UserDataFolderName 保持一致。</summary>
-        public const string UserDataFolderName = "ColoringPixelsTool";
-
-        /// <summary>
-        /// 「卸载后重装」标记文件名。与插件 UserProfile.FreshInstallFlagName 保持一致。
-        /// 卸载时写进用户数据目录，插件下次启动消费它 —— 这样卸载重装 = 新用户，
-        /// 而覆盖安装（没卸载过）维持原状。
-        /// </summary>
-        public const string FreshInstallFlagName = "fresh-install.flag";
 
         /// <summary>旧版本（ColoringPixelsCheat 时期）的插件文件名。安装 / 卸载时会一并清理，
         /// 否则同一 GUID 的旧插件会与新插件被 BepInEx 同时加载。</summary>
@@ -76,81 +58,67 @@ namespace ColoringPixelsTool.Installer
         public const string SteamAppId = "897330";
         public const string SteamInstallDirName = "Coloring Pixels";
 
-        /// <summary>独立助手（《涂色大师：像素梦想家》）的可执行文件名。</summary>
-        public const string AssistExeName = "PixelAssist.exe";
+        /// <summary>用户数据目录名（放在 %APPDATA% 下，与游戏目录解耦）。</summary>
+        public const string UserDataDirectoryName = "ColoringPixelsTool";
+
+        /// <summary>
+        /// 「卸载后重装」标记文件名（卸载时写入用户数据目录，插件启动时消费一次）。
+        /// 必须与插件侧 UserProfile.FreshInstallFlagName 保持一致。
+        /// </summary>
+        public const string FreshInstallFlagName = "fresh-install.flag";
 
         public const string DefaultRepositoryUrl = "https://github.com/zlwzk/ColoringPixels-Tool";
 
         // ============================================================ 游戏表
 
-        /// <summary>《Coloring Pixels》：Mono + BepInEx 注入插件。</summary>
+        /// <summary>《Coloring Pixels》：Mono + BepInEx 注入插件。本工具只支持这一款。</summary>
         public static readonly GameDescriptor ColoringPixels = new GameDescriptor
         {
             Key = "cp",
             DisplayName = "Coloring Pixels",
-            TipText = "进入任意关卡后按 F1 打开作弊面板；游戏可能会二次打开，请按照流程正常打开游戏即可。",
+            TipText = "进入任意关卡后按 F1 打开作弊面板。",
             ExeName = GameExeName,
             DataFolderName = GameDataFolderName,
             ManagedAssembly = GameAssemblyName,
-            ProbeFileName = null,
             ProcessName = "ColoringPixels",
             SteamAppId = SteamAppId,
             SteamInstallDirName = SteamInstallDirName,
-            Expect32Bit = true,
-            Injectable = true,
-            PayloadPrefix = "",
             PluginRelativePath = BepInExFolderName + "\\plugins\\" + PluginDllName,
-            AssistExeRelativePath = null,
             MarkerRelativePath = BepInExFolderName + "\\" + MarkerFileName,
             BackupRelativePath = BepInExFolderName + "\\" + BackupFolderName
         };
 
-        /// <summary>《涂色大师：像素梦想家》：IL2CPP + 独立屏幕扫描助手。</summary>
-        public static readonly GameDescriptor PixelCrossStitch = new GameDescriptor
-        {
-            Key = "pcs",
-            DisplayName = "涂色大师：像素梦想家",
-            TipText = "先启动游戏，再运行 PixelAssist\\PixelAssist.exe；进关卡后 F7 框选、F6 开始。",
-            ExeName = "PixelCrossStitch.exe",
-            DataFolderName = "PixelCrossStitch_Data",
-            ManagedAssembly = null,
-            ProbeFileName = "GameAssembly.dll",
-            ProcessName = "PixelCrossStitch",
-            SteamAppId = "3071670",
-            SteamInstallDirName = "Pixel Cross Stitch Color by Number",
-            Expect32Bit = false,
-            Injectable = false,
-            PayloadPrefix = "PixelAssist/",
-            PluginRelativePath = null,
-            AssistExeRelativePath = "PixelAssist\\" + AssistExeName,
-            MarkerRelativePath = "PixelAssist\\pixelassist.installed.txt",
-            BackupRelativePath = "PixelAssist\\_backup"
-        };
-
-        public static readonly GameDescriptor[] Games =
-            new GameDescriptor[] { ColoringPixels, PixelCrossStitch };
-
-        /// <summary>按 --game= 传入的短名/全名查找游戏，找不到返回 null。</summary>
+        /// <summary>
+        /// 按 --game= 传入的短名 / 进程名 / Steam 目录名查找游戏。
+        /// 只支持一款游戏，但旧快捷方式里可能带着 --game=cp，认出来即可，认不出返回 null。
+        /// </summary>
         public static GameDescriptor FindGame(string key)
         {
             if (string.IsNullOrEmpty(key)) return null;
             string k = key.Trim().ToLowerInvariant();
-            foreach (GameDescriptor g in Games)
-            {
-                if (string.Equals(g.Key, k, StringComparison.OrdinalIgnoreCase)) return g;
-                if (string.Equals(g.ProcessName, k, StringComparison.OrdinalIgnoreCase)) return g;
-                if (string.Equals(g.SteamInstallDirName, k, StringComparison.OrdinalIgnoreCase)) return g;
-            }
+
+            GameDescriptor g = ColoringPixels;
+            if (string.Equals(g.Key, k, StringComparison.OrdinalIgnoreCase)) return g;
+            if (string.Equals(g.ProcessName, k, StringComparison.OrdinalIgnoreCase)) return g;
+            if (string.Equals(g.SteamInstallDirName, k, StringComparison.OrdinalIgnoreCase)) return g;
             return null;
         }
 
-        /// <summary>payload.zip 属于某款游戏的条目。</summary>
-        public static List<string> PayloadPrefixes()
+        // ============================================================ 用户数据目录
+
+        /// <summary>%APPDATA%\ColoringPixelsTool（不存在时返回路径本身，由调用方决定是否创建）。</summary>
+        public static string UserDataDirectory()
         {
-            List<string> list = new List<string>();
-            foreach (GameDescriptor g in Games)
-                if (!string.IsNullOrEmpty(g.PayloadPrefix)) list.Add(g.PayloadPrefix);
-            return list;
+            try
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    UserDataDirectoryName);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         public static string AppVersion

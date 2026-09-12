@@ -6,8 +6,7 @@ namespace ColoringPixelsTool.Assist
     /// <summary>
     /// 「人工辅助」模块的底层输入模拟。
     ///
-    /// 刻意不依赖 UnityEngine：同一份源码既被游戏内插件引用，
-    /// 也被独立的 PixelAssist.exe（第二个游戏用）引用。
+    /// 刻意不依赖 UnityEngine：纯 Win32 输入模拟，方便单独测试。
     /// </summary>
     internal static class AssistWin32
     {
