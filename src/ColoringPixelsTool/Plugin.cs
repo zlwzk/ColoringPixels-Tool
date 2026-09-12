@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "3.0.0";
+        public const string Version = "3.0.1";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -190,6 +190,8 @@ namespace ColoringPixelsTool
             gameObject.AddComponent<CheatPanel>();
             gameObject.AddComponent<ColorHighlighter>();
             gameObject.AddComponent<PresetButtonInjector>();
+            // 中文字形兜底：只给含中文的文本换字体，游戏原本的字体保持不动。
+            gameObject.AddComponent<GameFontFallback>();
 
             GamePreset.Reload();
 
