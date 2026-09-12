@@ -29,12 +29,12 @@ namespace ColoringPixelsTool
 
         private static readonly string[] TabsAuto =
         {
-            "首页", "涂色", "拟人", "自动化", "辅助", "解锁", "设置", "调试"
+            "首页", "涂色", "拟人", "自动化", "辅助", "解锁", "提醒", "设置", "调试"
         };
 
         private static readonly string[] TabsManual =
         {
-            "扫描", "区域", "参数", "预设", "预览", "设置", "调试"
+            "扫描", "区域", "参数", "预设", "预览", "提醒", "设置", "调试"
         };
 
         private const float Pad = 14f;
@@ -213,6 +213,13 @@ namespace ColoringPixelsTool
                 Toast(Plugin.HighlightEnabled.Value ? "画布颜色高亮已开启" : "画布颜色高亮已关闭");
             }
 
+            // 主题 / 动效开关：配置里改了就即时生效（和前一次的值比对，避免每帧重算）
+            ApplyAppearance();
+
+            // 提醒中心（倒计时播报 / 每小时趣味横幅）与使用统计
+            Reminder.Tick(Time.unscaledDeltaTime);
+            Stats.Tick(Time.unscaledDeltaTime);
+
             // 累计在线时长（等级系统）
             UserProfile.Tick(Time.unscaledDeltaTime);
             UserProfile.TickSave(Time.unscaledDeltaTime);
@@ -373,6 +380,11 @@ namespace ColoringPixelsTool
             // 粒子（彩纸 / 微光）：在缩放矩阵之外绘制，任何界面状态下都可见
             if (UiFx.ParticlesAlive) GuiSafe("粒子特效", UiFx.DrawParticles);
 
+            // 每小时趣味横幅 / 倒计时提醒 / 退出确认：面板没开也得看得见
+            if (Reminder.BannerVisible) GuiSafe("每小时横幅", DrawBanner);
+            if (Reminder.Popup) GuiSafe("倒计时提醒", DrawReminderPopup);
+            if (QuitGuard.Pending) GuiSafe("退出确认", DrawQuitConfirm);
+
             // 弹窗层先画、主面板后画：面板压在最上面，于是「弹窗把面板盖住、点不动」
             // 变成了「面板照常可用，弹窗挪到旁边」。弹窗之间互斥，免得叠成一片。
             if (_visible)
@@ -421,7 +433,7 @@ namespace ColoringPixelsTool
         /// <summary>是否有全屏弹窗正挡在面板前面。</summary>
         private bool HasModal()
         {
-            return _showAnnouncement || _showGuide || _showUnlockWarning;
+            return _showAnnouncement || _showGuide || _showUnlockWarning || Reminder.Popup || QuitGuard.Pending;
         }
 
         /// <summary>关掉最上面那层弹窗（F1 / Esc 共用）。</summary>
@@ -436,6 +448,8 @@ namespace ColoringPixelsTool
                 return;
             }
             if (_showUnlockWarning) { _showUnlockWarning = false; return; }
+            if (Reminder.Popup) { Reminder.DismissPopup(); return; }
+            if (QuitGuard.Pending) { QuitGuard.Cancel(); return; }
         }
 
         /// <summary>
@@ -476,9 +490,9 @@ namespace ColoringPixelsTool
             var r = new Rect((Screen.width - w) * 0.5f, 46f, w, 46f);
 
             Ui.RoundOutline(r, 10f,
-                new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.65f * a),
-                new Color(0.10f, 0.11f, 0.15f, 0.96f * a));
-            Ui.Text(r, msg, Ui.Label, new Color(1f, 1f, 1f, a));
+                Ui.Alpha(Ui.Accent, 0.65f * a),
+                Ui.Alpha(Ui.ToastBg, 0.96f * a));
+            Ui.Text(r, msg, Ui.Label, Ui.Alpha(Ui.TextCol, a));
         }
 
         private void DrawWindow()
@@ -507,13 +521,13 @@ namespace ColoringPixelsTool
             DrawBackground();
 
             // 面板主体：多层圆角营造深度
-            Ui.Round(_window, 16f, new Color(0.12f, 0.13f, 0.18f, opacity));
+            Ui.Round(_window, 16f, Ui.Alpha(Ui.Window, opacity));
             Ui.Round(new Rect(_window.x + 1f, _window.y + 1f, _window.width - 2f, _window.height - 2f), 15f,
-                new Color(0.09f, 0.10f, 0.14f, opacity));
+                Ui.Alpha(Ui.WindowTop, opacity));
             Ui.Round(new Rect(_window.x + 0.5f, _window.y + 0.5f, _window.width - 1f, _window.height - 1f), 16f,
-                new Color(0.22f, 0.24f, 0.32f, opacity));
+                Ui.Alpha(Ui.WindowEdge, opacity));
             Ui.Round(new Rect(_window.x + 1.5f, _window.y + 1.5f, _window.width - 3f, _window.height - 3f), 15f,
-                new Color(0.082f, 0.09f, 0.13f, opacity));
+                Ui.Alpha(Ui.WindowInk, opacity));
 
             // ---- 氛围层：极光 + 点阵 + 噪点（Aceternity：Aurora / Dot Background / Noise）----
             GUI.BeginClip(_window);
@@ -629,8 +643,8 @@ namespace ColoringPixelsTool
             DrawProfileHeader(profileX, profileY, profileW, profileH);
 
             float ch = Ui.Tween("hdr-close", hov, 20f);
-            Ui.Round(close, 8f, Color.Lerp(new Color(0.145f, 0.165f, 0.230f, 1f), Ui.Bad, ch));
-            Ui.Text(close, "✕", Ui.Center, Color.Lerp(Ui.Muted, Color.white, ch));
+            Ui.Round(close, 8f, Color.Lerp(Ui.CardHover, Ui.Bad, ch));
+            Ui.Text(close, "✕", Ui.Center, Color.Lerp(Ui.Muted, Ui.TextCol, ch));
             if (hov && e.type == EventType.MouseDown && e.button == 0)
             {
                 _visible = false;
@@ -660,8 +674,8 @@ namespace ColoringPixelsTool
             return "";
         }
 
-        /// <summary>「设置」页的下标（人工辅助 7 页里是第 6 个，自动绘图 8 页里是第 7 个）。</summary>
-        private int SettingsTabIndex => _module == ModuleManual ? 5 : 6;
+        /// <summary>「设置」页的下标（人工辅助 8 页里是第 7 个，自动绘图 9 页里是第 8 个）。</summary>
+        private int SettingsTabIndex => _module == ModuleManual ? 6 : 7;
 
         private void DrawProfileHeader(float areaX, float areaY, float areaW, float areaH)
         {
@@ -669,7 +683,7 @@ namespace ColoringPixelsTool
 
             var area = new Rect(areaX, areaY, areaW, areaH);
             bool hover = Ui.Hit(area);
-            if (hover) Ui.Round(area, 10f, new Color(1f, 1f, 1f, 0.05f));
+            if (hover) Ui.Round(area, 10f, Ui.Alpha(Ui.HiTint, 0.05f));
 
             // 头像
             var avatar = new Rect(areaX + 6f, areaY + 9f, 44f, 44f);
@@ -742,7 +756,7 @@ namespace ColoringPixelsTool
             Event e = Event.current;
 
             Ui.Round(new Rect(box.x, box.y + 3f, box.width, box.height - 6f), 9f,
-                new Color(0.031f, 0.039f, 0.059f, 0.85f));
+                Ui.Alpha(Ui.Sunken, 0.85f));
 
             string[] names = { "自动完成", "人工辅助" };
             float bw = box.width * 0.5f;
@@ -756,7 +770,7 @@ namespace ColoringPixelsTool
 
                 Color c = active
                     ? Ui.Alpha(i == 0 ? Ui.Accent : Ui.Accent2, 0.26f)
-                    : new Color(1f, 1f, 1f, hov ? 0.05f : 0f);
+                    : Ui.Alpha(Ui.HiTint, hov ? 0.05f : 0f);
                 Ui.Round(r, 8f, c);
                 if (active)
                     Ui.RoundOutline(r, 8f, Ui.Alpha(i == 0 ? Ui.Accent : Ui.Accent2, 0.7f),
@@ -792,7 +806,7 @@ namespace ColoringPixelsTool
 
             // 分段控件底板
             Ui.Round(new Rect(bar.x, bar.y + 6f, bar.width, bar.height - 12f), 10f,
-                new Color(0.031f, 0.039f, 0.059f, 0.85f));
+                Ui.Alpha(Ui.Sunken, 0.85f));
             Ui.Fill(new Rect(bar.x + 12f, bar.y + 6.5f, bar.width - 24f, 1f), new Color(0f, 0f, 0f, 0.35f));
 
             // ---- 滑动指示块（Aceternity Tabs / Moving Border：整块平滑滑到当前页）----
@@ -816,7 +830,7 @@ namespace ColoringPixelsTool
 
                 float hv = UiFx.To("tab-h:" + _module + ":" + i, hov, 18f);
                 if (!active && hv > 0.005f)
-                    Ui.Round(r, 9f, new Color(1f, 1f, 1f, 0.045f * hv));
+                    Ui.Round(r, 9f, Ui.Alpha(Ui.HiTint, 0.045f * hv));
 
                 Ui.Text(r, Ellipsize(tabs[i], Ui.Tab, tw - 4f), Ui.Tab,
                     Color.Lerp(Ui.Muted, Ui.TextCol, Mathf.Clamp01(Mathf.Max(active ? 1f : 0f, hv * 0.6f))));
@@ -888,7 +902,8 @@ namespace ColoringPixelsTool
                     case 2: TabAssistParams(w, ref y); break;
                     case 3: TabAssistPresets(w, ref y); break;
                     case 4: TabPreview(w, ref y); break;
-                    case 5: TabSettings(w, ref y); break;
+                    case 5: TabReminder(w, ref y); break;
+                    case 6: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -907,7 +922,8 @@ namespace ColoringPixelsTool
                     case 3: TabAutomation(w, ref y); break;
                     case 4: TabAssist(w, ref y); break;
                     case 5: TabUnlock(w, ref y); break;
-                    case 6: TabSettings(w, ref y); break;
+                    case 6: TabReminder(w, ref y); break;
+                    case 7: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -927,7 +943,7 @@ namespace ColoringPixelsTool
                 float p = _scroll.y / Mathf.Max(1f, _contentHeight - view.height);
 
                 var trackR = new Rect(view.xMax + 4f, view.y + 2f, 4f, view.height - 4f);
-                Ui.Round(trackR, 2f, new Color(1f, 1f, 1f, 0.045f));
+                Ui.Round(trackR, 2f, Ui.Alpha(Ui.HiTint, 0.045f));
 
                 var thumb = new Rect(trackR.x, view.y + (view.height - barH) * p, 4f, barH);
                 Ui.Round(thumb, 2f, Ui.Alpha(Ui.Accent, 0.9f));
@@ -979,10 +995,10 @@ namespace ColoringPixelsTool
                 float a = Mathf.Clamp01((_toastUntil - Time.unscaledTime) / 0.6f);
                 var sz = Ui.Bold.CalcSize(new GUIContent(_toast));
                 var r = new Rect(_window.center.x - sz.x * 0.5f - 14f, _window.y + HeaderH + 4f, sz.x + 28f, 30f);
-                var toastBg = new Color(0.10f, 0.11f, 0.15f, 0.96f * a);
-                Ui.RoundOutline(r, 8f, new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.5f * a), toastBg);
+                var toastBg = Ui.Alpha(Ui.ToastBg, 0.96f * a);
+                Ui.RoundOutline(r, 8f, Ui.Alpha(Ui.Accent, 0.5f * a), toastBg);
                 UiFx.ShineBorder(r, 8f, UiFx.GlowA, UiFx.GlowB, 0.65f * a);
-                Ui.Text(r, _toast, Ui.Bold, new Color(1f, 1f, 1f, a));
+                Ui.Text(r, _toast, Ui.Bold, Ui.Alpha(Ui.TextCol, a));
             }
         }
 
@@ -991,7 +1007,7 @@ namespace ColoringPixelsTool
             Event e = Event.current;
 
             // 半透明遮罩
-            Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.55f));
+            Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), Ui.Alpha(Ui.Scrim, 0.55f));
 
             float mw = Mathf.Min(520f, Screen.width - 60f);
             float mh = Mathf.Min(600f, Screen.height - 80f);
@@ -1034,7 +1050,7 @@ namespace ColoringPixelsTool
                 float p = _announceScroll.y / Mathf.Max(1f, textH - textR.height);
                 var track = new Rect(textR.xMax + 6f, textR.y, 4f, textR.height);
                 var thumb = new Rect(track.x, textR.y + (textR.height - barH) * p, 4f, barH);
-                Ui.Round(track, 2f, new Color(1f, 1f, 1f, 0.06f));
+                Ui.Round(track, 2f, Ui.Alpha(Ui.HiTint, 0.06f));
                 Ui.Round(thumb, 2f, Ui.Alpha(Ui.Accent, 0.85f));
             }
 
@@ -1089,6 +1105,22 @@ namespace ColoringPixelsTool
                 inLevel ? $"剩余 {remain} 格" : "进入关卡后显示", Ui.MutedSmall);
 
             y += cardH + 10f;
+
+            // ---------- 使用数据（今日 / 本周）----------
+            Section(w, ref y, "使用数据");
+            Card(w, ref y, 94f, top =>
+            {
+                float tile = (w - Pad * 2f - 8f) * 0.5f;
+                Ui.StatTile(new Rect(Pad, top + 8f, tile, 52f), "今日涂色",
+                    FormatDuration(Stats.SecondsToday), Ui.Accent);
+                Ui.StatTile(new Rect(Pad + tile + 8f, top + 8f, tile, 52f), "本周涂色",
+                    FormatDuration(Stats.SecondsThisWeek), Ui.Accent2);
+                Ui.Text(new Rect(Pad, top + 66f, w - Pad * 2f, 18f),
+                    "今日完成 " + Stats.ImagesToday + " 张 · 本周完成 " + Stats.ImagesThisWeek +
+                    " 张 · 累计 " + Stats.ActiveDays + " 天有记录", Ui.MutedSmall);
+            });
+
+            y += 4f;
 
             // ---------- 计时器 ----------
             Section(w, ref y, "计时器");
@@ -1761,6 +1793,19 @@ namespace ColoringPixelsTool
             y += 6f;
             Section(w, ref y, "面板外观");
 
+            int themeNow = Segmented(w, ref y, Plugin.PanelTheme.Value, Theme.Names);
+            if (themeNow != Plugin.PanelTheme.Value)
+            {
+                Plugin.PanelTheme.Value = themeNow;
+                Toast("已切换主题：" + Theme.Names[Mathf.Clamp(themeNow, 0, Theme.Names.Length - 1)]);
+            }
+            Ui.Text(new Rect(0f, y, w, 18f),
+                Theme.Hints[Mathf.Clamp(Plugin.PanelTheme.Value, 0, Theme.Hints.Length - 1)], Ui.MutedSmall);
+            y += 24f;
+
+            Plugin.ReduceMotion.Value = Toggle(w, ref y, Plugin.ReduceMotion.Value,
+                "减弱动效", "关掉极光 / 粒子 / 流光这类循环装饰动效，低配机器更稳、看着更安静");
+
             Plugin.PanelOpacity.Value = Slider(w, ref y, "panelopacity", Plugin.PanelOpacity.Value, 0.5f, 1f,
                 "面板不透明度", $"{Plugin.PanelOpacity.Value * 100f:0}%", false);
 
@@ -1870,6 +1915,9 @@ namespace ColoringPixelsTool
             string heartNote = "游戏里点爱心 = 清空全部进度并回到第 1 关，开启后插件会再确认一次";
             if (HeartGuard.Blocked > 0) heartNote += "　（本次已拦下 " + HeartGuard.Blocked + " 次）";
             Plugin.HeartConfirm.Value = Toggle(w, ref y, Plugin.HeartConfirm.Value, "爱心二次确认", heartNote);
+
+            Plugin.QuitConfirm.Value = Toggle(w, ref y, Plugin.QuitConfirm.Value,
+                "退出游戏二次确认", "点窗口关闭 / Alt+F4 / 游戏内退出时，先弹一次确认，避免手滑退出");
 
             Plugin.TimerInHud.Value = Toggle(w, ref y, Plugin.TimerInHud.Value,
                 "HUD 显示本图用时", "在屏幕悬浮 HUD 上显示当前这张图的绘画用时");
@@ -2112,13 +2160,12 @@ namespace ColoringPixelsTool
             var box = new Rect(Plugin.HudX.Value, Plugin.HudY.Value, w, h);
             float alpha = Plugin.HudOpacity.Value;
 
-            var hudBg = new Color(0.06f, 0.07f, 0.10f, 0.92f * alpha);
-            Ui.RoundOutline(box, 12f, new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.35f * alpha), hudBg);
-            Ui.Round(new Rect(box.x + 10f, box.y + 12f, 3f, 16f), 1.5f,
-                new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, alpha));
+            var hudBg = Ui.Alpha(Ui.HudBg, 0.92f * alpha);
+            Ui.RoundOutline(box, 12f, Ui.Alpha(Ui.Accent, 0.35f * alpha), hudBg);
+            Ui.Round(new Rect(box.x + 10f, box.y + 12f, 3f, 16f), 1.5f, Ui.Alpha(Ui.Accent, alpha));
 
             Ui.Text(new Rect(box.x + 20f, box.y + 10f, box.width - 30f, 20f), "涂色进度", Ui.Bold,
-                new Color(1f, 1f, 1f, alpha));
+                Ui.Alpha(Ui.TextCol, alpha));
             Ui.Text(new Rect(box.x, box.y + 10f, box.width - 12f, 20f), $"{progress * 100f:0.0}%", Ui.Value,
                 progress >= 1f ? Ui.Good : Ui.Accent2);
 
@@ -2128,7 +2175,7 @@ namespace ColoringPixelsTool
             Ui.Text(new Rect(box.x + 10f, box.y + 50f, box.width - 20f, 18f),
                 $"已涂 {done} / {total}", Ui.MutedStyle, new Color(Ui.Muted.r, Ui.Muted.g, Ui.Muted.b, alpha));
             Ui.Text(new Rect(box.x + 10f, box.y + 68f, box.width - 20f, 18f),
-                $"剩余 {remain} 格", Ui.MutedStyle, remain == 0 ? Ui.Good : new Color(1f, 1f, 1f, alpha));
+                $"剩余 {remain} 格", Ui.MutedStyle, remain == 0 ? Ui.Good : Ui.Alpha(Ui.TextCol, alpha));
 
             if (list.Count > 0)
             {
@@ -2137,7 +2184,7 @@ namespace ColoringPixelsTool
                 {
                     Ui.Swatch(new Rect(box.x + 10f, yy + 4f, 14f, 14f), kv.Key, false);
                     Ui.Text(new Rect(box.x + 32f, yy, 120f, 20f), $"{kv.Value} 格", Ui.MutedSmall,
-                        new Color(1f, 1f, 1f, alpha));
+                        Ui.Alpha(Ui.TextCol, alpha));
                     yy += 22f;
                 }
             }

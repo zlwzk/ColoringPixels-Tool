@@ -14,31 +14,80 @@ namespace ColoringPixelsTool
         // ============================================================ 配色
 
         // 层次自深到浅：Bg → Panel → Card → CardHover
-        public static readonly Color Bg = new Color32(0x0A, 0x0C, 0x13, 0xF7);
-        public static readonly Color Panel = new Color32(0x10, 0x13, 0x1D, 0xFF);
-        public static readonly Color Card = new Color32(0x17, 0x1B, 0x27, 0xFF);
-        public static readonly Color CardHover = new Color32(0x20, 0x26, 0x36, 0xFF);
-        public static readonly Color CardEdge = new Color32(0x27, 0x2E, 0x40, 0xFF);
-        public static readonly Color Line = new Color32(0x22, 0x28, 0x38, 0xFF);
-        public static readonly Color Track = new Color32(0x0C, 0x0F, 0x17, 0xFF);
+        // 注意：这些不是 readonly —— Theme.Apply 会整体换掉（见 Theme.cs）。
+        public static Color Bg = new Color32(0x0A, 0x0C, 0x13, 0xF7);
+        public static Color Panel = new Color32(0x10, 0x13, 0x1D, 0xFF);
+        public static Color Card = new Color32(0x17, 0x1B, 0x27, 0xFF);
+        public static Color CardHover = new Color32(0x20, 0x26, 0x36, 0xFF);
+        public static Color CardEdge = new Color32(0x27, 0x2E, 0x40, 0xFF);
+        public static Color Line = new Color32(0x22, 0x28, 0x38, 0xFF);
+        public static Color Track = new Color32(0x0C, 0x0F, 0x17, 0xFF);
 
-        public static readonly Color TextCol = new Color32(0xEC, 0xEF, 0xF7, 0xFF);
-        public static readonly Color Muted = new Color32(0x7C, 0x86, 0x9E, 0xFF);
+        public static Color TextCol = new Color32(0xEC, 0xEF, 0xF7, 0xFF);
+        public static Color Muted = new Color32(0x7C, 0x86, 0x9E, 0xFF);
 
-        public static readonly Color Accent = new Color32(0x8B, 0x5C, 0xFF, 0xFF);
-        public static readonly Color Accent2 = new Color32(0x2B, 0xDD, 0xF5, 0xFF);
-        public static readonly Color Good = new Color32(0x3D, 0xD9, 0x9A, 0xFF);
-        public static readonly Color Warn = new Color32(0xF7, 0xA8, 0x25, 0xFF);
-        public static readonly Color Bad = new Color32(0xF6, 0x5E, 0x6E, 0xFF);
+        public static Color Accent = new Color32(0x8B, 0x5C, 0xFF, 0xFF);
+        public static Color Accent2 = new Color32(0x2B, 0xDD, 0xF5, 0xFF);
+        public static Color Good = new Color32(0x3D, 0xD9, 0x9A, 0xFF);
+        public static Color Warn = new Color32(0xF7, 0xA8, 0x25, 0xFF);
+        public static Color Bad = new Color32(0xF6, 0x5E, 0x6E, 0xFF);
 
         /// <summary>比 Card 再亮一档的次级表面，用于分区底 / 内嵌区域。</summary>
-        public static readonly Color PanelHi = new Color32(0x14, 0x18, 0x23, 0xFF);
+        public static Color PanelHi = new Color32(0x14, 0x18, 0x23, 0xFF);
 
         /// <summary>强调色的柔光铺底（大面积极光用）。</summary>
-        public static readonly Color AccentSoft = new Color32(0x23, 0x1C, 0x3E, 0xFF);
+        public static Color AccentSoft = new Color32(0x23, 0x1C, 0x3E, 0xFF);
 
         /// <summary>键帽底色。</summary>
-        public static readonly Color KeyCapCol = new Color32(0x2A, 0x31, 0x45, 0xFF);
+        public static Color KeyCapCol = new Color32(0x2A, 0x31, 0x45, 0xFF);
+
+        // ---- 主题派生令牌（同样由 Theme.Apply 赋值） ----
+
+        /// <summary>主窗口底色（配合 PanelOpacity 使用）。</summary>
+        public static Color Window = new Color32(0x12, 0x13, 0x18, 0xFF);
+
+        /// <summary>主窗口顶部渐变的另一端。</summary>
+        public static Color WindowTop = new Color32(0x09, 0x0A, 0x0E, 0xFF);
+
+        /// <summary>主窗口最内侧的一圈压暗 / 提亮。</summary>
+        public static Color WindowInk = new Color32(0x08, 0x09, 0x0D, 0xFF);
+
+        /// <summary>主窗口描边。</summary>
+        public static Color WindowEdge = new Color32(0x22, 0x24, 0x29, 0xFF);
+
+        /// <summary>内嵌底：页签栏、模块切换条这类"下沉"区域。</summary>
+        public static Color Sunken = new Color32(0x08, 0x0A, 0x0F, 0xFF);
+
+        /// <summary>顶部高光线的颜色（浅色主题下基本不可见，属于有意为之）。</summary>
+        public static Color Sheen = Color.white;
+
+        /// <summary>
+        /// 「强调 / 提亮」的方向色：深色主题里是白，浅色主题里是黑。
+        /// 凡是「悬停时提亮一点」「文字往亮处插值」的地方都得用它，
+        /// 否则浅色主题会出现"白字压白底"。
+        /// </summary>
+        public static Color HiTint = Color.white;
+
+        /// <summary>模态背景遮罩。</summary>
+        public static Color Scrim = new Color32(0x06, 0x07, 0x0A, 0xFF);
+
+        /// <summary>通用弹窗底色。</summary>
+        public static Color ModalBg = new Color32(0x06, 0x07, 0x0B, 0xFF);
+
+        /// <summary>暖色弹窗底（新手指引）。</summary>
+        public static Color ModalWarm = new Color32(0x1A, 0x16, 0x10, 0xFF);
+
+        /// <summary>粉色弹窗底（爱心确认）。</summary>
+        public static Color ModalPink = new Color32(0x17, 0x12, 0x17, 0xFF);
+
+        /// <summary>浮动提示（toast）底色。</summary>
+        public static Color ToastBg = new Color32(0x1A, 0x1C, 0x26, 0xFF);
+
+        /// <summary>屏幕悬浮 HUD 底色。</summary>
+        public static Color HudBg = new Color32(0x0F, 0x12, 0x19, 0xFF);
+
+        /// <summary>开关关闭时的轨道色。</summary>
+        public static Color KnobOff = new Color32(0x2C, 0x33, 0x45, 0xFF);
 
         public static Color Alpha(Color c, float a)
         {
@@ -311,7 +360,7 @@ namespace ColoringPixelsTool
             if (r.width > inset * 2f + 4f)
             {
                 Fill(new Rect(r.x + inset, r.y + 1f, r.width - inset * 2f, 1f),
-                    new Color(1f, 1f, 1f, 0.045f + 0.035f * hv));
+                    Alpha(Sheen, 0.045f + 0.035f * hv));
                 if (r.height > radius * 2f)
                     Fill(new Rect(r.x + inset, r.yMax - 1.5f, r.width - inset * 2f, 1f),
                         new Color(0f, 0f, 0f, 0.22f));
@@ -332,7 +381,7 @@ namespace ColoringPixelsTool
             float inset = radius * 0.7f;
             if (r.width > inset * 2f + 4f)
                 Fill(new Rect(r.x + inset, r.y + 1.5f, r.width - inset * 2f, 1f),
-                    new Color(1f, 1f, 1f, 0.05f + 0.03f * hv));
+                    Alpha(Sheen, 0.05f + 0.03f * hv));
         }
 
         // ============================================================ 文本
@@ -371,8 +420,7 @@ namespace ColoringPixelsTool
 
             const float sw = 42f, sh = 22f;
             var sr = new Rect(row.xMax - sw - 10f, row.y + (row.height - sh) * 0.5f, sw, sh);
-            var off = new Color32(0x2C, 0x33, 0x45, 0xFF);
-            Round(sr, sh * 0.5f, Color.Lerp(off, Accent, on));
+            Round(sr, sh * 0.5f, Color.Lerp(KnobOff, Accent, on));
 
             // 轨道内阴影
             Fill(new Rect(sr.x + 3f, sr.yMax - 3.5f, sr.width - 6f, 1.5f), new Color(0f, 0f, 0f, 0.25f));
@@ -380,13 +428,13 @@ namespace ColoringPixelsTool
             float kr = sh - 6f;
             float travel = sw - kr - 6f;
             var krr = new Rect(sr.x + 3f + travel * on, sr.y + 3f, kr, kr);
-            Round(krr, kr * 0.5f, Color.Lerp(new Color32(0xD8, 0xDD, 0xE8, 0xFF), Color.white, on));
+            Round(krr, kr * 0.5f, Color.Lerp(Color.Lerp(Color.white, HiTint, 0.10f), Color.white, on));
 
             float textW = row.width - sw - 30f;
             if (string.IsNullOrEmpty(desc))
             {
                 Text(new Rect(row.x + 13f, row.y + (row.height - 20f) * 0.5f, textW, 20f), label, Label,
-                    Color.Lerp(TextCol, Color.white, hv * 0.35f));
+                    Color.Lerp(TextCol, HiTint, hv * 0.35f));
             }
             else
             {

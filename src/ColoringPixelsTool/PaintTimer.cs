@@ -14,7 +14,8 @@ namespace ColoringPixelsTool
     ///   · 进入关卡后从「第一次落笔」开始计时，涂到 100% 立即停表；
     ///   · 中途发呆（超过 <see cref="IdleGrace"/> 秒没有任何新涂的格子）的时间不计入；
     ///   · 每张图（书 : 关）单独记一份，切图后再回来会接着上一次的累计时间继续；
-    ///   · 全部数据落在 BepInEx/config 下的 ColoringPixelsTool.Times.json 旁边（文本格式）。
+    ///   · 数据落在 %APPDATA%\ColoringPixelsTool\ColoringPixelsTool.Times.txt（文本格式），
+    ///     不会随覆盖安装 / 验证游戏文件 / 卸载插件一起消失。
     ///
     /// 自动涂色与人工涂色都算「在画这张图」，因为两者都会让已涂格数变化。
     /// </summary>
@@ -41,16 +42,17 @@ namespace ColoringPixelsTool
         private static float _sampleCooldown;
         private static float _saveCooldown;
         private static bool _loaded;
-        private static string _filePath;
 
+        /// <summary>正式位置：%APPDATA%\ColoringPixelsTool\（属于用户的数据，不该放游戏目录）。</summary>
         public static string FilePath
         {
-            get
-            {
-                if (!string.IsNullOrEmpty(_filePath)) return _filePath;
-                _filePath = Path.Combine(Plugin.ConfigDirectory(), FileName);
-                return _filePath;
-            }
+            get { return AppPaths.InUserData(FileName); }
+        }
+
+        /// <summary>旧版位置（BepInEx\config）：只在升级时用来把老数据搬过来，不再写。</summary>
+        private static string LegacyPath
+        {
+            get { return Path.Combine(Plugin.ConfigDirectory(), FileName); }
         }
 
         /// <summary>当前所在图片的唯一标识（书 : 关）。</summary>
@@ -234,6 +236,7 @@ namespace ColoringPixelsTool
             Bests.Clear();
             try
             {
+                MigrateLegacy();
                 if (!File.Exists(FilePath)) return;
                 foreach (string raw in File.ReadAllLines(FilePath, Encoding.UTF8))
                 {
@@ -262,14 +265,32 @@ namespace ColoringPixelsTool
             }
         }
 
+        /// <summary>把旧版放在 BepInEx\config 里的计时文件搬到 %APPDATA%（只在正式文件不存在时做一次）。</summary>
+        private static void MigrateLegacy()
+        {
+            try
+            {
+                if (File.Exists(FilePath)) return;
+
+                string legacy = LegacyPath;
+                if (!File.Exists(legacy)) return;
+
+                AppPaths.EnsureDirectory(AppPaths.UserDataDirectory());
+                File.Copy(legacy, FilePath, true);
+                Log.Info("单图计时已从旧位置迁移到 " + AppPaths.Display(FilePath));
+            }
+            catch (Exception e)
+            {
+                Log.Warn("迁移单图计时失败：" + e.Message);
+            }
+        }
+
         public static void Save()
         {
             _saveCooldown = 20f;
             try
             {
                 Trim();
-                string dir = Path.GetDirectoryName(FilePath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
                 var sb = new StringBuilder();
                 sb.AppendLine("# ColoringPixelsTool 单图绘画用时（key = 书:关）");
@@ -282,7 +303,7 @@ namespace ColoringPixelsTool
                       .Append(kv.Value.ToString("F2", CultureInfo.InvariantCulture)).Append('\t')
                       .Append(best.ToString("F2", CultureInfo.InvariantCulture)).AppendLine();
                 }
-                File.WriteAllText(FilePath, sb.ToString(), Encoding.UTF8);
+                AppPaths.WriteAtomic(FilePath, sb.ToString());
             }
             catch (Exception e)
             {

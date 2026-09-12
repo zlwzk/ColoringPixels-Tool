@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "3.0.1";
+        public const string Version = "3.0.2";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -40,6 +40,7 @@ namespace ColoringPixelsTool
         internal static ConfigEntry<bool> AutoUnlocked;
         internal static ConfigEntry<bool> GuideShown;
         internal static ConfigEntry<bool> HeartConfirm;
+        internal static ConfigEntry<bool> QuitConfirm;
         internal static ConfigEntry<bool> TimerInHud;
         internal static ConfigEntry<bool> VoiceEnabled;
         internal static ConfigEntry<int> VoiceMode;
@@ -108,6 +109,18 @@ namespace ColoringPixelsTool
         // ---- 面板 ----
         internal static ConfigEntry<float> PanelOpacity;
         internal static ConfigEntry<float> PanelScale;
+        internal static ConfigEntry<int> PanelTheme;
+        internal static ConfigEntry<bool> ReduceMotion;
+
+        // ---- 提醒与播报 ----
+        internal static ConfigEntry<float> RemindCountdownMinutes;
+        internal static ConfigEntry<string> RemindCountdownText;
+        internal static ConfigEntry<bool> RemindCountdownSpeak;
+        internal static ConfigEntry<bool> RemindCountdownAutoRestart;
+        internal static ConfigEntry<bool> HourBannerEnabled;
+        internal static ConfigEntry<bool> HourBannerSpeak;
+        internal static ConfigEntry<int> TtsRate;
+        internal static ConfigEntry<int> TtsVolume;
 
         // ---- 推荐预设 ----
         internal static ConfigEntry<bool> PresetButtonEnabled;
@@ -128,6 +141,8 @@ namespace ColoringPixelsTool
 
             UserProfile.Load();
             PaintTimer.Load();
+            Stats.Load();
+            Reminder.Init();
 
             // 卸载后重装 = 新用户：安装器卸载时在漫游目录留了标记，这里消费一次。
             // 覆盖安装（没卸载过）不写标记，于是维持原状。
@@ -185,6 +200,9 @@ namespace ColoringPixelsTool
                 Log.Warn("爱心二次确认未启用：" + e.Message);
             }
 
+            // 退出游戏二次确认：挂在 Application.wantsToQuit 上，不依赖 Harmony 目标，游戏更新也不怕
+            QuitGuard.Install();
+
             gameObject.AddComponent<AutoPainter>();
             gameObject.AddComponent<AutoScheduler>();
             gameObject.AddComponent<CheatPanel>();
@@ -199,7 +217,10 @@ namespace ColoringPixelsTool
         }
 
         /// <summary>
-        /// BepInEx 的 config 目录：等级存档、推荐预设、单图计时等数据文件都放在这里。
+        /// BepInEx 的 config 目录：插件配置（.cfg）与推荐预设放在这里。
+        /// 注意「属于用户的数据」（等级 / 单图计时 / 统计 / 横幅文案 / 备份）统一放
+        /// <c>%APPDATA%\ColoringPixelsTool</c>（见 <see cref="AppPaths"/>），
+        /// 因为游戏目录会随覆盖安装 / 验证文件完整性一起消失。
         /// 优先问 BepInEx 要（尊重用户自定义的路径），拿不到再回退到 &lt;游戏目录&gt;\BepInEx\config。
         /// </summary>
         internal static string ConfigDirectory()
@@ -282,6 +303,11 @@ namespace ColoringPixelsTool
             PanelScale = Config.Bind(p, "面板缩放", 0f,
                 new ConfigDescription("0 = 跟随分辨率自适应；> 0 时手动指定缩放倍数（推荐 0.8 ~ 1.6）",
                     new AcceptableValueRange<float>(0f, 2.2f)));
+            PanelTheme = Config.Bind(p, "主题", 0,
+                new ConfigDescription("0 = 柔光马卡龙（浅色雾面玻璃），1 = 深靛霓虹（深色）",
+                    new AcceptableValueRange<int>(0, 1)));
+            ReduceMotion = Config.Bind(p, "减弱动效", false,
+                "关掉极光 / 粒子 / 流光这类循环装饰动效，低配机器更稳、看着更安静");
 
             var pre = "8-推荐预设";
             PresetButtonEnabled = Config.Bind(pre, "显示预设按钮", true,
@@ -353,6 +379,27 @@ namespace ColoringPixelsTool
             VoiceMode = Config.Bind(f, "语音识别模式", 0,
                 new ConfigDescription("0 = 听写（自由说，可识别中文/英文/阿拉伯数字），1 = 关键词（只认一 ~ 三十，可离线）",
                     new AcceptableValueRange<int>(0, 1)));
+            QuitConfirm = Config.Bind(f, "退出游戏二次确认", true,
+                "点窗口关闭 / Alt+F4 / 游戏内退出时，先弹一次确认，避免手滑退出");
+
+            var r = "C-提醒与播报";
+            RemindCountdownMinutes = Config.Bind(r, "倒计时分钟", 45f,
+                new ConfigDescription("倒计时提醒的时长（分钟）", new AcceptableValueRange<float>(1f, 480f)));
+            RemindCountdownText = Config.Bind(r, "倒计时播报文案", "时间到啦，起来活动一下眼睛吧~",
+                "倒计时结束时弹窗 + 语音播报的内容");
+            RemindCountdownSpeak = Config.Bind(r, "倒计时语音播报", true,
+                "倒计时结束时用系统语音把播报文案念出来");
+            RemindCountdownAutoRestart = Config.Bind(r, "倒计时循环", false,
+                "播报结束后自动开始下一轮倒计时");
+            HourBannerEnabled = Config.Bind(r, "每小时趣味横幅", true,
+                "累计有效涂色每满 1 小时，在屏幕顶部飘一条随机趣味文案（文案可在面板里改）");
+            HourBannerSpeak = Config.Bind(r, "横幅语音播报", false,
+                "每小时横幅出现时顺带用系统语音提醒一句");
+            TtsRate = Config.Bind(r, "语音语速", 0,
+                new ConfigDescription("系统语音语速，-10（最慢）~ 10（最快）",
+                    new AcceptableValueRange<int>(-10, 10)));
+            TtsVolume = Config.Bind(r, "语音音量", 100,
+                new ConfigDescription("系统语音音量", new AcceptableValueRange<int>(0, 100)));
 
             var fb = "B-反馈";
             FeedbackToken = Config.Bind(fb, "GitHub Token", "",
@@ -367,6 +414,13 @@ namespace ColoringPixelsTool
 
         private void OnDestroy()
         {
+            // 退出前把「攒着还没落盘」的数据补写一次，否则最后一小段涂色时长 / 统计会丢。
+            try { PaintTimer.Save(); } catch (System.Exception) { }
+            try { Stats.Save(); } catch (System.Exception) { }
+            try { UserProfile.Save(); } catch (System.Exception) { }
+            try { Tts.Shutdown(); } catch (System.Exception) { }
+            try { QuitGuard.Uninstall(); } catch (System.Exception) { }
+
             HarmonyInstance?.UnpatchSelf();
         }
     }

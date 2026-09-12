@@ -44,8 +44,20 @@ namespace ColoringPixelsTool
         }
 
         /// <summary>统一的主色渐变对（极光 / 描边光 / 流光都用同一套，保证视觉一致）。</summary>
-        public static readonly Color GlowA = new Color(0.545f, 0.361f, 1f, 1f);   // 紫
-        public static readonly Color GlowB = new Color(0.169f, 0.867f, 0.961f, 1f); // 青
+        /// <remarks>由 Theme.Apply 赋值，所以不是 readonly。</remarks>
+        public static Color GlowA = new Color(0.545f, 0.361f, 1f, 1f);   // 紫
+        public static Color GlowB = new Color(0.169f, 0.867f, 0.961f, 1f); // 青
+        public static Color GlowC = new Color(1f, 0.35f, 0.75f, 1f);      // 品红
+
+        /// <summary>极光 / 点阵 / 噪点的整体强度（浅色主题下调低，避免糊成一片）。</summary>
+        public static float AmbientStrength = 1f;
+
+        /// <summary>
+        /// 减弱动效：低配机器 / 晕动的用户可以在设置里打开。
+        /// 关掉的是"一直循环播放的装饰动效"（极光、点阵、噪点、流光、描边光束、眩光、粒子），
+        /// 悬停聚光、数值滚动这些**有信息量**的反馈依然保留。
+        /// </summary>
+        public static bool Reduced;
 
         // ============================================================ 缓动
 
@@ -330,6 +342,10 @@ namespace ColoringPixelsTool
         public static void Aurora(Rect r, float alpha = 0.5f)
         {
             if (r.width <= 0f || r.height <= 0f) return;
+            if (Reduced) return;
+
+            alpha *= AmbientStrength;
+            if (alpha <= 0.002f) return;
 
             float t = Time.unscaledTime;
             Color prev = GUI.color;
@@ -350,7 +366,7 @@ namespace ColoringPixelsTool
             Blob(r, new Vector2(
                     r.x + r.width * (0.50f + 0.26f * Mathf.Sin(t * 0.09f + 3.1f)),
                     r.y + r.height * (0.92f + 0.10f * Mathf.Cos(t * 0.12f + 2.2f))),
-                big * 0.70f, new Color(1f, 0.35f, 0.75f, 1f), 0.14f * alpha);
+                big * 0.70f, GlowC, 0.14f * alpha);
 
             GUI.color = prev;
         }
@@ -365,6 +381,7 @@ namespace ColoringPixelsTool
         /// <summary>点阵背景（Aceternity Grid/Dot Background）。</summary>
         public static void DotGrid(Rect r, float alpha, float cell = 26f)
         {
+            if (Reduced) return;
             if (r.width <= 0f || r.height <= 0f || alpha <= 0.002f) return;
             Color prev = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
@@ -375,6 +392,7 @@ namespace ColoringPixelsTool
         /// <summary>噪点叠加，消除大面积渐变的色带。</summary>
         public static void GrainOverlay(Rect r, float alpha)
         {
+            if (Reduced) return;
             if (r.width <= 0f || r.height <= 0f || alpha <= 0.002f) return;
             Color prev = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
@@ -406,6 +424,7 @@ namespace ColoringPixelsTool
         /// <summary>magicui 的 Border Beam：沿矩形周期移动的光点。</summary>
         public static void BorderBeam(Rect r, Color color, float speed = 0.22f, float size = 46f, float alpha = 0.9f)
         {
+            if (Reduced) return;
             if (r.width <= 4f || r.height <= 4f || alpha <= 0.002f) return;
 
             float per = 2f * (r.width + r.height);
@@ -446,6 +465,7 @@ namespace ColoringPixelsTool
         /// <summary>magicui 的 Shimmer Button：周期性斜向掠过的流光。</summary>
         public static void Shimmer(Rect r, float radius, Color tint, float strength = 0.5f, float period = 2.6f)
         {
+            if (Reduced) return;
             if (strength <= 0.002f || r.width <= 8f) return;
 
             // 内缩 2px，避免旋转后的光带在圆角处"漏"出直角
@@ -469,6 +489,7 @@ namespace ColoringPixelsTool
         /// <summary>magicui 的 Glare Hover：悬停时表面的一道静态反光。</summary>
         public static void Glare(Rect r, float hover, Color tint, float strength = 0.16f)
         {
+            if (Reduced) return;
             if (hover <= 0.02f || r.width <= 8f) return;
 
             var clip = new Rect(r.x + 1.5f, r.y + 2f, Mathf.Max(1f, r.width - 3f), Mathf.Max(1f, r.height - 4f));
@@ -505,6 +526,7 @@ namespace ColoringPixelsTool
         /// <summary>Confetti / Sparkles：在一点炸开一簇粒子。</summary>
         public static void Burst(Vector2 center, Color color, int count = 34, float power = 1f)
         {
+            if (Reduced) return;
             var rnd = new System.Random((int)(Time.unscaledTime * 977f) ^ count);
             for (int i = 0; i < count; i++)
             {
@@ -528,6 +550,7 @@ namespace ColoringPixelsTool
         /// <summary>常驻微光（Sparkles Text 那种）：在区域内随机闪烁的小点。</summary>
         public static void Sparkle(Rect area, int count, Color color, float alpha = 0.7f)
         {
+            if (Reduced) return;
             if (area.width <= 0f || area.height <= 0f) return;
             float t = Time.unscaledTime;
             for (int i = 0; i < count; i++)
@@ -561,6 +584,7 @@ namespace ColoringPixelsTool
 
         public static void DrawParticles()
         {
+            if (Reduced) return;
             for (int i = 0; i < Parts.Count; i++)
             {
                 var p = Parts[i];
