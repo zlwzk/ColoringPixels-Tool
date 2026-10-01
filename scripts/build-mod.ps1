@@ -19,6 +19,7 @@ param(
     [ValidateSet('Release', 'Debug')][string]$Configuration = 'Release',
     [string]$Output,
     [ValidateSet('auto', 'dotnet', 'msbuild', 'csc')][string]$Backend = 'auto',
+    [string]$Csc,
     [switch]$Clean
 )
 
@@ -104,6 +105,11 @@ function Find-MSBuild {
 }
 
 function Find-RoslynCsc {
+    # 优先级：-Csc 参数 > CPT_ROSLYN_CSC 环境变量 > VS / Build Tools 自带
+    if (-not [string]::IsNullOrWhiteSpace($Csc) -and (Test-Path -LiteralPath $Csc)) { return $Csc }
+    $envCsc = $env:CPT_ROSLYN_CSC
+    if (-not [string]::IsNullOrWhiteSpace($envCsc) -and (Test-Path -LiteralPath $envCsc)) { return $envCsc }
+
     $msbuild = Find-MSBuild
     if ($msbuild) {
         $roslyn = Join-Path (Split-Path -Parent $msbuild) 'Roslyn\csc.exe'
@@ -169,7 +175,8 @@ function Compile-WithCsc {
             'UnityEngine.TilemapModule.dll',
             'UnityEngine.GridModule.dll',
             'UnityEngine.TextRenderingModule.dll',
-            'UnityEngine.ImageConversionModule.dll'
+            'UnityEngine.ImageConversionModule.dll',
+            'UnityEngine.ScreenCaptureModule.dll'
         )) {
         $p = Join-Path $managed $r
         if (Test-Path -LiteralPath $p) { [void]$refs.Add($p) }

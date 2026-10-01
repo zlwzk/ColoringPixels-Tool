@@ -15,7 +15,7 @@ namespace ColoringPixelsTool.Installer
     {
         // ---- 窗口尺寸（基准像素，实际会乘 DPI 系数）----
         private const int BaseWidth = 660;
-        private const int BaseHeight = 584;
+        private const int BaseHeight = 620;
         private const int TitleHeight = 46;
         private const int Side = 16;
         private const int CardWidth = 628;
@@ -39,6 +39,8 @@ namespace ColoringPixelsTool.Installer
         private Button _btnUpdate;
         private Label _lblDirTitle;
         private Label _lblHint;
+        private Label _lblSave;
+        private Button _btnOpenSave;
 
         private UpdateInfo _update;
         private bool _checkingUpdate;
@@ -179,7 +181,7 @@ namespace ColoringPixelsTool.Installer
             // ---------------------------------------------------- 卡片二：安装选项
             CardPanel cardOpt = new CardPanel("安装选项");
             cardOpt.Location = new Point(left, Theme.S(258));
-            cardOpt.Size = new Size(width, Theme.S(134));
+            cardOpt.Size = new Size(width, Theme.S(170));
 
             _chkLaunch = new CheckBoxEx { Text = "安装完成后自动启动游戏", Checked = true };
             _chkLaunch.Location = new Point(Theme.S(Side), Theme.S(38));
@@ -196,11 +198,24 @@ namespace ColoringPixelsTool.Installer
             cardOpt.Controls.Add(_chkOverwrite);
             cardOpt.Controls.Add(_chkBackup);
 
+            // 软件本地存档路径：等级 / 统计 / 备份 / 插件日志都在这个目录。
+            // 出于隐私考虑界面只显示占位符（不暴露 Windows 用户名），打开时才解析真实路径。
+            int saveW = Theme.S(64);
+            _lblSave = Theme.MakeLabel(
+                "本地存档（等级 / 统计 / 备份 / 日志）：%APPDATA%\\ColoringPixelsTool",
+                Theme.Muted, Theme.FontSmall,
+                Theme.S(Side), Theme.S(122), inner - saveW - Theme.S(8), Theme.S(16));
+            cardOpt.Controls.Add(_lblSave);
+
+            _btnOpenSave = Theme.MakeButton("打开", Theme.Card, Theme.Text, saveW, Theme.S(22), false, OnOpenSaveClick);
+            _btnOpenSave.Location = new Point(Theme.S(Side) + inner - saveW, Theme.S(119));
+            cardOpt.Controls.Add(_btnOpenSave);
+
             Controls.Add(cardOpt);
 
             // ---------------------------------------------------- 卡片三：日志
             CardPanel cardLog = new CardPanel("运行日志");
-            cardLog.Location = new Point(left, Theme.S(400));
+            cardLog.Location = new Point(left, Theme.S(436));
             cardLog.Size = new Size(width, Theme.S(150));
 
             _lblHint = Theme.MakeLabel(_game.TipText, Theme.Accent2, Theme.FontSmall,
@@ -227,11 +242,11 @@ namespace ColoringPixelsTool.Installer
         private void BuildFooter()
         {
             _progress = new ProgressBarEx();
-            _progress.Location = new Point(Theme.S(Side), Theme.S(530));
+            _progress.Location = new Point(Theme.S(Side), Theme.S(566));
             _progress.Size = new Size(Theme.S(CardWidth), Theme.S(8));
             Controls.Add(_progress);
 
-            int y = Theme.S(546);
+            int y = Theme.S(582);
             int h = Theme.S(34);
             int gap = Theme.S(8);
 
@@ -276,6 +291,8 @@ namespace ColoringPixelsTool.Installer
             base.OnShown(e);
 
             Log.Info("安装器已启动。日志文件：" + (Log.LogPath == null ? "（不可用）" : Log.PrettyPath(Log.LogPath)));
+            Log.Info("本地存档目录：" + (AppInfo.UserDataDirectory() == null
+                ? "（不可用）" : Log.PrettyPath(AppInfo.UserDataDirectory())));
             Log.Info("安装包版本：" + AppInfo.AppVersion
                      + (string.IsNullOrEmpty(AppInfo.BuiltAt) ? "" : "  构建于 " + AppInfo.BuiltAt));
 
@@ -1021,6 +1038,34 @@ namespace ColoringPixelsTool.Installer
             GameInfo info = GameLocator.Inspect(_txtDir.Text);
             if (!info.Usable) return;
             Launch(info.Directory);
+        }
+
+        /// <summary>打开软件本地存档目录（%APPDATA%\ColoringPixelsTool）。</summary>
+        private void OnOpenSaveClick(object sender, EventArgs e)
+        {
+            try
+            {
+                string dir = AppInfo.UserDataDirectory();
+                if (string.IsNullOrEmpty(dir))
+                {
+                    Log.Warn("无法定位用户数据目录（%APPDATA% 不可用）。");
+                    return;
+                }
+
+                // 首次使用还没有这个目录：建一个空目录，让用户知道东西以后会放在哪
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = "explorer.exe";
+                psi.Arguments = "\"" + dir + "\"";
+                psi.UseShellExecute = true;
+                Process.Start(psi);
+                Log.Info("已打开本地存档目录：" + Log.PrettyPath(dir));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("打开本地存档目录失败：" + ex.Message);
+            }
         }
 
         private void OnOpenDirClick(object sender, EventArgs e)

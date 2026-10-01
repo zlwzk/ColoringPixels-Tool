@@ -63,7 +63,9 @@ namespace ColoringPixelsTool
             "#   · 整数：12\r\n" +
             "#   · 小数：0.6\r\n" +
             "# 以 # 或 / 开头的行是注释，会被忽略。\r\n" +
-            "# 修改并保存后，在游戏设置界面点「推荐预设」按钮即可生效。\r\n" +
+            "# 修改并保存后，在游戏设置界面点「推荐预设」按钮，或在面板首页模块的\r\n" +
+            "# 「游戏预设」页点「应用推荐预设 / 重新载入预设文件」即可生效。\r\n" +
+            "# 面板上那个「把当前设置存为预设」按钮会把游戏当前的全部设置写回本文件。\r\n" +
             "#\r\n" +
             "# 键名支持两种写法：\r\n" +
             "#   1) CrossLevelStorage 字段名，例如 grayscale、volume\r\n" +
@@ -176,6 +178,65 @@ namespace ColoringPixelsTool
             sb.Append(TemplateHeader);
             for (int i = 0; i < DefaultLines.Length; i++) sb.Append(DefaultLines[i]).Append("\r\n");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 把一串「字段 = 值」写成新的预设文件（先备份旧文件为 .bak），写完立即重新载入。
+        /// 面板「预设」页的「把当前设置存为预设」用它。
+        /// </summary>
+        internal static bool SaveEntries(IEnumerable<string> lines, out string error)
+        {
+            error = null;
+            try
+            {
+                if (string.IsNullOrEmpty(FilePath)) Reload();
+                if (string.IsNullOrEmpty(FilePath))
+                {
+                    error = "预设文件路径不可用";
+                    return false;
+                }
+
+                string dir = Path.GetDirectoryName(FilePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+                if (File.Exists(FilePath))
+                {
+                    try { File.Copy(FilePath, FilePath + ".bak", true); }
+                    catch (Exception e) { Log.Warn("备份旧预设文件失败：" + e.Message); }
+                }
+
+                var sb = new StringBuilder();
+                sb.Append(TemplateHeader);
+                sb.Append("# 由面板「预设」页于 ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+                    .Append(" 保存\r\n");
+                foreach (string line in lines) sb.Append(line).Append("\r\n");
+
+                string tmp = FilePath + ".tmp";
+                File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(true));
+                if (File.Exists(FilePath)) File.Delete(FilePath);
+                File.Move(tmp, FilePath);
+
+                Reload();
+                Log.Info("预设文件已更新：" + FilePath + "（旧文件备份为 .bak）");
+                return true;
+            }
+            catch (Exception e)
+            {
+                error = e.Message;
+                Log.Warn("保存预设文件失败：" + e.Message);
+                return false;
+            }
+        }
+
+        /// <summary>按当前存储值刷新游戏界面并落盘（面板直接改设置项时调用）。</summary>
+        internal static void RefreshGameUi()
+        {
+            CrossLevelStorage store = null;
+            try { store = CrossLevelStorageHolder.inst; }
+            catch (Exception) { }
+
+            // Refresh 内部已经包含 SaveMainMenuInfo：把设置写进 Main.save
+            Refresh(store);
         }
 
         /// <summary>把预设写入游戏设置并刷新界面，返回给用户看的报告。</summary>

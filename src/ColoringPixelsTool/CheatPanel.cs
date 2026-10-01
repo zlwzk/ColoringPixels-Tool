@@ -23,18 +23,28 @@ namespace ColoringPixelsTool
         /// <summary>设计坐标 → 屏幕像素的缩放系数。由屏幕分辨率自适应，也可在设置里手动指定。</summary>
         private static float UiScale = 1f;
 
-        // ---- 两大分区 ----
+        // ---- 三大分区：首页（两个模块共享的大模块）/ 自动完成 / 人工辅助 ----
         private const int ModuleAuto = 0;
         private const int ModuleManual = 1;
+        private const int ModuleHome = 2;
 
-        private static readonly string[] TabsAuto =
+        // 首页升级成独立的大模块（首页 + 游戏预设），两个模块共用这一套页面
+        private static readonly string[] TabsHome =
         {
-            "首页", "涂色", "拟人", "自动化", "辅助", "解锁", "提醒", "设置", "调试"
+            "首页", "游戏预设"
         };
 
+        // 首页独立成模块后，两个模块的页签都不再包含「首页」
+        private static readonly string[] TabsAuto =
+        {
+            "涂色", "拟人", "自动化", "辅助", "解锁", "提醒", "设置", "调试"
+        };
+
+        // 注意：这里的「扫描预设」是人工辅助的扫描参数预设（AssistStore），
+        // 与首页模块里的「游戏预设」（游戏自带设置）是两件互不相干的事。
         private static readonly string[] TabsManual =
         {
-            "扫描", "区域", "参数", "预设", "预览", "提醒", "设置", "调试"
+            "扫描", "区域", "参数", "扫描预设", "预览", "提醒", "设置", "调试"
         };
 
         private const float Pad = 14f;
@@ -45,7 +55,7 @@ namespace ColoringPixelsTool
         private const float TabH = 40f;
         private const float FooterH = 66f;
 
-        private int _module = ModuleAuto;
+        private int _module = ModuleHome;
         private int _tab;
         private Vector2 _scroll;
         private float _contentHeight;
@@ -110,7 +120,15 @@ namespace ColoringPixelsTool
             set => _visible = value;
         }
 
-        private string[] CurrentTabs => _module == ModuleManual ? TabsManual : TabsAuto;
+        private string[] CurrentTabs
+        {
+            get
+            {
+                if (_module == ModuleManual) return TabsManual;
+                if (_module == ModuleHome) return TabsHome;
+                return TabsAuto;
+            }
+        }
 
         /// <summary>面板实际的屏幕矩形（按当前缩放换算）。</summary>
         public static Rect ScreenRect =>
@@ -209,8 +227,11 @@ namespace ColoringPixelsTool
                 ToggleAutoPaint();
             if (Plugin.KeyHighlight.Value != KeyCode.None && Input.GetKeyDown(Plugin.KeyHighlight.Value))
             {
-                Plugin.HighlightEnabled.Value = !Plugin.HighlightEnabled.Value;
-                Toast(Plugin.HighlightEnabled.Value ? "画布颜色高亮已开启" : "画布颜色高亮已关闭");
+                // 快捷键循环切换：关闭 → 闪烁（默认体验）→ 持续 → 关闭
+                Plugin.HighlightMode.Value = Plugin.HighlightMode.Value == 0
+                    ? 2
+                    : (Plugin.HighlightMode.Value == 2 ? 1 : 0);
+                Toast("画布颜色高亮：" + HighlightModeName(Plugin.HighlightMode.Value));
             }
 
             // 主题 / 动效开关：配置里改了就即时生效（和前一次的值比对，避免每帧重算）
@@ -219,6 +240,9 @@ namespace ColoringPixelsTool
             // 提醒中心（倒计时播报 / 每小时趣味横幅）与使用统计
             Reminder.Tick(Time.unscaledDeltaTime);
             Stats.Tick(Time.unscaledDeltaTime);
+
+            // 「预设」页改过的游戏设置：攒一小会儿再统一刷新 + 落盘
+            GameSettings.Tick();
 
             // 累计在线时长（等级系统）
             UserProfile.Tick(Time.unscaledDeltaTime);
@@ -674,8 +698,8 @@ namespace ColoringPixelsTool
             return "";
         }
 
-        /// <summary>「设置」页的下标（人工辅助 8 页里是第 7 个，自动绘图 9 页里是第 8 个）。</summary>
-        private int SettingsTabIndex => _module == ModuleManual ? 6 : 7;
+        /// <summary>「设置」页的下标（自动完成 / 人工辅助两个模块的页签里都是第 7 个）。</summary>
+        private int SettingsTabIndex => 6;
 
         private void DrawProfileHeader(float areaX, float areaY, float areaW, float areaH)
         {
@@ -713,6 +737,8 @@ namespace ColoringPixelsTool
             if (hover && Event.current.type == EventType.MouseDown && Event.current.button == 0)
             {
                 _tab = SettingsTabIndex;
+                // 在首页大模块上点资料区：跳到自动完成模块的设置页
+                if (_module == ModuleHome) _module = ModuleAuto;
                 _scroll = Vector2.zero;
                 _profileInit = false;
                 Event.current.Use();
@@ -749,7 +775,7 @@ namespace ColoringPixelsTool
             Ui.ProgressBar(new Rect(r.x, r.y + 36f, r.width, 7f), UserProfile.ProgressOf(track), color);
         }
 
-        /// <summary>顶部分区切换：自动完成 / 人工辅助。</summary>
+        /// <summary>顶部大模块切换：首页（共享） / 自动完成 / 人工辅助。</summary>
         private void DrawModuleSwitch()
         {
             var box = new Rect(_window.x + Pad, _window.y + HeaderH + 1f, _window.width - Pad * 2f, ModuleH);
@@ -758,42 +784,58 @@ namespace ColoringPixelsTool
             Ui.Round(new Rect(box.x, box.y + 3f, box.width, box.height - 6f), 9f,
                 Ui.Alpha(Ui.Sunken, 0.85f));
 
-            string[] names = { "自动完成", "人工辅助" };
-            float bw = box.width * 0.5f;
+            // 顺序与下标对应：0 = 首页（共享大模块），1 = 自动完成，2 = 人工辅助
+            int[] modules = { ModuleHome, ModuleAuto, ModuleManual };
+            string[] names = { "首页", "自动完成", "人工辅助" };
+            float bw = box.width / 3f;
 
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < modules.Length; i++)
             {
                 var r = new Rect(box.x + bw * i, box.y + 3f, bw, box.height - 6f);
-                bool active = _module == i;
+                int m = modules[i];
+                bool active = _module == m;
                 bool hov = Ui.Hit(r);
-                float av = Ui.Tween("mod-a:" + i, active, 16f);
+                float av = Ui.Tween("mod-a:" + m, active, 16f);
+                Color accent = ModuleColor(m);
 
                 Color c = active
-                    ? Ui.Alpha(i == 0 ? Ui.Accent : Ui.Accent2, 0.26f)
+                    ? Ui.Alpha(accent, 0.26f)
                     : Ui.Alpha(Ui.HiTint, hov ? 0.05f : 0f);
                 Ui.Round(r, 8f, c);
                 if (active)
-                    Ui.RoundOutline(r, 8f, Ui.Alpha(i == 0 ? Ui.Accent : Ui.Accent2, 0.7f),
+                    Ui.RoundOutline(r, 8f, Ui.Alpha(accent, 0.7f),
                         new Color(0f, 0f, 0f, 0f), 1.4f);
 
-                Ui.Text(r, (i == 0 ? "⚡ " : "🖐 ") + names[i], Ui.Tab,
+                Ui.Text(r, (m == ModuleHome ? "🏠 " : (m == ModuleAuto ? "⚡ " : "🖐 ")) + names[i], Ui.Tab,
                     Color.Lerp(Ui.Muted, Ui.TextCol, Mathf.Clamp01(Mathf.Max(av, hov ? 0.7f : 0f))));
             }
 
             // 点击切换
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < modules.Length; i++)
             {
                 var r = new Rect(box.x + bw * i, box.y + 3f, bw, box.height - 6f);
+                int m = modules[i];
                 if (Ui.Hit(r) && e.type == EventType.MouseDown && e.button == 0)
                 {
-                    if (_module != i)
+                    if (_module != m)
                     {
-                        _module = i;
+                        _module = m;
                         _tab = 0;
                         _scroll = Vector2.zero;
                     }
                     e.Use();
                 }
+            }
+        }
+
+        /// <summary>每个大模块的强调色（页签高亮 / 模块入口卡片共用）。</summary>
+        private static Color ModuleColor(int module)
+        {
+            switch (module)
+            {
+                case ModuleAuto: return Ui.Accent;
+                case ModuleManual: return Ui.Accent2;
+                default: return Ui.Good;
             }
         }
 
@@ -893,7 +935,16 @@ namespace ColoringPixelsTool
             Color prevGui = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.06f, 1f, enter));
 
-            if (_module == ModuleManual)
+            if (_module == ModuleHome)
+            {
+                // 两个模块共享的首页大模块：首页 + 游戏设置预设
+                switch (_tab)
+                {
+                    case 0: TabHome(w, ref y); break;
+                    default: TabGamePreset(w, ref y); break;
+                }
+            }
+            else if (_module == ModuleManual)
             {
                 switch (_tab)
                 {
@@ -916,14 +967,13 @@ namespace ColoringPixelsTool
             {
                 switch (_tab)
                 {
-                    case 0: TabHome(w, ref y); break;
-                    case 1: TabPaint(w, ref y); break;
-                    case 2: TabAuto(w, ref y); break;
-                    case 3: TabAutomation(w, ref y); break;
-                    case 4: TabAssist(w, ref y); break;
-                    case 5: TabUnlock(w, ref y); break;
-                    case 6: TabReminder(w, ref y); break;
-                    case 7: TabSettings(w, ref y); break;
+                    case 0: TabPaint(w, ref y); break;
+                    case 1: TabAuto(w, ref y); break;
+                    case 2: TabAutomation(w, ref y); break;
+                    case 3: TabAssist(w, ref y); break;
+                    case 4: TabUnlock(w, ref y); break;
+                    case 5: TabReminder(w, ref y); break;
+                    case 6: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -1106,6 +1156,13 @@ namespace ColoringPixelsTool
 
             y += cardH + 10f;
 
+            // ---------- 模块入口：两个模块共用这一页首页 ----------
+            Section(w, ref y, "模块入口");
+            float mw = (w - 10f) * 0.5f;
+            ModuleCard(0f, y, mw, "⚡ 自动完成", "一键涂完 / 拟人涂色 / 自动化挂机", ModuleAuto);
+            ModuleCard(mw + 10f, y, mw, "🖐 人工辅助", "画布高亮 / 扫描参数 / 画布预览", ModuleManual);
+            y += 104f;
+
             // ---------- 使用数据（今日 / 本周）----------
             Section(w, ref y, "使用数据");
             Card(w, ref y, 94f, top =>
@@ -1170,7 +1227,7 @@ namespace ColoringPixelsTool
                 if (Ui.Button(btn, running ? "停止自动化" : "打开自动化页签", running ? Ui.Bad : Ui.Accent, false))
                 {
                     if (running) scheduler.StopSession();
-                    else { _tab = 3; _scroll = Vector2.zero; }
+                    else { _module = ModuleAuto; _tab = 2; _scroll = Vector2.zero; }
                 }
             }, true);
 
@@ -1188,12 +1245,181 @@ namespace ColoringPixelsTool
             if (Ui.Button(new Rect(0f, y, bh, 40f), "拟人涂色" + KeyHint(Plugin.KeyAuto.Value), Ui.Good, true))
                 ToggleAutoPaint();
             if (Ui.Button(new Rect(bh + 8f, y, bh, 40f), "颜色高亮" + KeyHint(Plugin.KeyHighlight.Value),
-                Plugin.HighlightEnabled.Value ? Ui.Accent2 : Ui.Muted, true))
+                Plugin.HighlightMode.Value != 0 ? Ui.Accent2 : Ui.Muted, true))
             {
-                Plugin.HighlightEnabled.Value = !Plugin.HighlightEnabled.Value;
-                Toast(Plugin.HighlightEnabled.Value ? "画布颜色高亮已开启" : "画布颜色高亮已关闭");
+                // 首页按钮：一键在「关闭 ↔ 闪烁」间切换（想用持续高亮去辅助页细调）
+                Plugin.HighlightMode.Value = Plugin.HighlightMode.Value == 0 ? 2 : 0;
+                Toast("画布颜色高亮：" + HighlightModeName(Plugin.HighlightMode.Value));
             }
             y += 48f;
+
+            // 人工辅助的常用入口（首页是两个模块共享的，这里把人工侧的常用页也摆出来）
+            if (Ui.Button(new Rect(0f, y, bh, 40f), "画布预览", Ui.Accent2, true))
+            {
+                _module = ModuleManual;
+                _tab = 4;
+                _scroll = Vector2.zero;
+            }
+            if (Ui.Button(new Rect(bh + 8f, y, bh, 40f), "识别画布与格子", Ui.Accent2, true))
+            {
+                _module = ModuleManual;
+                _tab = 0;
+                _scroll = Vector2.zero;
+            }
+            y += 48f;
+        }
+
+        /// <summary>首页上的模块入口卡片：整卡可点，点击后进入对应模块。</summary>
+        private void ModuleCard(float x, float y, float w, string title, string desc, int module)
+        {
+            var r = new Rect(x, y, w, 96f);
+            bool hov = Ui.Hit(r);
+            Color accent = ModuleColor(module);
+
+            Ui.Surface(r, 11f);
+            if (hov) Ui.Round(r, 11f, Ui.Alpha(Ui.HiTint, 0.06f));
+
+            Ui.Text(new Rect(r.x + 12f, r.y + 10f, w - 24f, 18f), title, Ui.Label, accent);
+            Ui.Text(new Rect(r.x + 12f, r.y + 32f, w - 24f, 38f), desc, Ui.MutedSmall);
+            Ui.Text(new Rect(r.x + 12f, r.y + 72f, w - 24f, 14f), "点击进入 →", Ui.MutedSmall, accent);
+
+            if (hov && Event.current.type == EventType.MouseDown && Event.current.button == 0)
+            {
+                _module = module;
+                _tab = 0;
+                _scroll = Vector2.zero;
+                Event.current.Use();
+            }
+        }
+
+        // ============================================================ 页：预设（游戏设置）
+
+        /// <summary>
+        /// 「预设」页：把游戏自带那 4 个设置界面（无障碍 / 主菜单 / 游戏内 / 音乐）
+        /// 按原样搬进面板——开关就是开关、滑条就是滑条，分组与先后顺序都跟游戏里一致。
+        /// 改哪一项立刻写进游戏；顶部的按钮用来在「推荐预设 / 游戏出厂默认 / 改动前」之间快速来回。
+        /// </summary>
+        private void TabGamePreset(float w, ref float y)
+        {
+            Ui.Text(new Rect(0f, y, w, 24f), "预设", Ui.Title);
+            y += 30f;
+
+            Ui.Text(new Rect(0f, y, w, 54f),
+                "下面就是游戏自带设置里的全部开关与滑条（分组、顺序与游戏一一对应）。\n" +
+                "改动立刻生效；想整体切换，用下面这排按钮。", Ui.MutedStyle);
+            y += 58f;
+
+            // ---------- 一键切换：预设 / 游戏默认 / 撤销 ----------
+            Section(w, ref y, "一键切换");
+            float half = (w - 8f) * 0.5f;
+
+            if (Ui.Button(new Rect(0f, y, half, 40f), "应用推荐预设", Ui.Accent, true))
+            {
+                GameSettings.CaptureSnapshot();
+                Toast(GamePreset.Apply());
+            }
+            if (Ui.Button(new Rect(half + 8f, y, half, 40f), "恢复游戏默认", Ui.Warn, true))
+                Toast(GameSettings.RestoreDefaults());
+            y += 48f;
+
+            if (Ui.Button(new Rect(0f, y, half, 36f), "把当前设置存为预设", Ui.Accent2, false))
+                Toast(GameSettings.SaveAsPreset());
+
+            bool canUndo = GameSettings.UndoAvailable;
+            if (Ui.Button(new Rect(half + 8f, y, half, 36f),
+                canUndo ? "撤销上次改动" : "撤销（暂无记录）",
+                canUndo ? Ui.Muted : Ui.Alpha(Ui.Muted, 0.45f), false))
+            {
+                Toast(canUndo
+                    ? GameSettings.UndoLastApply()
+                    : "还没有可撤销的改动：先点「应用推荐预设」或「恢复游戏默认」");
+            }
+            y += 44f;
+
+            if (Ui.Button(new Rect(0f, y, half, 36f), "重新载入预设文件", Ui.Muted, false))
+            {
+                GamePreset.Reload();
+                Toast("预设文件已重新载入：" + GamePreset.Count + " 项");
+            }
+            if (Ui.Button(new Rect(half + 8f, y, half, 36f), "写入游戏存档", Ui.Accent, false))
+            {
+                GameSettings.Flush();
+                Toast("已把当前设置写入游戏存档");
+            }
+            y += 44f;
+
+            Card(w, ref y, 78f, top =>
+            {
+                int diff = GameSettings.DiffFromDefaults();
+                Ui.InfoRow(new Rect(Pad, top + 8f, w - Pad * 2f, 18f), "与游戏出厂默认相比",
+                    diff == 0 ? "完全一致" : diff + " 项不同",
+                    diff == 0 ? Ui.Good : Ui.Accent2);
+                Ui.Text(new Rect(Pad, top + 30f, w - Pad * 2f, 16f),
+                    "预设文件：" + GamePreset.Count + " 项 · " +
+                    Ellipsize(GamePreset.FilePath ?? "(未载入)", Ui.MutedSmall, w - Pad * 2f - 90f),
+                    Ui.MutedSmall);
+                Ui.Text(new Rect(Pad, top + 50f, w - Pad * 2f, 16f),
+                    GameSettings.Ready
+                        ? "游戏设置已就绪：改动会即时写进游戏"
+                        : "游戏设置对象未就绪（未进入游戏 / 加载中），下面显示的是兜底值",
+                    Ui.MutedSmall);
+            });
+
+            // ---------- 4 个分组，顺序与游戏设置界面一致 ----------
+            string[] sections =
+            {
+                GameSettings.SecAccessibility,
+                GameSettings.SecMainMenu,
+                GameSettings.SecInGame,
+                GameSettings.SecMusic
+            };
+
+            for (int s = 0; s < sections.Length; s++)
+            {
+                Section(w, ref y, sections[s]);
+
+                for (int i = 0; i < GameSettings.All.Length; i++)
+                {
+                    SettingDef d = GameSettings.All[i];
+                    if (d.Section != sections[s]) continue;
+                    DrawSettingRow(w, ref y, d);
+                }
+
+                y += 6f;
+            }
+
+            y += 4f;
+            Ui.Text(new Rect(0f, y, w, 36f),
+                "提示：这里的每一项都对应游戏设置里的同名选项；" +
+                "「放大倍率 / 平移速度 / 界面缩放」在游戏里显示为 X 1.0 这样的倍率。", Ui.MutedStyle);
+            y += 42f;
+        }
+
+        /// <summary>一行游戏设置：开关走整行开关，滑条走滑条（范围优先取游戏滑条的真实范围）。</summary>
+        private void DrawSettingRow(float w, ref float y, SettingDef d)
+        {
+            if (d.Kind == SettingKind.Toggle)
+            {
+                bool v = GameSettings.GetBool(d.Field);
+                bool nv = Toggle(w, ref y, v, d.Label, d.Desc);
+                if (nv != v) GameSettings.SetValue(d, nv);
+                return;
+            }
+
+            float min, max;
+            GameSettings.Range(d, out min, out max);
+
+            float cur = d.Kind == SettingKind.FloatSlider ? GameSettings.GetFloat(d.Field) : GameSettings.IntOf(d);
+            bool integer = d.Kind == SettingKind.IntSlider;
+
+            float nv2 = Slider(w, ref y, "gs_" + d.Field, cur, min, max, d.Label,
+                GameSettings.DisplayOf(d, cur), integer);
+
+            if (Mathf.Abs(nv2 - cur) > 0.0001f)
+            {
+                if (integer) GameSettings.SetValue(d, Mathf.RoundToInt(nv2));
+                else GameSettings.SetValue(d, nv2);
+            }
         }
 
         private string BeijingTimeString()
@@ -1552,12 +1778,10 @@ namespace ColoringPixelsTool
                 "按 " + KeyName(Plugin.KeyHighlight.Value) + " 可随时开关。", Ui.MutedStyle);
             y += 42f;
 
-            Plugin.HighlightEnabled.Value = Toggle(w, ref y, Plugin.HighlightEnabled.Value,
-                "启用颜色高亮", "在画布上高亮当前选中颜色的待涂格子");
+            Plugin.HighlightMode.Value = Segmented(w, ref y, Plugin.HighlightMode.Value,
+                new[] { "关闭", "持续高亮", "闪烁高亮" });
             Plugin.HighlightOnlyPending.Value = Toggle(w, ref y, Plugin.HighlightOnlyPending.Value,
                 "仅高亮未涂格子", "已涂对的格子不再高亮，画面更干净");
-            Plugin.HighlightPulse.Value = Toggle(w, ref y, Plugin.HighlightPulse.Value,
-                "呼吸闪烁", "高亮随时间轻微明暗变化，更容易被注意到");
 
             y += 6f;
             Section(w, ref y, "高亮样式");
@@ -1616,8 +1840,8 @@ namespace ColoringPixelsTool
 
                 Ui.InfoRow(new Rect(Pad + 74f, top + 12f, w - Pad * 2f - 74f, 20f), "高亮色值", hex, Ui.Accent2);
                 Ui.InfoRow(new Rect(Pad + 74f, top + 34f, w - Pad * 2f - 74f, 20f), "高亮状态",
-                    Plugin.HighlightEnabled.Value ? "已开启" : "已关闭",
-                    Plugin.HighlightEnabled.Value ? Ui.Good : Ui.Muted);
+                    HighlightModeName(Plugin.HighlightMode.Value),
+                    Plugin.HighlightMode.Value != 0 ? Ui.Good : Ui.Muted);
                 Ui.InfoRow(new Rect(Pad + 74f, top + 56f, w - Pad * 2f - 74f, 20f), "当前选中颜色",
                     inLevel ? "#" + ct.selectedColourID : "-", Ui.TextCol);
             });
@@ -1631,6 +1855,17 @@ namespace ColoringPixelsTool
         private static string KeyName(KeyCode k)
         {
             return k == KeyCode.None ? "未设置" : k.ToString();
+        }
+
+        /// <summary>高亮模式的显示名：0=关闭，1=持续高亮，2=闪烁高亮。</summary>
+        private static string HighlightModeName(int mode)
+        {
+            switch (mode)
+            {
+                case 1: return "持续高亮";
+                case 2: return "闪烁高亮";
+                default: return "已关闭";
+            }
         }
 
         /// <summary>分段选择器，返回当前选中下标。</summary>
@@ -1768,6 +2003,15 @@ namespace ColoringPixelsTool
                 UserProfile.Save();
                 Toast("背景已清除");
             }
+            y += 44f;
+
+            if (Ui.Button(new Rect(0f, y, half, 36f), "打开日志文件夹", Ui.Accent2, false))
+                OpenLogFolder();
+            if (Ui.Button(new Rect(half + 8f, y, half, 36f), "导出面板截图", Ui.Muted, false))
+            {
+                // 排查问题时，一张面板截图 + 一份日志文件基本就能定位问题
+                CapturePanelScreenshot();
+            }
             y += 48f;
 
             Card(w, ref y, 160f, top =>
@@ -1845,7 +2089,20 @@ namespace ColoringPixelsTool
             KeyBindingSections(w, ref y);
 
             y += 6f;
-            Section(w, ref y, "推荐预设");
+            Section(w, ref y, "推荐预设（游戏设置）");
+
+            Ui.Text(new Rect(0f, y, w, 34f),
+                "预设的值在首页模块的「预设」页里逐项调整（开关 / 滑条与游戏设置一一对应）。\n" +
+                "这里只管「要不要往游戏设置界面里注入一个一键应用按钮」。", Ui.MutedStyle);
+            y += 40f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "打开预设页（逐项调设置）", Ui.Accent2, false))
+            {
+                _module = ModuleHome;
+                _tab = 1;
+                _scroll = Vector2.zero;
+            }
+            y += 44f;
 
             Plugin.PresetButtonEnabled.Value = Toggle(w, ref y, Plugin.PresetButtonEnabled.Value,
                 "在游戏设置里显示预设按钮",
@@ -1870,9 +2127,14 @@ namespace ColoringPixelsTool
 
             if (Ui.Button(new Rect(0f, y, w, 36f), "立即应用推荐预设", Ui.Accent, false))
             {
+                GameSettings.CaptureSnapshot();
                 string report = GamePreset.Apply();
                 Toast(report);
             }
+            y += 44f;
+
+            if (Ui.Button(new Rect(0f, y, w, 36f), "恢复游戏默认设置", Ui.Warn, false))
+                Toast(GameSettings.RestoreDefaults());
             y += 52f;
 
             y += 6f;
@@ -2022,10 +2284,95 @@ namespace ColoringPixelsTool
             new FieldSpec("inputDisabled", "禁用输入", true),
         };
 
+        // ============================================================ 页：插件日志
+
+        /// <summary>调试页顶部的「插件日志」区：显示日志位置 / 打开目录 / 清理历史。</summary>
+        private void DrawLogSection(float w, ref float y)
+        {
+            Section(w, ref y, "插件日志");
+
+            Card(w, ref y, 118f, top =>
+            {
+                string dir = Log.LogDirectory;
+                if (dir == null)
+                {
+                    Ui.Text(new Rect(Pad, top + 10f, w - Pad * 2f, 34f),
+                        "文件日志不可用（用户数据目录无法创建）。\nBepInEx 的 LogOutput.log 里仍有完整日志。", Ui.MutedStyle);
+                    return;
+                }
+
+                // 面板截图会被分享出去：显示 %APPDATA% 占位符而不是真实用户名
+                string display = UserProfile.UserDataDirectoryDisplay() + "\\logs";
+                var files = Log.ListFiles();
+
+                Ui.Text(new Rect(Pad, top + 10f, w - Pad * 2f, 16f), "日志目录", Ui.MutedSmall);
+                Ui.Text(new Rect(Pad, top + 28f, w - Pad * 2f, 16f), display, Ui.Label);
+                Ui.Text(new Rect(Pad, top + 50f, w - Pad * 2f, 16f),
+                    files.Count == 0
+                        ? "还没有日志文件"
+                        : "共 " + files.Count + " 份（自动保留最近 7 天）",
+                    Ui.MutedSmall);
+
+                float bw = (w - Pad * 2f - 8f) * 0.5f;
+                if (Ui.Button(new Rect(Pad, top + 74f, bw, 32f), "打开日志目录", Ui.Accent2, false))
+                    OpenLogFolder();
+                if (Ui.Button(new Rect(Pad + bw + 8f, top + 74f, bw, 32f), "清理历史日志", Ui.Muted, false))
+                {
+                    int removed = Log.PruneOld();
+                    Toast(removed > 0 ? "已删除 " + removed + " 份历史日志" : "没有需要清理的日志");
+                }
+            });
+
+            y += 4f;
+        }
+
+        /// <summary>打开 %APPDATA%\ColoringPixelsTool\logs（调试页「打开日志目录」按钮）。</summary>
+        private static void OpenLogFolder()
+        {
+            try
+            {
+                string dir = Log.LogDirectory;
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start(dir);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("打开日志目录失败：" + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// 把当前画面截成 PNG 存进日志目录（排查问题用：一张截图 + 一份日志基本就能定位原因）。
+        /// 截图只在用户自己点按钮时才会生成，不会自动拍。
+        /// </summary>
+        private void CapturePanelScreenshot()
+        {
+            try
+            {
+                string dir = Log.LogDirectory ?? UserProfile.UserDataDirectory();
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                string path = Path.Combine(dir,
+                    "panel-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".png");
+
+                Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                UnityEngine.Object.Destroy(tex);
+                Log.Info("已保存面板截图：" + Path.GetFileName(path));
+                Toast("截图已保存到日志目录");
+            }
+            catch (Exception e)
+            {
+                Log.Warn("截图失败：" + e.Message);
+                Toast("截图失败，详见日志");
+            }
+        }
+
         private void TabFields(float w, ref float y)
         {
             var st = GameApi.St;
             var ct = GameApi.Ct;
+
+            DrawLogSection(w, ref y);
 
             Section(w, ref y, "存档 / 设置字段  (CrossLevelStorage)");
 

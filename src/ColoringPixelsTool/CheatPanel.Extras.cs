@@ -60,7 +60,7 @@ namespace ColoringPixelsTool
         /// <summary>哪些页属于「自动绘图」——上锁时这三页会被拦截。</summary>
         private static bool IsAutoDrawTab(int tab)
         {
-            return tab == 1 || tab == 2 || tab == 3; // 涂色 / 拟人 / 自动化
+            return tab == 0 || tab == 1 || tab == 2; // 涂色 / 拟人 / 自动化
         }
 
         /// <summary>执行需要「已解锁」的动作前调用；未解锁时给提示并跳到解锁页。</summary>
@@ -70,7 +70,7 @@ namespace ColoringPixelsTool
 
             Toast("「" + what + "」已上锁，请先到「解锁」页开启自动绘图");
             _module = ModuleAuto;
-            _tab = 5;
+            _tab = 4;
             _scroll = Vector2.zero;
             return false;
         }

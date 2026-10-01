@@ -51,7 +51,7 @@ namespace ColoringPixelsTool
         private void OnGUI()
         {
             if (Event.current.type != EventType.Repaint) return;
-            if (!Plugin.HighlightEnabled.Value) return;
+            if (Plugin.HighlightMode.Value == 0) return;
 
             var ct = GameApi.Ct;
             var st = GameApi.St;
@@ -73,7 +73,7 @@ namespace ColoringPixelsTool
 
             var baseCol = Plugin.HighlightColor;
             float alpha = Mathf.Clamp01(Plugin.HighlightAlpha.Value);
-            if (Plugin.HighlightPulse.Value)
+            if (Plugin.HighlightMode.Value == 2)
                 alpha *= 0.72f + 0.28f * Mathf.Sin(Time.unscaledTime * 4.5f);
             var color = new Color(baseCol.r, baseCol.g, baseCol.b, alpha);
 

@@ -12,7 +12,7 @@ namespace ColoringPixelsTool
         public const string PluginName = "Coloring Pixels Tool";
 
         /// <summary>插件版本。发版时与仓库根目录的 VERSION 文件一起更新。</summary>
-        public const string Version = "3.0.3";
+        public const string Version = "3.0.4";
 
         internal static Plugin Instance;
         internal static Harmony HarmonyInstance;
@@ -53,9 +53,14 @@ namespace ColoringPixelsTool
         internal static ConfigEntry<string> FeedbackBody;
 
         // ---- 人工辅助（画布颜色高亮） ----
-        internal static ConfigEntry<bool> HighlightEnabled;
+        // 高亮模式（int 枚举）：
+        //   0 = 关闭高亮（v3.0.3 及之前的 HighlightEnabled=false）
+        //   1 = 持续高亮（v3.0.3 及之前的 HighlightEnabled=true && HighlightPulse=false）
+        //   2 = 闪烁高亮（v3.0.3 及之前的 HighlightEnabled=true && HighlightPulse=true，默认）
+        // 旧的两条 bool 配置仍会在首次启动时被读取并迁移，之后不再使用，
+        // 留在 cfg 里也没副作用（再也没人去写它）。
+        internal static ConfigEntry<int> HighlightMode;
         internal static ConfigEntry<bool> HighlightOnlyPending;
-        internal static ConfigEntry<bool> HighlightPulse;
         internal static ConfigEntry<int> HighlightStyle;
         internal static ConfigEntry<int> HighlightR;
         internal static ConfigEntry<int> HighlightG;
@@ -153,6 +158,7 @@ namespace ColoringPixelsTool
                 // 只恢复上锁；新手指引不再强制重置，否则引导会独占 OnGUI 把作弊面板整个顶掉，
                 // 用户看到的就成了「插件装完了但面板调不出来」。
                 if (AutoUnlocked != null) AutoUnlocked.Value = false;
+                Log.Info("检测到「卸载后重装」标记：自动绘图已重新上锁");
             }
 
             if (freshInstall || UserProfile.LastVersion != Version)
@@ -327,12 +333,24 @@ namespace ColoringPixelsTool
                 "放在 BepInEx/config 下的预设文件，键 = 值；键名可用存储字段名或控件对象名");
 
             var h = "4-人工辅助";
-            HighlightEnabled = Config.Bind(h, "启用颜色高亮", true,
-                "在画布上高亮当前选中颜色的待涂格子，方便快速定位");
+
+            // —— v3.0.4 迁移 ——
+            // 旧版本里有两条 bool 配置（启用颜色高亮 / 呼吸闪烁），
+            // 这里先把它们 Bind 出来仅用于读取历史值；之后会按映射关系折算成
+            // 新的 HighlightMode（int 枚举）。条目本身留在 cfg 里没副作用：
+            // 我们不再 Set 它们，BepInEx 也不会去改写老 entry。
+            var legacyEnabled = Config.Bind(h, "启用颜色高亮", true);
+            var legacyPulse = Config.Bind(h, "呼吸闪烁", true);
+            int legacyMode = legacyEnabled.Value
+                ? (legacyPulse.Value ? 2 : 1)
+                : 0;
+
+            HighlightMode = Config.Bind(h, "高亮模式", legacyMode,
+                new ConfigDescription(
+                    "0 = 关闭高亮，1 = 持续高亮，2 = 闪烁高亮",
+                    new AcceptableValueRange<int>(0, 2)));
             HighlightOnlyPending = Config.Bind(h, "仅高亮未涂格子", true,
                 "只高亮尚未涂对的格子；关闭后连同已涂对的格子一起高亮");
-            HighlightPulse = Config.Bind(h, "呼吸闪烁", true,
-                "高亮随时间轻微明暗变化，更容易被注意到");
             HighlightStyle = Config.Bind(h, "高亮样式", 0,
                 new ConfigDescription("0 = 填充，1 = 描边，2 = 四角框",
                     new AcceptableValueRange<int>(0, 2)));
@@ -415,13 +433,20 @@ namespace ColoringPixelsTool
         private void OnDestroy()
         {
             // 退出前把「攒着还没落盘」的数据补写一次，否则最后一小段涂色时长 / 统计会丢。
-            try { PaintTimer.Save(); } catch (System.Exception) { }
-            try { Stats.Save(); } catch (System.Exception) { }
-            try { UserProfile.Save(); } catch (System.Exception) { }
-            try { Tts.Shutdown(); } catch (System.Exception) { }
-            try { QuitGuard.Uninstall(); } catch (System.Exception) { }
+            Log.Info("插件正在退出，补写落盘数据……");
+            try { PaintTimer.Save(); }
+            catch (System.Exception e) { Log.Error("保存单图计时失败：" + e.Message); }
+            try { Stats.Save(); }
+            catch (System.Exception e) { Log.Error("保存使用统计失败：" + e.Message); }
+            try { UserProfile.Save(); }
+            catch (System.Exception e) { Log.Error("保存用户资料失败：" + e.Message); }
+            try { Tts.Shutdown(); }
+            catch (System.Exception e) { Log.Warn("关闭语音失败：" + e.Message); }
+            try { QuitGuard.Uninstall(); }
+            catch (System.Exception e) { Log.Warn("卸载退出确认失败：" + e.Message); }
 
             HarmonyInstance?.UnpatchSelf();
+            Log.Info("插件已退出。");
         }
     }
 }
