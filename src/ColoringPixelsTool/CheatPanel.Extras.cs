@@ -70,7 +70,7 @@ namespace ColoringPixelsTool
 
             Toast("「" + what + "」已上锁，请先到「解锁」页开启自动绘图");
             _module = ModuleAuto;
-            _tab = 4;
+            _tab = 3;   // 自动完成模块的「解锁」页（「辅助」搬走后整体前移一位）
             _scroll = Vector2.zero;
             return false;
         }

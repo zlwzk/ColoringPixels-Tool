@@ -34,17 +34,18 @@ namespace ColoringPixelsTool
             "首页", "游戏预设"
         };
 
-        // 首页独立成模块后，两个模块的页签都不再包含「首页」
+        // 首页独立成模块后，两个模块的页签都不再包含「首页」。
+        // 原来的「辅助」（画布颜色高亮）属于人工辅助手段，已整页搬到人工辅助模块。
         private static readonly string[] TabsAuto =
         {
-            "涂色", "拟人", "自动化", "辅助", "解锁", "提醒", "设置", "调试"
+            "涂色", "拟人", "自动化", "解锁", "提醒", "设置", "调试"
         };
 
         // 注意：这里的「扫描预设」是人工辅助的扫描参数预设（AssistStore），
         // 与首页模块里的「游戏预设」（游戏自带设置）是两件互不相干的事。
         private static readonly string[] TabsManual =
         {
-            "扫描", "区域", "参数", "扫描预设", "预览", "提醒", "设置", "调试"
+            "扫描", "区域", "参数", "扫描预设", "预览", "辅助", "提醒", "设置", "调试"
         };
 
         private const float Pad = 14f;
@@ -698,8 +699,23 @@ namespace ColoringPixelsTool
             return "";
         }
 
-        /// <summary>「设置」页的下标（自动完成 / 人工辅助两个模块的页签里都是第 7 个）。</summary>
-        private int SettingsTabIndex => 6;
+        /// <summary>
+        /// 「设置」页的下标。两个模块的页签数量不一样（人工辅助多了「辅助」一页），
+        /// 所以这里跟着模块算，别再写死。
+        /// </summary>
+        private int SettingsTabIndex
+        {
+            // 首页模块自己没有页签，跳到自动完成后用自动完成的设置页下标
+            get { return _module == ModuleManual ? IndexOfTab(TabsManual, "设置") : IndexOfTab(TabsAuto, "设置"); }
+        }
+
+        /// <summary>在页签表里找名字，找不到给 0（页签改名时也不会跳错页）。</summary>
+        private static int IndexOfTab(string[] tabs, string name)
+        {
+            for (int i = 0; i < tabs.Length; i++)
+                if (tabs[i] == name) return i;
+            return 0;
+        }
 
         private void DrawProfileHeader(float areaX, float areaY, float areaW, float areaH)
         {
@@ -736,9 +752,9 @@ namespace ColoringPixelsTool
 
             if (hover && Event.current.type == EventType.MouseDown && Event.current.button == 0)
             {
-                _tab = SettingsTabIndex;
-                // 在首页大模块上点资料区：跳到自动完成模块的设置页
+                // 在首页大模块上点资料区：先切到自动完成模块，再按它的页签表算设置页下标
                 if (_module == ModuleHome) _module = ModuleAuto;
+                _tab = SettingsTabIndex;
                 _scroll = Vector2.zero;
                 _profileInit = false;
                 Event.current.Use();
@@ -953,8 +969,9 @@ namespace ColoringPixelsTool
                     case 2: TabAssistParams(w, ref y); break;
                     case 3: TabAssistPresets(w, ref y); break;
                     case 4: TabPreview(w, ref y); break;
-                    case 5: TabReminder(w, ref y); break;
-                    case 6: TabSettings(w, ref y); break;
+                    case 5: TabAssist(w, ref y); break;       // 画布颜色高亮（原自动完成模块的「辅助」页）
+                    case 6: TabReminder(w, ref y); break;
+                    case 7: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -970,10 +987,9 @@ namespace ColoringPixelsTool
                     case 0: TabPaint(w, ref y); break;
                     case 1: TabAuto(w, ref y); break;
                     case 2: TabAutomation(w, ref y); break;
-                    case 3: TabAssist(w, ref y); break;
-                    case 4: TabUnlock(w, ref y); break;
-                    case 5: TabReminder(w, ref y); break;
-                    case 6: TabSettings(w, ref y); break;
+                    case 3: TabUnlock(w, ref y); break;
+                    case 4: TabReminder(w, ref y); break;
+                    case 5: TabSettings(w, ref y); break;
                     default: TabFields(w, ref y); break;
                 }
             }
@@ -1247,7 +1263,8 @@ namespace ColoringPixelsTool
             if (Ui.Button(new Rect(bh + 8f, y, bh, 40f), "颜色高亮" + KeyHint(Plugin.KeyHighlight.Value),
                 Plugin.HighlightMode.Value != 0 ? Ui.Accent2 : Ui.Muted, true))
             {
-                // 首页按钮：一键在「关闭 ↔ 闪烁」间切换（想用持续高亮去辅助页细调）
+                // 首页按钮：一键在「关闭 ↔ 闪烁」间切换
+                // （想用持续高亮 / 描边 / 自选颜色，去人工辅助模块的「辅助」页细调）
                 Plugin.HighlightMode.Value = Plugin.HighlightMode.Value == 0 ? 2 : 0;
                 Toast("画布颜色高亮：" + HighlightModeName(Plugin.HighlightMode.Value));
             }
@@ -1389,10 +1406,11 @@ namespace ColoringPixelsTool
             }
 
             y += 4f;
-            Ui.Text(new Rect(0f, y, w, 36f),
-                "提示：这里的每一项都对应游戏设置里的同名选项；" +
-                "「放大倍率 / 平移速度 / 界面缩放」在游戏里显示为 X 1.0 这样的倍率。", Ui.MutedStyle);
-            y += 42f;
+            Ui.Text(new Rect(0f, y, w, 48f),
+                "提示：这里的 26 项和游戏设置界面 4 页（无障碍 / 主菜单 / 游戏内 / 音乐）一一对应，" +
+                "选项值显示的就是游戏自己的原文（Off / High (Pixels) / Tahoma…）；" +
+                "预设文件里也可以直接写这些原文。倍率类（放大倍率 / 平移速度 / 界面缩放）游戏里显示为 X 1.0。", Ui.MutedStyle);
+            y += 54f;
         }
 
         /// <summary>一行游戏设置：开关走整行开关，滑条走滑条（范围优先取游戏滑条的真实范围）。</summary>

@@ -33,25 +33,47 @@ namespace ColoringPixelsTool
         internal static string LastReport { get { return _lastReport; } }
         internal static string FilePath { get; private set; }
 
-        /// <summary>首次运行时的推荐值（写入预设文件，用户可随意修改）。</summary>
+        /// <summary>
+        /// 首次运行时的推荐值（写入预设文件，用户可随意修改）。
+        /// v3.0.5 起按游戏自己的 4 个设置界面（ACCESSIBILITY / MAIN MENU / IN GAME / SETTINGS）
+        /// 把 26 项全部列出，滑块类也一起写，不再是只有开关的老模板。
+        /// 选项类的值直接写游戏界面上的原文（Off / High (Pixels) / Tahoma…），倍率类写 X 1.5。
+        /// </summary>
         private static readonly string[] DefaultLines =
         {
-            "grayscale = false              # 未选中数字灰度化",
-            "colourButtonOutline = true     # 高亮调色板文字",
-            "removeDone = true              # 从调色板移除已完成颜色",
-            "showPercentage = true          # 显示百分比（标签页）",
-            "showTimer = true               # 显示计时器（标签页）",
-            "showCompleteAnim = true        # 图片完成动画",
-            "seasonal = true                # 季节特效",
-            "hiddenLevelImages = false      # 隐藏关卡图片",
-            "hiddenLevelTitles = false      # 隐藏关卡名称",
-            "searchHiddenBooks = false      # 搜索隐藏关卡",
-            "disableExitGameCheck = true    # 关闭退出游戏确认",
-            "keepOldAdventBooksUnlocked = true   # 保留往期节日书籍解锁",
-            "legacyMainMenuBookSelect = false    # 旧版书籍选择",
-            "newMusic = true                # 使用新的背景音乐",
-            "muted = false                  # 静音",
-            "volume = 0.6                   # 音量（0.0 ~ 1.0）"
+            "# ---- 界面与无障碍 (ACCESSIBILITY) ----",
+            "darkMode = Off                    # 暗色模式（Off / UI Only / Pixels Only / On）",
+            "highContrast = High (Pixels)     # 对比度（Normal / High (Palette) / High (Pixels) / High (Palette + Pixels)）",
+            "fontID = Tahoma                  # 字体（Silkscreen / Open Dyslexic / Tahoma）",
+            "colourButtonOutline = true       # 高亮调色板文字",
+            "showZoom = Disabled              # 放大镜（Disabled / Touch Only / Cursor Only / Both）",
+            "grayscale = false                # 未选中数字灰度化",
+            "zoomVal = X 1.5                  # 放大镜倍率",
+            "panSpeed = X 1.0                 # 键盘平移速度",
+            "uiScale = X 1.0                  # 界面缩放",
+            "",
+            "# ---- 主菜单 (MAIN MENU) ----",
+            "hiddenLevelTitles = false         # 隐藏关卡名称",
+            "hiddenLevelImages = false         # 隐藏关卡图片",
+            "keepOldAdventBooksUnlocked = true # 保留往期活动书已解锁",
+            "legacyMainMenuBookSelect = false  # 旧版书籍选择",
+            "hideCompletedBooks = None         # 隐藏书籍（None / Completed / Red - New Game+…）",
+            "disableExitGameCheck = true      # 退出免确认",
+            "searchHiddenBooks = false         # 搜索隐藏书籍（游戏设置页没摆这项）",
+            "",
+            "# ---- 游戏内 (IN GAME) ----",
+            "colorLocking = Completed Pixels   # 颜色锁定（None / Completed Pixels / Completed Colors）",
+            "hint = Last 5 Of Color           # 提示（None / Last 10 Of Image / Last 5 Of Color）",
+            "seasonal = true                  # 季节特效",
+            "removeDone = true                # 移除已完成颜色",
+            "showCompleteAnim = true          # 完成动画",
+            "showPercentage = true            # 显示百分比（TAB）",
+            "showTimer = true                 # 显示计时器（TAB）",
+            "",
+            "# ---- 音乐 (SETTINGS) ----",
+            "muted = false                    # 静音",
+            "volume = 0.6                     # 音量（0~1）",
+            "newMusic = true                  # 新背景音乐"
         };
 
         private const string TemplateHeader =
@@ -59,59 +81,19 @@ namespace ColoringPixelsTool
             "#  Coloring Pixels Tool —— 推荐预设\r\n" +
             "# ==============================================================\r\n" +
             "# 语法：  键 = 值\r\n" +
-            "#   · 布尔：true / false\r\n" +
-            "#   · 整数：12\r\n" +
-            "#   · 小数：0.6\r\n" +
-            "# 以 # 或 / 开头的行是注释，会被忽略。\r\n" +
+            "#   · 开关：true / false\r\n" +
+            "#   · 选项类滑条：直接写游戏界面上的原文，例如 darkMode = Off\r\n" +
+            "#     （darkMode/highContrast/fontID/showZoom/hint/colorLocking/hideCompletedBooks）\r\n" +
+            "#     写数字也行：darkMode = 0，按选项顺序从 0 数起\r\n" +
+            "#   · 倍率类滑条：写 X 1.5 这种（zoomVal / panSpeed / uiScale），写 15 也行\r\n" +
+            "#   · 音量：volume = 0.6（0 ~ 1）\r\n" +
+            "# 以 # 或 / 开头的行是注释，会被忽略；行尾用 # 写的注释也被忽略。\r\n" +
             "# 修改并保存后，在游戏设置界面点「推荐预设」按钮，或在面板首页模块的\r\n" +
             "# 「游戏预设」页点「应用推荐预设 / 重新载入预设文件」即可生效。\r\n" +
             "# 面板上那个「把当前设置存为预设」按钮会把游戏当前的全部设置写回本文件。\r\n" +
             "#\r\n" +
-            "# 键名支持两种写法：\r\n" +
-            "#   1) CrossLevelStorage 字段名，例如 grayscale、volume\r\n" +
-            "#   2) 设置界面控件对象名，例如 VolumeSlider、ToggleGrayscale\r\n" +
-            "#\r\n" +
-            "# --- 一、数值型设置（取值范围以游戏内滑条为准）---\r\n" +
-            "# darkMode           = 0     # 暗色模式\r\n" +
-            "# highContrast       = 0     # 高对比度\r\n" +
-            "# fontID             = 0     # 字体（0=Tahoma 1=Silkscreen 2=OpenDyslexic）\r\n" +
-            "# hint               = 1     # 提示显示\r\n" +
-            "# colorLocking       = 0     # 颜色锁定\r\n" +
-            "# showZoom           = 1     # 放大镜\r\n" +
-            "# zoomVal            = 2     # 放大镜缩放\r\n" +
-            "# panSpeed           = 5     # 键盘平移速度\r\n" +
-            "# hideCompletedBooks = 0     # 隐藏已完成书籍\r\n" +
-            "# uiScale            = 1     # 界面缩放\r\n" +
-            "# volume             = 0.6   # 音量（0.0 ~ 1.0）\r\n" +
-            "#\r\n" +
-            "# --- 二、开关型设置（true / false）---\r\n" +
-            "# muted                       # 静音\r\n" +
-            "# grayscale                   # 数字灰度化\r\n" +
-            "# colourButtonOutline         # 高亮调色板文字\r\n" +
-            "# removeDone                  # 移除已完成颜色\r\n" +
-            "# showPercentage              # 显示百分比\r\n" +
-            "# showTimer                   # 显示计时器\r\n" +
-            "# showCompleteAnim            # 完成动画\r\n" +
-            "# seasonal                    # 季节特效\r\n" +
-            "# hiddenLevelImages           # 隐藏关卡图片\r\n" +
-            "# hiddenLevelTitles           # 隐藏关卡名称\r\n" +
-            "# searchHiddenBooks           # 搜索隐藏书籍\r\n" +
-            "# disableExitGameCheck        # 关闭退出游戏确认\r\n" +
-            "# keepOldAdventBooksUnlocked  # 保留往期节日书籍解锁\r\n" +
-            "# legacyMainMenuBookSelect    # 旧版书籍选择\r\n" +
-            "# newMusic                    # 使用新的背景音乐\r\n" +
-            "#\r\n" +
-            "# --- 三、直接用控件名（会同时更新界面显示）---\r\n" +
-            "# VolumeSlider = 0.6\r\n" +
-            "# DarkModeSlider = 0\r\n" +
-            "# ContrastPanelSlider = 0\r\n" +
-            "# FontPanelSlider = 0\r\n" +
-            "# HintPanelSlider = 1\r\n" +
-            "# LockModeSlider = 0\r\n" +
-            "# PanSpeedSlider = 5\r\n" +
-            "# ZoomSettingSlider = 1\r\n" +
-            "# ZoomValueSlider = 2\r\n" +
-            "# ShowCompletedBooksSlider = 0\r\n" +
+            "# 下面这份推荐值和游戏设置界面的 4 页（无障碍 / 主菜单 / 游戏内 / 音乐）\r\n" +
+            "# 一项一项对应，选项文案逐字取自游戏，方便对照着改。\r\n" +
             "#\r\n" +
             "# ==============================================================\r\n" +
             "#  当前生效的推荐预设\r\n" +
@@ -164,6 +146,8 @@ namespace ColoringPixelsTool
                     Entries.Add(new Entry { Key = key, Value = val, Line = i + 1 });
                 }
 
+                UpgradeLegacyFile(lines);
+
                 Log.Info(string.Format("推荐预设已载入：{0} 项（{1}）", Entries.Count, FilePath));
             }
             catch (Exception e)
@@ -178,6 +162,78 @@ namespace ColoringPixelsTool
             sb.Append(TemplateHeader);
             for (int i = 0; i < DefaultLines.Length; i++) sb.Append(DefaultLines[i]).Append("\r\n");
             return sb.ToString();
+        }
+
+        /// <summary>滑块类字段（老版预设文件里没有这些，需要升级时补进去）。</summary>
+        private static readonly string[] SliderKeys =
+        {
+            "darkMode", "highContrast", "fontID", "showZoom", "zoomVal",
+            "panSpeed", "uiScale", "hideCompletedBooks", "hint", "colorLocking"
+        };
+
+        /// <summary>
+        /// 老版预设文件只写了开关项（v3.0.5 之前），导致「应用推荐预设」时滑块类设置纹丝不动。
+        /// 这里在文件末尾补上缺失的滑块推荐值（只补缺的，不覆盖用户改过的任何一行），
+        /// 并打上版本标记，避免重复追加。
+        /// </summary>
+        private static void UpgradeLegacyFile(string[] lines)
+        {
+            try
+            {
+                // 已经是新版文件（或用户自己补全过滑块项）就不动
+                bool hasSliderKey = false;
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string s = lines[i] == null ? "" : lines[i].Trim();
+                    if (s.Length == 0 || s[0] == '#' || s[0] == '/') continue;
+                    int eq = s.IndexOf('=');
+                    if (eq <= 0) continue;
+                    string key = s.Substring(0, eq).Trim();
+                    for (int k = 0; k < SliderKeys.Length; k++)
+                        if (string.Equals(key, SliderKeys[k], StringComparison.OrdinalIgnoreCase))
+                        { hasSliderKey = true; break; }
+                    if (hasSliderKey) break;
+                }
+                if (hasSliderKey) return;
+
+                var sb = new StringBuilder();
+                sb.Append(File.ReadAllText(FilePath, Encoding.UTF8).TrimEnd()).Append("\r\n");
+                sb.Append("\r\n# ---- v3.0.5 追加：滑块类设置也纳入推荐预设（只补缺的行，不改上面已有的）----\r\n");
+
+                int added = 0;
+                for (int i = 0; i < DefaultLines.Length; i++)
+                {
+                    string line = DefaultLines[i];
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    int eq = line.IndexOf('=');
+                    if (eq <= 0) continue;
+                    string key = line.Substring(0, eq).Trim();
+
+                    bool exists = false;
+                    for (int e = 0; e < Entries.Count; e++)
+                        if (string.Equals(Entries[e].Key, key, StringComparison.OrdinalIgnoreCase))
+                        { exists = true; break; }
+                    if (exists) continue;
+
+                    sb.Append(line).Append("\r\n");
+
+                    string val = line.Substring(eq + 1).Trim();
+                    int hash = val.IndexOf('#');
+                    if (hash >= 0) val = val.Substring(0, hash).Trim();
+
+                    Entries.Add(new Entry { Key = key, Value = val, Line = -1 });
+                    added++;
+                }
+
+                if (added == 0) return;
+
+                File.WriteAllText(FilePath, sb.ToString(), new UTF8Encoding(true));
+                Log.Info("检测到旧版预设文件（没有滑块项），已自动补上 " + added + " 项滑块推荐值：" + FilePath);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("升级旧预设文件失败（本次仍按原文件应用）：" + e.Message);
+            }
         }
 
         /// <summary>
@@ -268,6 +324,26 @@ namespace ColoringPixelsTool
             for (int i = 0; i < Entries.Count; i++)
             {
                 Entry e = Entries[i];
+
+                // 优先走设置定义表：支持游戏原文（Off / High (Pixels) / X 1.5…），
+                // 并且写入后顺手同步游戏滑条与界面显示。
+                SettingDef def = GameSettings.ByField(e.Key);
+                if (def != null && store != null)
+                {
+                    object parsed;
+                    if (GameSettings.TryParseValue(def, e.Value, out parsed))
+                    {
+                        GameSettings.SetValue(def, parsed);
+                        ok++;
+                        log.AppendLine("  · " + e.Key + " = " + e.Value);
+                    }
+                    else
+                    {
+                        bad++;
+                        log.AppendLine("  ! " + e.Key + " 设置失败（值「" + e.Value + "」看不懂，写游戏界面上的原文或数字试试）");
+                    }
+                    continue;
+                }
 
                 FieldInfo fi;
                 if (store != null && fieldMap.TryGetValue(e.Key, out fi))
@@ -448,6 +524,10 @@ namespace ColoringPixelsTool
             // 3) 最后刷新自定义开关外观与数值文本。
             // 注意 VolumeController.UpdateVolume() 是「用滑块当前值覆盖 storage.volume」，
             // 所以必须放在滑块同步之后。
+            //
+            // 所有查找都用 Resources.FindObjectsOfTypeAll：设置界面那些子页面
+            // （音乐页 / 无障碍页…）没打开时是未激活对象，FindObjectsOfType 根本找不到，
+            // 这正是「应用预设后滑块纹丝不动、音量还被旧值覆盖回去」的根因。
             SyncStandardControls(store);
 
             if (store != null)
@@ -461,10 +541,11 @@ namespace ColoringPixelsTool
 
             try
             {
-                ToggleHidenLevels[] toggles = UnityEngine.Object.FindObjectsOfType<ToggleHidenLevels>();
+                ToggleHidenLevels[] toggles = Resources.FindObjectsOfTypeAll<ToggleHidenLevels>();
                 for (int i = 0; i < toggles.Length; i++)
                 {
-                    if (toggles[i] == null) continue;
+                    if (toggles[i] == null || toggles[i].gameObject == null) continue;
+                    if (toggles[i].gameObject.hideFlags != HideFlags.None) continue;
                     toggles[i].RefreshButtonVisuals();
                 }
             }
@@ -472,17 +553,37 @@ namespace ColoringPixelsTool
 
             try
             {
-                PixelSettingsViewer[] viewers = UnityEngine.Object.FindObjectsOfType<PixelSettingsViewer>();
+                PixelSettingsViewer[] viewers = Resources.FindObjectsOfTypeAll<PixelSettingsViewer>();
                 for (int i = 0; i < viewers.Length; i++)
-                    if (viewers[i] != null) viewers[i].UpdateGraphics();
+                {
+                    if (viewers[i] == null || viewers[i].gameObject == null) continue;
+                    if (viewers[i].gameObject.hideFlags != HideFlags.None) continue;
+                    viewers[i].UpdateGraphics();
+                }
             }
             catch (Exception e) { Log.Warn("刷新设置视图失败：" + e.Message); }
 
             try
             {
-                VolumeController[] volumes = UnityEngine.Object.FindObjectsOfType<VolumeController>();
+                NightMode[] nightModes = Resources.FindObjectsOfTypeAll<NightMode>();
+                for (int i = 0; i < nightModes.Length; i++)
+                {
+                    if (nightModes[i] == null || nightModes[i].gameObject == null) continue;
+                    if (nightModes[i].gameObject.hideFlags != HideFlags.None) continue;
+                    nightModes[i].Initialise();
+                }
+            }
+            catch (Exception e) { Log.Warn("刷新暗色模式 / 字体失败：" + e.Message); }
+
+            try
+            {
+                VolumeController[] volumes = Resources.FindObjectsOfTypeAll<VolumeController>();
                 for (int i = 0; i < volumes.Length; i++)
-                    if (volumes[i] != null) volumes[i].UpdateVolume();
+                {
+                    if (volumes[i] == null || volumes[i].gameObject == null) continue;
+                    if (volumes[i].gameObject.hideFlags != HideFlags.None) continue;
+                    volumes[i].UpdateVolume();
+                }
             }
             catch (Exception e) { Log.Warn("刷新音量显示失败：" + e.Message); }
         }
@@ -498,7 +599,8 @@ namespace ColoringPixelsTool
             { "PanSpeedSlider", "panSpeed" },
             { "ShowCompletedBooksSlider", "hideCompletedBooks" },
             { "ZoomSettingSlider", "showZoom" },
-            { "ZoomValueSlider", "zoomVal" }
+            { "ZoomValueSlider", "zoomVal" },
+            { "UI Scale", "uiScale" }
         };
 
         private static void SyncStandardControls(CrossLevelStorage store)
@@ -507,11 +609,14 @@ namespace ColoringPixelsTool
 
             try
             {
-                Slider[] sliders = UnityEngine.Object.FindObjectsOfType<Slider>();
+                // FindObjectsOfTypeAll：设置子页面没打开时滑条是未激活对象，同样要同步
+                Slider[] sliders = Resources.FindObjectsOfTypeAll<Slider>();
                 for (int i = 0; i < sliders.Length; i++)
                 {
                     Slider s = sliders[i];
-                    if (s == null) continue;
+                    if (s == null || s.gameObject == null) continue;
+                    if (s.hideFlags != HideFlags.None) continue;
+                    if (!s.gameObject.scene.IsValid()) continue;
 
                     string field;
                     if (!SliderFields.TryGetValue(s.gameObject.name, out field)) continue;

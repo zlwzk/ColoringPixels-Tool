@@ -71,27 +71,39 @@ namespace ColoringPixelsTool
 
         private static readonly Dictionary<string, FieldInfo> Cache = new Dictionary<string, FieldInfo>();
 
-        /// <summary>全部设置项，顺序与游戏里 4 个设置界面从上到下的顺序一致。</summary>
+        /// <summary>
+        /// 全部设置项，顺序与游戏里 4 个设置界面从上到下的顺序**一一对应**
+        /// （无障碍 9 项 / 主菜单 7 项 / 游戏内 7 项 / 音乐 3 项 = 26 项）。
+        ///
+        /// Options 是「选项类滑条」的兜底文案，取自游戏场景里 HintSlider 的 displayText 数组；
+        /// 运行时优先问游戏自己那份（见 <see cref="LiveOptions"/>），所以游戏改了文案也不会对不上。
+        /// 倍率类滑条（zoomVal / panSpeed / uiScale）在游戏里显示成 X 1.5 这种，用 DisplayScale 换算。
+        /// </summary>
         internal static readonly SettingDef[] All =
         {
-            // ---------------- 界面与无障碍 ----------------
+            // ---------------- 界面与无障碍 (ACCESSIBILITY) ----------------
             new SettingDef
             {
                 Section = SecAccessibility, Field = "darkMode", Label = "暗色模式",
-                Desc = "跟随调节：关 / 开", Kind = SettingKind.IntSlider, Min = 0, Max = 1,
-                Options = new[] { "关", "开" }, SliderName = "DarkModeSlider", Default = 0
+                Desc = "暗色模式作用范围（原文 Off / UI Only / Pixels Only / On）",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 3,
+                Options = new[] { "Off", "UI Only", "Pixels Only", "On" },
+                SliderName = "DarkModeSlider", Default = 0
             },
             new SettingDef
             {
                 Section = SecAccessibility, Field = "highContrast", Label = "对比度",
-                Desc = "普通 / 高 / 高（像素）", Kind = SettingKind.IntSlider, Min = 0, Max = 2,
-                Options = new[] { "普通", "高", "高（像素）" }, SliderName = "ContrastPanelSlider", Default = 0
+                Desc = "原文 Normal / High (Palette) / High (Pixels) / High (Palette + Pixels)",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 3,
+                Options = new[] { "Normal", "High (Palette)", "High (Pixels)", "High (Palette + Pixels)" },
+                SliderName = "ContrastPanelSlider", Default = 0
             },
             new SettingDef
             {
                 Section = SecAccessibility, Field = "fontID", Label = "字体",
-                Desc = "游戏内置字体", Kind = SettingKind.IntSlider, Min = 0, Max = 2,
-                Options = new[] { "Tahoma", "Silkscreen", "OpenDyslexic" },
+                Desc = "原文 Silkscreen / Open Dyslexic / Tahoma",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 2,
+                Options = new[] { "Silkscreen", "Open Dyslexic", "Tahoma" },
                 SliderName = "FontPanelSlider", Default = 0
             },
             new SettingDef
@@ -103,8 +115,10 @@ namespace ColoringPixelsTool
             new SettingDef
             {
                 Section = SecAccessibility, Field = "showZoom", Label = "放大镜",
-                Desc = "跟随调节：关 / 开", Kind = SettingKind.IntSlider, Min = 0, Max = 1,
-                Options = new[] { "关闭", "开启" }, SliderName = "ZoomSettingSlider", Default = 0
+                Desc = "原文 Disabled / Touch Only / Cursor Only / Both",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 3,
+                Options = new[] { "Disabled", "Touch Only", "Cursor Only", "Both" },
+                SliderName = "ZoomSettingSlider", Default = 0
             },
             new SettingDef
             {
@@ -127,11 +141,12 @@ namespace ColoringPixelsTool
             new SettingDef
             {
                 Section = SecAccessibility, Field = "uiScale", Label = "界面缩放",
-                Desc = "游戏界面整体缩放（X 0.5 ~ X 2.0）", Kind = SettingKind.IntSlider,
-                Min = 5, Max = 20, DisplayScale = 0.1f, Default = 10
+                Desc = "游戏界面整体缩放（X 0.5 ~ X 2.0，游戏里旁边那个 Apply 就是它）",
+                Kind = SettingKind.IntSlider, Min = 5, Max = 20, DisplayScale = 0.1f,
+                SliderName = "UI Scale", Default = 10
             },
 
-            // ---------------- 主菜单 ----------------
+            // ---------------- 主菜单 (MAIN MENU) ----------------
             new SettingDef
             {
                 Section = SecMainMenu, Field = "hiddenLevelTitles", Label = "隐藏关卡名称",
@@ -155,8 +170,13 @@ namespace ColoringPixelsTool
             new SettingDef
             {
                 Section = SecMainMenu, Field = "hideCompletedBooks", Label = "隐藏书籍",
-                Desc = "隐藏已完成 / 全部书籍", Kind = SettingKind.IntSlider, Min = 0, Max = 2,
-                Options = new[] { "不隐藏", "隐藏已完成", "隐藏全部" },
+                Desc = "原文 None / Completed / Red·Green·Blue·Black - New Game+",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 5,
+                Options = new[]
+                {
+                    "None", "Completed", "Red - New Game+", "Green - New Game+",
+                    "Blue - New Game+", "Black - New Game+"
+                },
                 SliderName = "ShowCompletedBooksSlider", Default = 0
             },
             new SettingDef
@@ -167,22 +187,25 @@ namespace ColoringPixelsTool
             new SettingDef
             {
                 Section = SecMainMenu, Field = "searchHiddenBooks", Label = "搜索隐藏书籍",
-                Desc = "搜索时把隐藏的书籍也一起找出来", Kind = SettingKind.Toggle, Default = true
+                Desc = "搜索时把隐藏的书籍也一起找出来（游戏设置页里没有摆，存档里有这一项）",
+                Kind = SettingKind.Toggle, Default = true
             },
 
-            // ---------------- 游戏内 ----------------
+            // ---------------- 游戏内 (IN GAME) ----------------
             new SettingDef
             {
                 Section = SecInGame, Field = "colorLocking", Label = "颜色锁定",
-                Desc = "锁定已完成 / 全部颜色，避免涂错", Kind = SettingKind.IntSlider, Min = 0, Max = 2,
-                Options = new[] { "关闭", "已完成像素", "全部锁定" },
+                Desc = "原文 None / Completed Pixels / Completed Colors",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 2,
+                Options = new[] { "None", "Completed Pixels", "Completed Colors" },
                 SliderName = "LockModeSlider", Default = 0
             },
             new SettingDef
             {
                 Section = SecInGame, Field = "hint", Label = "提示",
-                Desc = "提示要涂哪种颜色", Kind = SettingKind.IntSlider, Min = 0, Max = 3,
-                Options = new[] { "关闭", "最后 5 个同色", "全部同色", "最重提示" },
+                Desc = "原文 None / Last 10 Of Image / Last 5 Of Color",
+                Kind = SettingKind.IntSlider, Min = 0, Max = 2,
+                Options = new[] { "None", "Last 10 Of Image", "Last 5 Of Color" },
                 SliderName = "HintPanelSlider", Default = 0
             },
             new SettingDef
@@ -211,7 +234,7 @@ namespace ColoringPixelsTool
                 Desc = "按 TAB 时显示本图用时", Kind = SettingKind.Toggle, Default = false
             },
 
-            // ---------------- 音乐 ----------------
+            // ---------------- 音乐 (SETTINGS) ----------------
             new SettingDef
             {
                 Section = SecMusic, Field = "muted", Label = "静音",
@@ -220,8 +243,8 @@ namespace ColoringPixelsTool
             new SettingDef
             {
                 Section = SecMusic, Field = "volume", Label = "音量",
-                Desc = "游戏音量", Kind = SettingKind.FloatSlider, MinF = 0f, MaxF = 1f,
-                SliderName = "VolumeSlider", Default = 0.3f
+                Desc = "游戏音量（游戏里显示成百分比）", Kind = SettingKind.FloatSlider,
+                MinF = 0f, MaxF = 1f, SliderName = "VolumeSlider", Default = 0.3f
             },
             new SettingDef
             {
@@ -229,6 +252,16 @@ namespace ColoringPixelsTool
                 Desc = "使用新版背景音乐（关闭则用旧版曲目）", Kind = SettingKind.Toggle, Default = true
             }
         };
+
+        /// <summary>按字段名找定义（预设文件解析用）。</summary>
+        internal static SettingDef ByField(string field)
+        {
+            if (string.IsNullOrEmpty(field)) return null;
+            for (int i = 0; i < All.Length; i++)
+                if (string.Equals(All[i].Field, field, StringComparison.OrdinalIgnoreCase))
+                    return All[i];
+            return null;
+        }
 
         // ============================================================ 读写
 
@@ -358,13 +391,155 @@ namespace ColoringPixelsTool
         /// <summary>按给定值算显示文案（拖动滑条时用，避免比实际值慢一拍）。</summary>
         internal static string DisplayOf(SettingDef d, float value)
         {
-            if (d.Options != null && d.Options.Length > 0)
-                return d.Options[Mathf.Clamp(Mathf.RoundToInt(value), 0, d.Options.Length - 1)];
+            // 选项类滑条优先显示游戏自己的文案（和游戏设置界面 / 玩家截图一字不差）
+            string[] options = LiveOptions(d);
+            if (options != null && options.Length > 0)
+                return options[Mathf.Clamp(Mathf.RoundToInt(value), 0, options.Length - 1)];
 
             if (Mathf.Abs(d.DisplayScale - 1f) > 0.0001f)
                 return "X " + (value * d.DisplayScale).ToString("0.0", CultureInfo.InvariantCulture);
 
+            if (d.Kind == SettingKind.FloatSlider)
+                return Mathf.RoundToInt(value * 100f) + "%";
+
             return value.ToString("0.00", CultureInfo.InvariantCulture);
+        }
+
+        // ============================================================ 游戏自己的选项文案
+
+        private static readonly Dictionary<string, string[]> OptionsCache = new Dictionary<string, string[]>();
+        private static float _optionsScanUntil = -999f;
+
+        /// <summary>
+        /// 问游戏要这一项的选项文案：主菜单场景里每个设置滑条都挂着一个 HintSlider，
+        /// 它的 displayText 数组就是游戏界面上显示的那串文字（Off / High (Pixels) / Tahoma…）。
+        /// 找不到（不在主菜单场景里）就用 All 里那份兜底，兜底内容逐字取自游戏场景数据。
+        /// </summary>
+        internal static string[] LiveOptions(SettingDef d)
+        {
+            if (d == null) return null;
+            if (d.Options == null || d.Options.Length == 0) return null;
+
+            if (string.IsNullOrEmpty(d.SliderName)) return d.Options;
+
+            string[] cached;
+            if (OptionsCache.TryGetValue(d.SliderName, out cached)) return cached;
+
+            // 游戏滑条只在主菜单场景里；找不到时节流重试（切场景后就能找到）
+            if (Time.unscaledTime < _optionsScanUntil) return d.Options;
+            _optionsScanUntil = Time.unscaledTime + 5f;
+
+            try
+            {
+                // 一趟扫描把所有设置滑条的选项文案都拿回来
+                HintSlider[] all = Resources.FindObjectsOfTypeAll<HintSlider>();
+                for (int i = 0; i < all.Length; i++)
+                {
+                    HintSlider hs = all[i];
+                    if (hs == null || hs.slider == null || hs.slider.gameObject == null) continue;
+                    if (hs.slider.gameObject.hideFlags != HideFlags.None) continue;
+
+                    string n = hs.slider.gameObject.name;
+                    string[] text = hs.displayText;
+                    if (text == null || text.Length < 2) continue;
+
+                    // 只收我们认识的滑条，并且要求它也在设置定义表里挂着选项
+                    for (int k = 0; k < All.Length; k++)
+                    {
+                        SettingDef def = All[k];
+                        if (def.Options == null || def.Options.Length == 0) continue;
+                        if (!string.Equals(def.SliderName, n, StringComparison.Ordinal)) continue;
+                        if (OptionsCache.ContainsKey(n)) break;
+                        OptionsCache[n] = text;
+                        break;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Warn("读取游戏选项文案失败：" + e.Message);
+            }
+
+            return OptionsCache.TryGetValue(d.SliderName, out cached) ? cached : d.Options;
+        }
+
+        /// <summary>
+        /// 把预设文件里写的一个值解析成能写进游戏存储的对象。
+        /// 支持三种写法（都来自玩家截图里游戏自己显示的文字）：
+        ///   1. 游戏选项原文：darkMode = Off / highContrast = High (Pixels) / hint = Last 5 Of Color
+        ///   2. 倍率写法：zoomVal = X 1.5（也接受 1.5 或 15）
+        ///   3. 开关写法：true / false（也接受 开 / 关 / 1 / 0）
+        /// </summary>
+        internal static bool TryParseValue(SettingDef d, string raw, out object value)
+        {
+            value = null;
+            if (d == null || string.IsNullOrEmpty(raw)) return false;
+
+            string s = raw.Trim().TrimEnd('%');
+
+            if (d.Kind == SettingKind.Toggle)
+            {
+                bool b;
+                if (bool.TryParse(s, out b)) { value = b; return true; }
+                if (s == "1" || string.Equals(s, "开", StringComparison.Ordinal)) { value = true; return true; }
+                if (s == "0" || string.Equals(s, "关", StringComparison.Ordinal)) { value = false; return true; }
+                return false;
+            }
+
+            if (d.Kind == SettingKind.FloatSlider)
+            {
+                float f;
+                if (float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                {
+                    value = Mathf.Clamp01(f);
+                    return true;
+                }
+                return false;
+            }
+
+            // 选项类滑条：先按游戏原文匹配
+            string[] options = LiveOptions(d);
+            if (options != null)
+            {
+                for (int i = 0; i < options.Length; i++)
+                {
+                    if (string.Equals(options[i].Trim(), s, StringComparison.OrdinalIgnoreCase))
+                    {
+                        value = i;
+                        return true;
+                    }
+                }
+            }
+
+            // 倍率类滑条：X 1.5 这种写法
+            if (Mathf.Abs(d.DisplayScale - 1f) > 0.0001f)
+            {
+                float f;
+                string body = s.TrimStart('X', 'x', 'Ｘ', 'ｘ').Trim();
+                if (float.TryParse(body, NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                {
+                    value = Mathf.RoundToInt(f / d.DisplayScale);
+                    return true;
+                }
+            }
+
+            // 纯数字（存档里的真实整数）
+            int n;
+            if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
+            {
+                value = n;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>当前值写成预设文件里用的文本（能写原文就写原文，肉眼好核对）。</summary>
+        internal static string TextForFile(SettingDef d)
+        {
+            if (d.Kind == SettingKind.Toggle) return GetBool(d.Field) ? "true" : "false";
+            if (d.Kind == SettingKind.FloatSlider)
+                return GetFloat(d.Field).ToString("0.###", CultureInfo.InvariantCulture);
+            return DisplayOf(d, IntOf(d));
         }
 
         /// <summary>该项当前的整数值（滑条用）。</summary>
@@ -536,7 +711,8 @@ namespace ColoringPixelsTool
             {
                 SettingDef d = All[i];
                 if (!Ready) continue;
-                lines.Add(d.Field + " = " + ValueText(GetValue(d)) + "   # " + d.Label);
+                // 选项类写游戏自己的原文（Off / Tahoma / Last 5 Of Color…），肉眼好核对
+                lines.Add(d.Field + " = " + TextForFile(d) + "   # " + d.Label);
             }
 
             string error;
@@ -686,7 +862,8 @@ namespace ColoringPixelsTool
                 SettingDef d = All[i];
                 sb.Append(d.Section).Append(" / ").Append(d.Label).Append(" = ")
                     .Append(ValueText(GetValue(d)))
-                    .Append("（默认 ").Append(ValueText(d.Default)).Append("）").Append('\n');
+                    .Append("（").Append(Display(d)).Append("，默认 ")
+                    .Append(ValueText(d.Default)).Append("）").Append('\n');
             }
             return sb.ToString();
         }
