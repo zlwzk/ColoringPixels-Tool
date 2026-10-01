@@ -94,6 +94,12 @@ namespace ColoringPixelsTool
         private static bool _dirty;
         private static string _filePath;
 
+        /// <summary>
+        /// 本次启动时磁盘存档里的经验合计（两条线相加）；没加载过为 -1。
+        /// Save 用它当保险丝：经验只增不减，内存比磁盘还少一定是加载出了问题，拒绝落盘。
+        /// </summary>
+        private static long _diskXpTotal = -1;
+
         /// <summary>每涂多少格给 1 XP（自动涂色与扫描引擎同费率）。</summary>
         private const int PixelsPerXp = 150;
 
@@ -305,6 +311,7 @@ namespace ColoringPixelsTool
                 {
                     // 从来没有过存档：建一份初始资料
                     ResetToDefaults();
+                    _diskXpTotal = 0;
                     EnsureDirectory();
                     Save();
                     Loaded = true;
@@ -314,6 +321,7 @@ namespace ColoringPixelsTool
                 ResetToDefaults();
                 Parse(best.Json);
                 RecoverLevelFromXp();
+                _diskXpTotal = (long)XpManual + XpAuto;
                 Loaded = true;
                 Log.Info("用户资料已加载：人工辅助 Lv." + LevelManual + " (" + XpManual + " XP) / 自动绘图 Lv."
                          + LevelAuto + " (" + XpAuto + " XP) — " + best.Path);
@@ -454,6 +462,17 @@ namespace ColoringPixelsTool
         {
             try
             {
+                // 保险丝：经验两条线按设计只增不减，内存里的合计比启动时磁盘上那份还少，
+                // 只可能是加载 / 解析出了问题（V2.0.0~V3.0.5 的解析 bug 就是这么把好存档覆盖掉的）。
+                // 这时候拒绝落盘，宁可丢这一小段新进度也不把整份资料写没。
+                long total = (long)XpManual + XpAuto;
+                if (_diskXpTotal >= 0 && total < _diskXpTotal)
+                {
+                    Log.Warn("内存里的经验合计（" + total + "）比磁盘存档（" + _diskXpTotal +
+                             "）还少，疑似加载出错；本次跳过写入，防止覆盖丢档。");
+                    return;
+                }
+
                 EnsureDirectory();
                 string json = ToJson();
 
@@ -827,13 +846,30 @@ namespace ColoringPixelsTool
 
         private static string ReadString(string json, string key)
         {
-            string pattern = "\"" + key + "\"\\s*:\\s*\"";
-            int i = json.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+            // 找 "key" 后面冒号再往后的一对双引号字符串（处理 \" 与 \\ 转义）。
+            // 注意必须按「字面量」逐字符找：V2.0.0 起这里错把正则语法（\s*）拼进了
+            // IndexOf 的模式串里 —— IndexOf 找的是普通子串，含反斜杠的串永远匹配不上，
+            // 于是所有字段都读成默认值：重启游戏等级经验归零，自动落盘还会把磁盘上的好存档
+            // 覆盖成零（用户看到的「经验条退出再进就重新计算 / 数据保存不了」就是这个）。
+            // V3.0.6 起改为逐字符扫描，不依赖任何正则。
+            int i = FindValueStart(json, key);
             if (i < 0) return "";
-            i += pattern.Length;
-            int end = json.IndexOf('"', i);
-            if (end < 0) return "";
-            return json.Substring(i, end - i).Replace("\\\"", "\"").Replace("\\\\", "\\");
+
+            if (i >= json.Length || json[i] != '"') return "";
+            i++;
+
+            var sb = new StringBuilder();
+            while (i < json.Length && json[i] != '"')
+            {
+                if (json[i] == '\\' && i + 1 < json.Length)
+                {
+                    char n = json[i + 1];
+                    if (n == '"' || n == '\\') { sb.Append(n); i += 2; continue; }
+                }
+                sb.Append(json[i]);
+                i++;
+            }
+            return sb.ToString();
         }
 
         private static int ReadInt(string json, string key, int def)
@@ -868,13 +904,44 @@ namespace ColoringPixelsTool
 
         private static string ReadRaw(string json, string key)
         {
-            string pattern = "\"" + key + "\"\\s*:\\s*";
-            int i = json.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+            // 逐字符的字面量匹配：找到 "key" 这个完整记号后面的冒号，再取到行尾的值。
+            // 同 ReadString 的注释：这里以前错用正则语法拼 IndexOf 模式串，导致永远匹配不上。
+            int i = FindValueStart(json, key);
             if (i < 0) return "";
-            i += pattern.Length;
+
             int end = json.IndexOfAny(new[] { ',', '\n', '\r', '}' }, i);
             if (end < 0) end = json.Length;
             return json.Substring(i, end - i).Trim().Trim('"');
+        }
+
+        /// <summary>
+        /// 在 JSON 文本里找 <c>"key"</c> 这个完整记号（前后都带双引号，不会误匹配 "keyManual"），
+        /// 跳过冒号与两侧空白，返回值起始位置的下标；找不到返回 -1。
+        /// </summary>
+        private static int FindValueStart(string json, string key)
+        {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(key)) return -1;
+
+            string token = "\"" + key + "\"";
+            int i = 0;
+            while (i < json.Length)
+            {
+                int hit = json.IndexOf(token, i, StringComparison.OrdinalIgnoreCase);
+                if (hit < 0) return -1;
+
+                int p = hit + token.Length;
+                while (p < json.Length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\r' || json[p] == '\n')) p++;
+                if (p < json.Length && json[p] == ':')
+                {
+                    p++;
+                    while (p < json.Length && (json[p] == ' ' || json[p] == '\t' || json[p] == '\r' || json[p] == '\n')) p++;
+                    return p;
+                }
+
+                // 只是名字恰好以 key 开头的另一个字段（如 "xp" 撞上 "xpAuto" 前缀场景），继续往后找
+                i = hit + token.Length;
+            }
+            return -1;
         }
 
         private static string Escape(string s)
